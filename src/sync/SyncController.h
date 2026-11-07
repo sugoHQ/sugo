@@ -16,10 +16,11 @@
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include "Settings.h"
 #include "SyncAccount.h"
-#include "TimerPreset.h"
+#include "SyncChannel.h"
 
 class Notifier;
 class PresetModel;
@@ -30,10 +31,13 @@ class SyncApi;
 class SyncSecrets;
 
 /**
- * Sugo Sync for the interface: the account (SyncAccount) and the sync of the timers.
+ * Sugo Sync for the interface: the account (SyncAccount) and the sync of its data.
  *
- * The timers travel as one encrypted blob (PresetSyncFormat, SyncCrypto). One operation runs at
- * a time:
+ * Each kind of data is a channel (SyncChannel; the timers are PresetSyncChannel) and travels as
+ * one encrypted blob of its kind (SyncCrypto), with its own ETag, "to upload" flag (Dirty),
+ * conflict count and last sync, kept in the settings: the timers under Sync/, the other kinds
+ * under Sync/<kind>/. One operation runs at a time, for one channel; downloads go first, in the
+ * order of the channels (the timers first). For each channel:
  * - Pull: when the device becomes ready, when the window is activated (at most once a minute),
  *   every 5 minutes and on syncNow(), with If-None-Match. A new blob is decrypted, merged with
  *   the local timers, applied here if it changes them, and uploaded again if the merge changes
@@ -123,6 +127,10 @@ public:
      * outlive this object, or be detached with attach(nullptr, nullptr, nullptr).
      */
     void attach(PresetModel *presets, PresetPersistence *persistence, PresetRepository *repository);
+
+    /// Syncs another kind of data too, after the timers (one channel per kind: a second one of
+    /// the same kind replaces the first).
+    void addChannel(std::unique_ptr<SyncChannel> channel);
 
     /// How the desktop opens a page and copies text (main.cpp; QML may also do it itself).
     void setDesktopActions(std::function<bool(const QUrl &)> openUrl, std::function<void(const QString &)> copyText);
@@ -251,28 +259,49 @@ private:
     void onReady();
     void resetCycle();
 
-    void onSaved();
+    /// A channel and its place in the cycle (in memory; ETag, Dirty and last sync are in the settings).
+    struct Channel {
+        std::unique_ptr<SyncChannel> impl;
+        std::unique_ptr<QTimer> pushTimer;
+        bool pullWanted = false;
+        bool pullUnconditional = false; ///< The next pull downloads even an unchanged blob (after 412).
+        bool pushWanted = false;
+        bool remoteUnreadable = false;  ///< The blob does not open: never overwritten until it does.
+        bool formatTooNew = false;
+        /// The last upload was refused as too large (413). Later pulls must not clear the error:
+        /// like formatTooNew, it is shown until an upload succeeds.
+        bool pushTooLarge = false;
+        bool held = false;              ///< A download waits for timerIdle(); no uploads meanwhile.
+        int conflicts = 0;
+        quint64 saves = 0;              ///< Changes, so an upload clears Dirty only if nothing came after.
+        ErrorKind error = NoError;      ///< This channel's own error (errorKind() shows the first).
+    };
+
+    Channel &insertChannel(std::unique_ptr<SyncChannel> impl, bool first);
+    Channel *channel(SyncKind kind) const;
+    bool channelReady(const Channel &c) const;
+    void onChanged(SyncKind kind);
     void requestPull();
-    void requestPush();
     void runNext();
-    void pull(bool unconditional);
-    void push();
-    void takeRemote(const SyncReply &reply);
-    /// False if the database did not store them (the caller keeps the old ETag and Dirty).
-    bool applyLocally(const QList<TimerPreset> &presets, const QList<PresetTombstone> &tombstones);
-    /// Applying `presets` would take away the selected timer while the timer is busy.
-    bool wouldStopTimer(const QList<TimerPreset> &presets) const;
-    void succeeded();
-    void failed(const SyncError &error, Op op);
+    void pull(Channel &c, bool unconditional);
+    void push(Channel &c);
+    void takeRemote(Channel &c, const SyncReply &reply);
+    void succeeded(Channel &c);
+    void failed(Channel &c, const SyncError &error, Op op);
     void scheduleRetry(int seconds);
 
+    /// The error of the account or of the transfers (network, keyring, server).
     void setError(ErrorKind kind);
+    void setChannelError(Channel &c, ErrorKind kind);
+    void updateErrorKind();
     void updateState();
-    void setLastSyncNow();
-    QByteArray etag() const;
-    void setEtag(const QByteArray &etag);
-    bool dirty() const;
-    void setDirty(bool dirty);
+    void setLastSyncNow(const Channel &c);
+    /// The settings key of `name` for `c`'s kind.
+    QString channelKey(const Channel &c, const char *name) const;
+    QByteArray etag(const Channel &c) const;
+    void setEtag(const Channel &c, const QByteArray &etag);
+    bool dirty(const Channel &c) const;
+    void setDirty(const Channel &c, bool dirty);
     void writeSetting(const char *name, const QVariant &value);
     bool readyToSync() const;
     void showNextApproval();
@@ -287,9 +316,7 @@ private:
     SyncApi *m_api = nullptr;
     SyncAccount *m_account = nullptr;
 
-    QPointer<PresetModel> m_presets;
-    QPointer<PresetPersistence> m_persistence;
-    PresetRepository *m_repository = nullptr;
+    std::vector<std::unique_ptr<Channel>> m_channels; ///< The timers first.
     bool m_attached = false;
 
     std::function<bool(const QUrl &)> m_openUrl;
@@ -300,7 +327,8 @@ private:
     int m_unitMs = 1000;
 
     State m_state = Off;
-    ErrorKind m_errorKind = NoError;
+    ErrorKind m_errorKind = NoError;      ///< m_globalError, else the first channel's error.
+    ErrorKind m_globalError = NoError;
     ErrorKind m_lastErrorKind = NoError; ///< As last announced by stateChanged().
     bool m_lastKeysLoaded = false;       ///< As last announced by stateChanged().
     QString m_lastStatusText;
@@ -310,22 +338,9 @@ private:
     QTimer m_loadTimer;
 
     Op m_running = Op::None;
-    bool m_pullWanted = false;
-    bool m_pullUnconditional = false; ///< The next pull downloads even an unchanged blob (after 412).
-    bool m_pushWanted = false;
-    bool m_remoteUnreadable = false;  ///< The blob does not open: never overwritten until it does.
-    quint64 m_saves = 0;              ///< saved() count, so an upload clears Dirty only if nothing came after.
-    bool m_applyingRemote = false;
-    bool m_heldForTimer = false;      ///< A download waits for timerIdle(); no uploads meanwhile.
-    bool m_formatTooNew = false;
     bool m_signingOut = false;
     bool m_keyRejected = false;
-    /// The last upload was refused as too large (413). Later pulls must not clear the error:
-    /// like m_formatTooNew, it is shown until an upload succeeds.
-    bool m_pushTooLarge = false;
-    int m_conflicts = 0;
     int m_failures = 0;
-    QTimer m_pushTimer;
     QTimer m_pullTimer;
     QTimer m_retryTimer;
     QElapsedTimer m_sinceLastPull;

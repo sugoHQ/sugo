@@ -3,10 +3,7 @@
 
 #include "Localization.h"
 #include "Notifier.h"
-#include "PresetModel.h"
-#include "PresetPersistence.h"
-#include "PresetRepository.h"
-#include "PresetSyncFormat.h"
+#include "PresetSyncChannel.h"
 #include "SecretStore.h"
 #include "SyncApi.h"
 #include "SyncCrypto.h"
@@ -89,8 +86,6 @@ SyncController::SyncController(Settings::Ptr settings, std::unique_ptr<SecretSto
 
     m_loadTimer.setSingleShot(true);
     connect(&m_loadTimer, &QTimer::timeout, this, &SyncController::loadSecrets);
-    m_pushTimer.setSingleShot(true);
-    connect(&m_pushTimer, &QTimer::timeout, this, &SyncController::requestPush);
     connect(&m_pullTimer, &QTimer::timeout, this, &SyncController::requestPull);
     m_retryTimer.setSingleShot(true);
     connect(&m_retryTimer, &QTimer::timeout, this, &SyncController::runNext);
@@ -213,15 +208,15 @@ void SyncController::connectAccount()
 
 void SyncController::attach(PresetModel *presets, PresetPersistence *persistence, PresetRepository *repository)
 {
-    if (m_persistence) {
-        disconnect(m_persistence, nullptr, this, nullptr);
-    }
-    m_presets = presets;
-    m_persistence = persistence;
-    m_repository = repository;
+    m_channels.erase(std::remove_if(m_channels.begin(), m_channels.end(),
+                                    [](const std::unique_ptr<Channel> &c) { return c->impl->kind() == SyncKind::Presets; }),
+                     m_channels.end());
     m_attached = presets && persistence && repository;
-    if (m_persistence) {
-        connect(m_persistence, &PresetPersistence::saved, this, &SyncController::onSaved);
+    if (m_attached) {
+        // (The controller outlives its channels: the lambda may hold `this`.)
+        insertChannel(std::make_unique<PresetSyncChannel>(presets, persistence, repository,
+                                                          [this]() { return m_timerBusy && m_timerBusy(); }),
+                      true);
     }
     if (m_attached && m_load == Load::NotYet && m_account->phase() == SyncAccount::Phase::SignedOut
         && (m_account->isLinked() || m_account->keyringWipePending())) {
@@ -229,7 +224,55 @@ void SyncController::attach(PresetModel *presets, PresetPersistence *persistence
         m_load = Load::Waiting;
         m_loadTimer.start(kLoadDelay * m_unitMs);
     }
-    updateState();
+    updateErrorKind();
+}
+
+void SyncController::addChannel(std::unique_ptr<SyncChannel> channel)
+{
+    if (!channel) {
+        return;
+    }
+    const SyncKind kind = channel->kind();
+    m_channels.erase(std::remove_if(m_channels.begin(), m_channels.end(),
+                                    [kind](const std::unique_ptr<Channel> &c) { return c->impl->kind() == kind; }),
+                     m_channels.end());
+    Channel &c = insertChannel(std::move(channel), false);
+    if (readyToSync()) {
+        if (dirty(c)) {
+            c.pushWanted = true;
+        }
+        c.pullWanted = true;
+        runNext();
+    }
+}
+
+SyncController::Channel &SyncController::insertChannel(std::unique_ptr<SyncChannel> impl, bool first)
+{
+    auto c = std::make_unique<Channel>();
+    const SyncKind kind = impl->kind();
+    impl->setChangedHandler([this, kind]() { onChanged(kind); });
+    c->impl = std::move(impl);
+    c->pushTimer = std::make_unique<QTimer>();
+    c->pushTimer->setSingleShot(true);
+    connect(c->pushTimer.get(), &QTimer::timeout, this, [this, kind]() {
+        if (Channel *ch = channel(kind)) {
+            ch->pushWanted = true;
+            runNext();
+        }
+    });
+    Channel &ref = *c;
+    m_channels.insert(first ? m_channels.begin() : m_channels.end(), std::move(c));
+    return ref;
+}
+
+SyncController::Channel *SyncController::channel(SyncKind kind) const
+{
+    for (const auto &c : m_channels) {
+        if (c->impl->kind() == kind) {
+            return c.get();
+        }
+    }
+    return nullptr;
 }
 
 void SyncController::loadSecrets()
@@ -304,8 +347,10 @@ void SyncController::onReady()
         return;
     }
     m_pullTimer.start(kPullEvery * m_unitMs);
-    if (dirty()) {
-        m_pushWanted = true;
+    for (const auto &c : m_channels) {
+        if (dirty(*c)) {
+            c->pushWanted = true;
+        }
     }
     requestPull();
 }
@@ -334,17 +379,19 @@ void SyncController::onSignedOut()
 void SyncController::resetCycle()
 {
     m_running = Op::None;
-    m_pullWanted = false;
-    m_pullUnconditional = false;
-    m_pushWanted = false;
-    m_remoteUnreadable = false;
-    m_formatTooNew = false;
-    m_pushTooLarge = false;
-    m_applyingRemote = false;
-    m_heldForTimer = false;
-    m_conflicts = 0;
+    for (const auto &c : m_channels) {
+        c->pullWanted = false;
+        c->pullUnconditional = false;
+        c->pushWanted = false;
+        c->remoteUnreadable = false;
+        c->formatTooNew = false;
+        c->pushTooLarge = false;
+        c->held = false;
+        c->conflicts = 0;
+        c->error = NoError;
+        c->pushTimer->stop();
+    }
     m_failures = 0;
-    m_pushTimer.stop();
     m_pullTimer.stop();
     m_retryTimer.stop();
     m_sinceLastPull.invalidate();
@@ -374,13 +421,19 @@ void SyncController::windowDeactivated()
 
 void SyncController::timerIdle()
 {
-    if (!m_heldForTimer) {
-        return;
+    bool any = false;
+    for (const auto &c : m_channels) {
+        if (c->held) {
+            c->held = false;
+            // The held blob is not under the stored ETag: download it whatever the ETag says.
+            c->pullUnconditional = true;
+            c->pullWanted = true;
+            any = true;
+        }
     }
-    m_heldForTimer = false;
-    // The held blob is not under the stored ETag: download it whatever the ETag says.
-    m_pullUnconditional = true;
-    requestPull();
+    if (any) {
+        runNext();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -389,31 +442,32 @@ void SyncController::timerIdle()
 
 bool SyncController::readyToSync() const
 {
-    return m_attached && m_presets && m_persistence && m_repository && !m_signingOut
-        && !m_persistence->loadFailed() && m_account->phase() == SyncAccount::Phase::Ready;
+    return m_attached && !m_signingOut && m_account->phase() == SyncAccount::Phase::Ready;
 }
 
-void SyncController::onSaved()
+bool SyncController::channelReady(const Channel &c) const
 {
-    if (m_applyingRemote || !m_account->isLinked()) {
+    return readyToSync() && c.impl->ready();
+}
+
+void SyncController::onChanged(SyncKind kind)
+{
+    Channel *c = channel(kind);
+    if (!c || !m_account->isLinked()) {
         return;
     }
-    ++m_saves;
-    setDirty(true);
+    ++c->saves;
+    setDirty(*c, true);
     if (readyToSync()) {
-        m_pushTimer.start(kPushDelay * m_unitMs);
+        c->pushTimer->start(kPushDelay * m_unitMs);
     }
 }
 
 void SyncController::requestPull()
 {
-    m_pullWanted = true;
-    runNext();
-}
-
-void SyncController::requestPush()
-{
-    m_pushWanted = true;
+    for (const auto &c : m_channels) {
+        c->pullWanted = true;
+    }
     runNext();
 }
 
@@ -422,242 +476,214 @@ void SyncController::runNext()
     if (m_running != Op::None || !readyToSync() || m_retryTimer.isActive()) {
         return;
     }
-    if (m_pullWanted) {
-        pull(std::exchange(m_pullUnconditional, false));
-    } else if (m_pushWanted && !m_heldForTimer) {
-        // (While held, an upload would only meet the newer blob again: 412.)
-        if (m_formatTooNew || m_remoteUnreadable) {
-            // Never overwrite what this version cannot read.
-            m_pushWanted = false;
-        } else {
-            push();
+    for (const auto &c : m_channels) {
+        if (c->pullWanted && channelReady(*c)) {
+            pull(*c, std::exchange(c->pullUnconditional, false));
+            updateState();
+            return;
         }
+    }
+    for (const auto &c : m_channels) {
+        // (While held, an upload would only meet the newer blob again: 412.)
+        if (!c->pushWanted || c->held || !channelReady(*c)) {
+            continue;
+        }
+        if (c->formatTooNew || c->remoteUnreadable) {
+            // Never overwrite what this version cannot read.
+            c->pushWanted = false;
+            continue;
+        }
+        push(*c);
+        break;
     }
     updateState();
 }
 
-void SyncController::pull(bool unconditional)
+void SyncController::pull(Channel &c, bool unconditional)
 {
     m_running = Op::Pull;
-    m_pullWanted = false;
+    c.pullWanted = false;
     m_sinceLastPull.start();
-    m_api->getBlob(SyncKind::Presets, unconditional ? QByteArray() : etag(), [this](const SyncReply &reply) {
+    const SyncKind kind = c.impl->kind();
+    m_api->getBlob(kind, unconditional ? QByteArray() : etag(c), [this, kind](const SyncReply &reply) {
         m_running = Op::None;
-        if (!readyToSync()) {
+        Channel *c = channel(kind);
+        if (!c || !channelReady(*c)) {
             updateState();
             return;
         }
         if (reply.http == 304) {
-            setLastSyncNow();
-            if (!m_pushWanted) {
-                m_conflicts = 0;
+            setLastSyncNow(*c);
+            if (!c->pushWanted) {
+                c->conflicts = 0;
             }
-            succeeded();
+            succeeded(*c);
         } else if (reply.error.kind == SyncError::Kind::NotFound) {
             // No blob yet: the first upload (If-None-Match: *).
-            setEtag(QByteArray());
-            m_pushWanted = true;
-            succeeded();
+            setEtag(*c, QByteArray());
+            c->pushWanted = true;
+            succeeded(*c);
         } else if (reply.ok()) {
-            takeRemote(reply);
+            takeRemote(*c, reply);
         } else {
-            failed(reply.error, Op::Pull);
+            failed(*c, reply.error, Op::Pull);
         }
         runNext();
         updateState();
     });
 }
 
-void SyncController::takeRemote(const SyncReply &reply)
+void SyncController::takeRemote(Channel &c, const SyncReply &reply)
 {
-    const SyncCrypto::OpenedBlob opened = SyncCrypto::decryptBlob(m_account->dataKey(), m_account->userId(), reply.body);
+    const QString kindName = SyncKinds::name(c.impl->kind());
+    const SyncCrypto::OpenedBlob opened = SyncCrypto::decryptBlob(m_account->dataKey(), m_account->userId(), reply.body, kindName);
     if (!opened.ok()) {
         if (opened.error == SyncCrypto::OpenedBlob::Error::NewerFormat) {
-            m_formatTooNew = true;
-            setError(FormatTooNew);
+            c.formatTooNew = true;
+            setChannelError(c, FormatTooNew);
         } else {
-            qCWarning(lcSyncController) << "The synced timers do not open with this account's key";
-            m_remoteUnreadable = true;
-            setError(UnreadableData);
+            qCWarning(lcSyncController) << "The synced" << kindName << "do not open with this account's key";
+            c.remoteUnreadable = true;
+            setChannelError(c, UnreadableData);
         }
         return;
     }
-    const PresetSyncFormat::ParseResult parsed = PresetSyncFormat::fromJson(opened.plaintext);
-    if (!parsed.ok) {
-        qCWarning(lcSyncController) << "The synced timers cannot be read";
-        m_remoteUnreadable = true;
-        setError(UnreadableData);
+    const SyncChannel::Merge merged = c.impl->merge(opened.plaintext, m_account->deviceId());
+    if (merged.result == SyncChannel::Merge::Result::Unreadable) {
+        qCWarning(lcSyncController) << "The synced" << kindName << "cannot be read";
+        c.remoteUnreadable = true;
+        setChannelError(c, UnreadableData);
         return;
     }
-    m_remoteUnreadable = false;
-    if (parsed.newerFormat()) {
-        m_formatTooNew = true; // read, never written
+    c.remoteUnreadable = false;
+    if (merged.newerFormat) {
+        c.formatTooNew = true; // read, never written
     }
-
-    PresetSyncFormat::Data local;
-    local.presets = m_presets->presets();
-    local.tombstones = m_repository->tombstones();
-    const PresetSyncFormat::MergeResult merged =
-        PresetSyncFormat::merge(local, parsed.data, m_account->deviceId(), QDateTime::currentMSecsSinceEpoch());
-    if (merged.changedLocal && wouldStopTimer(merged.result.presets)) {
-        // The selected timer was deleted elsewhere while a phase runs here: switching timers
-        // would stop it. Keep the old ETag and Dirty, and download again when the timer is idle.
-        qCInfo(lcSyncController) << "The selected timer was deleted on another device; waiting for the timer to stop";
-        m_heldForTimer = true;
-        succeeded();
+    if (merged.result == SyncChannel::Merge::Result::HeldBack) {
+        // Keep the old ETag and Dirty, and download again when the timer is idle.
+        c.held = true;
+        succeeded(c);
         return;
     }
-    m_heldForTimer = false;
-    // While saves fail, the model may already hold the merge the database lacks: store it again.
-    if ((merged.changedLocal || m_persistence->isSaveFailing())
-        && !applyLocally(merged.result.presets, merged.result.tombstones)) {
+    c.held = false;
+    if (merged.result == SyncChannel::Merge::Result::LocalSaveFailed) {
         // Keep the old ETag and Dirty: the next download brings this blob again (not 304) and
         // merges it with what the database holds, and no upload takes the unsaved state as
         // what the server has.
-        qCWarning(lcSyncController) << "Cannot store the synced timers; downloading them again later";
-        m_pullWanted = true;
-        setError(LocalSaveFailed);
+        qCWarning(lcSyncController) << "Cannot store the synced" << kindName << "; downloading them again later";
+        c.pullWanted = true;
+        setChannelError(c, LocalSaveFailed);
         constexpr int steps = int(std::size(kRetryDelays));
         scheduleRetry(kRetryDelays[std::min(m_failures, steps - 1)]);
         ++m_failures;
         return;
     }
-    if (merged.changedRemote && m_formatTooNew) {
+    if (merged.changedRemote && c.formatTooNew) {
         // The server lacks what this computer has, and only a newer Sugo may write it there.
         // Keep the old ETag and Dirty: after the update the first download is not a 304, and
         // its merge uploads this computer's changes.
-        qCInfo(lcSyncController) << "Local timer changes wait for an update of Sugo to be uploaded";
-        m_pushWanted = false;
-        m_pushTimer.stop();
-        setDirty(true);
-        setLastSyncNow();
-        succeeded();
+        qCInfo(lcSyncController) << "Local" << kindName << "changes wait for an update of Sugo to be uploaded";
+        c.pushWanted = false;
+        c.pushTimer->stop();
+        setDirty(c, true);
+        setLastSyncNow(c);
+        succeeded(c);
         return;
     }
-    setEtag(reply.etag);
-    setLastSyncNow();
+    setEtag(c, reply.etag);
+    setLastSyncNow(c);
 
     if (merged.changedRemote) {
-        // A fresh upload with the merged timers is due; the too-large refusal of the
-        // previous blob no longer says anything about it.
-        m_pushTooLarge = false;
-        m_pushWanted = true;
+        // A fresh upload with the merged data is due; the too-large refusal of the previous
+        // blob no longer says anything about it.
+        c.pushTooLarge = false;
+        c.pushWanted = true;
     } else {
         // The server holds what this computer has: nothing waits to go out.
-        m_pushWanted = false;
-        m_pushTimer.stop();
-        m_conflicts = 0;
-        setDirty(false);
+        c.pushWanted = false;
+        c.pushTimer->stop();
+        c.conflicts = 0;
+        setDirty(c, false);
     }
-    succeeded();
+    succeeded(c);
 }
 
-bool SyncController::applyLocally(const QList<TimerPreset> &presets, const QList<PresetTombstone> &tombstones)
-{
-    // Neither the model nor the save may answer with an upload of what just arrived.
-    m_applyingRemote = true;
-    // A selected timer deleted elsewhere falls back to the built-in one.
-    m_presets->setPresets(presets, m_presets->currentUuid());
-    const bool stored = m_persistence->save(tombstones);
-    m_applyingRemote = false;
-    return stored;
-}
-
-bool SyncController::wouldStopTimer(const QList<TimerPreset> &presets) const
-{
-    if (!m_timerBusy || !m_timerBusy()) {
-        return false;
-    }
-    const QString current = m_presets->currentUuid();
-    if (current == PresetModel::DefaultUuid) {
-        return false; // always kept (PresetModel::setPresets())
-    }
-    return std::none_of(presets.cbegin(), presets.cend(), [&current](const TimerPreset &p) { return p.uuid == current; });
-}
-
-void SyncController::push()
+void SyncController::push(Channel &c)
 {
     m_running = Op::Push;
-    m_pushWanted = false;
-    m_pushTimer.stop();
-    const quint64 saves = m_saves;
+    c.pushWanted = false;
+    c.pushTimer->stop();
+    const quint64 saves = c.saves;
+    const SyncKind kind = c.impl->kind();
 
-    PresetSyncFormat::Data data;
-    data.presets = m_presets->presets();
-    data.tombstones = m_repository->tombstones();
-    const QByteArray json = PresetSyncFormat::toJson(data, m_account->deviceId());
-    const QByteArray blob = SyncCrypto::encryptBlob(m_account->dataKey(), m_account->userId(), json);
+    const QByteArray json = c.impl->localData(m_account->deviceId(), SyncKinds::maxBytes(kind) - SyncKinds::BlobOverhead);
+    const QByteArray blob =
+        json.isEmpty() ? QByteArray() : SyncCrypto::encryptBlob(m_account->dataKey(), m_account->userId(), json, SyncKinds::name(kind));
     if (blob.isEmpty()) {
         m_running = Op::None;
-        qCWarning(lcSyncController) << "Cannot encrypt the timers";
+        qCWarning(lcSyncController) << "Cannot encrypt the" << SyncKinds::name(kind);
         setError(Server);
         return;
     }
-    m_api->putBlob(SyncKind::Presets, blob, etag(), [this, saves](const SyncReply &reply) {
+    m_api->putBlob(kind, blob, etag(c), [this, kind, saves](const SyncReply &reply) {
         m_running = Op::None;
-        if (!readyToSync()) {
+        Channel *c = channel(kind);
+        if (!c || !channelReady(*c)) {
             updateState();
             return;
         }
         if (reply.ok()) {
-            m_pushTooLarge = false; // an upload finally went through
-            setEtag(reply.etag);
-            setLastSyncNow();
-            if (saves == m_saves) {
-                setDirty(false);
+            c->pushTooLarge = false; // an upload finally went through
+            setEtag(*c, reply.etag);
+            setLastSyncNow(*c);
+            if (saves == c->saves) {
+                setDirty(*c, false);
             }
-            m_conflicts = 0;
-            succeeded();
+            c->conflicts = 0;
+            succeeded(*c);
         } else if (reply.error.kind == SyncError::Kind::PreconditionFailed) {
-            // Another device uploaded first: take its timers, merge, and try again.
-            m_pushWanted = true;
-            m_pullWanted = true;
-            m_pullUnconditional = true;
-            if (++m_conflicts >= kMaxConflicts) {
-                qCWarning(lcSyncController) << "The synced timers kept changing during the upload; trying again later";
-                m_conflicts = 0;
-                setError(Server);
+            // Another device uploaded first: take its data, merge, and try again.
+            c->pushWanted = true;
+            c->pullWanted = true;
+            c->pullUnconditional = true;
+            if (++c->conflicts >= kMaxConflicts) {
+                qCWarning(lcSyncController) << "The synced" << SyncKinds::name(kind) << "kept changing during the upload; trying again later";
+                c->conflicts = 0;
+                setChannelError(*c, Server);
                 scheduleRetry(kConflictRetry);
             }
         } else {
-            failed(reply.error, Op::Push);
+            failed(*c, reply.error, Op::Push);
         }
         runNext();
         updateState();
     });
 }
 
-void SyncController::succeeded()
+void SyncController::succeeded(Channel &c)
 {
     m_failures = 0;
-    // A refused upload stays the worst news: a later pull, even a 304, must not clear it
-    // while the timers the server has are not what this computer shows.
-    if (m_pushTooLarge) {
-        setError(TooLarge);
-        return;
-    }
-    if (m_formatTooNew) {
-        setError(FormatTooNew);
-        return;
-    }
+    // A refused upload stays the worst news: a later pull, even a 304, must not clear it while
+    // what the server has is not what this computer shows.
+    setChannelError(c, c.pushTooLarge ? TooLarge : c.formatTooNew ? FormatTooNew : NoError);
     setError(m_secrets->hasUnsavedRefreshToken() ? KeyringWriteFailed : NoError);
 }
 
-void SyncController::failed(const SyncError &error, Op op)
+void SyncController::failed(Channel &c, const SyncError &error, Op op)
 {
     if (op == Op::Pull) {
-        m_pullWanted = true;
+        c.pullWanted = true;
     } else {
-        m_pushWanted = true;
+        c.pushWanted = true;
     }
     switch (error.kind) {
     case SyncError::Kind::InvalidGrant:
         // SyncAccount signs out (signedOutRemotely).
         return;
     case SyncError::Kind::TooLarge:
-        m_pushWanted = false; // the next change tries again
-        m_pushTooLarge = true; // pulls and 304 answers must not clear the error meanwhile
-        setError(TooLarge);
+        c.pushWanted = false;  // the next change tries again
+        c.pushTooLarge = true; // pulls and 304 answers must not clear the error meanwhile
+        setChannelError(c, TooLarge);
         return;
     case SyncError::Kind::RateLimited:
         setError(RateLimited);
@@ -667,7 +693,7 @@ void SyncController::failed(const SyncError &error, Op op)
         setError(Network);
         break;
     default:
-        qCWarning(lcSyncController) << "Sync failed:" << error.http << error.code << error.message;
+        qCWarning(lcSyncController) << "Sync failed:" << SyncKinds::name(c.impl->kind()) << error.http << error.code << error.message;
         setError(Server);
         break;
     }
@@ -691,10 +717,12 @@ void SyncController::syncNow()
         return;
     }
     m_retryTimer.stop();
-    m_remoteUnreadable = false;
-    if (m_pushTimer.isActive()) {
-        m_pushTimer.stop();
-        m_pushWanted = true;
+    for (const auto &c : m_channels) {
+        c->remoteUnreadable = false;
+        if (c->pushTimer->isActive()) {
+            c->pushTimer->stop();
+            c->pushWanted = true;
+        }
     }
     requestPull();
 }
@@ -705,8 +733,21 @@ void SyncController::syncNow()
 
 void SyncController::setError(ErrorKind kind)
 {
-    if (m_errorKind == kind) {
-        return;
+    m_globalError = kind;
+    updateErrorKind();
+}
+
+void SyncController::setChannelError(Channel &c, ErrorKind kind)
+{
+    c.error = kind;
+    updateErrorKind();
+}
+
+void SyncController::updateErrorKind()
+{
+    ErrorKind kind = m_globalError;
+    for (auto it = m_channels.cbegin(); kind == NoError && it != m_channels.cend(); ++it) {
+        kind = (*it)->error;
     }
     m_errorKind = kind;
     updateState();
@@ -848,37 +889,49 @@ QDateTime SyncController::lastSync() const
     return m_settings->value(key(kLastSync)).toDateTime();
 }
 
-void SyncController::setLastSyncNow()
+void SyncController::setLastSyncNow(const Channel &c)
 {
-    writeSetting(kLastSync, QDateTime::currentDateTimeUtc());
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    if (c.impl->kind() != SyncKind::Presets) {
+        m_settings->setValue(channelKey(c, kLastSync), now);
+    }
+    // Sync/LastSync: the last sync of any kind.
+    writeSetting(kLastSync, now);
     Settings::sync(*m_settings);
     Q_EMIT lastSyncChanged();
 }
 
-QByteArray SyncController::etag() const
+QString SyncController::channelKey(const Channel &c, const char *name) const
 {
-    return m_settings->value(key(kEtag)).toByteArray();
+    // The timers keep the keys they had before there were other kinds.
+    const SyncKind kind = c.impl->kind();
+    return kind == SyncKind::Presets ? key(name) : key(name).insert(kGroup.size() + 1, SyncKinds::name(kind) + QLatin1Char('/'));
 }
 
-void SyncController::setEtag(const QByteArray &etag)
+QByteArray SyncController::etag(const Channel &c) const
 {
-    writeSetting(kEtag, etag);
+    return m_settings->value(channelKey(c, kEtag)).toByteArray();
 }
 
-bool SyncController::dirty() const
+void SyncController::setEtag(const Channel &c, const QByteArray &etag)
 {
-    return m_settings->value(key(kDirty), false).toBool();
+    m_settings->setValue(channelKey(c, kEtag), etag);
 }
 
-void SyncController::setDirty(bool dirty)
+bool SyncController::dirty(const Channel &c) const
 {
-    if (dirty == this->dirty()) {
+    return m_settings->value(channelKey(c, kDirty), false).toBool();
+}
+
+void SyncController::setDirty(const Channel &c, bool dirty)
+{
+    if (dirty == this->dirty(c)) {
         return;
     }
     if (dirty) {
-        writeSetting(kDirty, true);
+        m_settings->setValue(channelKey(c, kDirty), true);
     } else {
-        m_settings->remove(key(kDirty));
+        m_settings->remove(channelKey(c, kDirty));
     }
     Settings::sync(*m_settings);
 }

@@ -166,6 +166,9 @@ target_sources(sugo_core PRIVATE
     sync/SyncApi.cpp
     sync/SyncAccount.h
     sync/SyncAccount.cpp
+    sync/SyncChannel.h
+    sync/PresetSyncChannel.h
+    sync/PresetSyncChannel.cpp
     sync/SyncController.h
     sync/SyncController.cpp
 )
