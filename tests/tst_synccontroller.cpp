@@ -227,6 +227,29 @@ private Q_SLOTS:
         QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
     }
 
+    void blobOfAnEarlierEpochIsReplaced()
+    {
+        // An upload that outlived a "Start over" left a blob of the old key: the server counts it
+        // as none (GET 404, If-Match 412 with etag null), and If-None-Match: * replaces it.
+        Device a(*server);
+        signInFirst(a);
+        blob().stale = true;
+        const int before = puts();
+
+        a.model->create({{QStringLiteral("name"), QStringLiteral("After the reset")}});
+        QTRY_VERIFY(!blob().stale);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        const auto put = server->of("PUT", kBlobPath);
+        QCOMPARE(put.size(), before + 2);
+        QVERIFY(put.at(before).headers.contains("if-match"));     // 412, etag null
+        QCOMPARE(put.last().headers.value("if-none-match"), QByteArray("*")); // after the GET's 404
+        QVERIFY(!put.last().headers.contains("if-match"));
+        QVERIFY(remoteNames(a).contains(QStringLiteral("After the reset")));
+        QCOMPARE(a.settings->value(QStringLiteral("Sync/Etag")).toByteArray(), blob().etag);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
+    }
+
     void notModified()
     {
         Device a(*server);
