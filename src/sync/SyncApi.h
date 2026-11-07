@@ -32,7 +32,8 @@ struct SyncError {
         RateLimited,          ///< 429; `retryAfter` seconds.
         PreconditionFailed,   ///< 412: the blob changed; `extra["etag"]`.
         PreconditionRequired, ///< 428: a blob PUT without a precondition (a bug).
-        TooLarge,             ///< 413.
+        TooLarge,             ///< 413; `extra["max_bytes"]` holds the kind's limit.
+        PlusRequired,         ///< 403: a blob kind that syncs only with Plus, on an account without it.
         InvalidBlob,
         InvalidRequest,
         NotFound,             ///< 404: no such device, key, recovery copy or blob.

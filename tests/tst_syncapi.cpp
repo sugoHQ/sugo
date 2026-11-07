@@ -103,6 +103,7 @@ private Q_SLOTS:
         QTest::newRow("412") << 412 << QByteArray(R"({"error":"precondition_failed","etag":"x"})") << int(K::PreconditionFailed);
         QTest::newRow("428") << 428 << QByteArray(R"({"error":"precondition_required"})") << int(K::PreconditionRequired);
         QTest::newRow("413") << 413 << QByteArray(R"({"error":"too_large"})") << int(K::TooLarge);
+        QTest::newRow("plus_required") << 403 << QByteArray(R"({"error":"plus_required"})") << int(K::PlusRequired);
         QTest::newRow("invalid_blob") << 400 << QByteArray(R"({"error":"invalid_blob"})") << int(K::InvalidBlob);
         QTest::newRow("invalid_request") << 400 << QByteArray(R"({"error":"invalid_request"})") << int(K::InvalidRequest);
         QTest::newRow("not_found") << 404 << QByteArray(R"({"error":"not_found"})") << int(K::NotFound);
@@ -462,6 +463,31 @@ private Q_SLOTS:
         const SyncReply huge = wait([&](auto cb) { api->putBlob(SyncKind::Settings, QByteArray(9000, 'x'), QByteArray(), cb); });
         QCOMPARE(int(huge.error.kind), int(SyncError::Kind::TooLarge));
         QCOMPARE(huge.error.extra.value(QLatin1String("max_bytes")).toInt(), 8192);
+    }
+
+    void plusRequired()
+    {
+        link();
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Tasks, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::PlusRequired));
+        QCOMPARE(get.http, 403);
+        QVERIFY(!get.error.transient());
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Tasks, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::PlusRequired));
+        // The timers sync on every plan.
+        QCOMPARE(wait([&](auto cb) { api->putBlob(SyncKind::Presets, someBlob(), QByteArray(), cb); }).http, 201);
+    }
+
+    void unknownKind()
+    {
+        // A Worker older than the kind: 404 to both GET and PUT.
+        link();
+        server->accounts[kUser].plus = true;
+        server->blobKinds.remove("sessions");
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Sessions, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::NotFound));
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Sessions, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::NotFound));
     }
 
     void kindNames()

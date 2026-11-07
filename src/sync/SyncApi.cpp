@@ -77,6 +77,7 @@ SyncError::Kind SyncError::kindForCode(const QString &code, int http)
         {QStringLiteral("precondition_failed"), Kind::PreconditionFailed},
         {QStringLiteral("precondition_required"), Kind::PreconditionRequired},
         {QStringLiteral("too_large"), Kind::TooLarge},
+        {QStringLiteral("plus_required"), Kind::PlusRequired},
         {QStringLiteral("invalid_blob"), Kind::InvalidBlob},
         {QStringLiteral("invalid_request"), Kind::InvalidRequest},
         {QStringLiteral("not_found"), Kind::NotFound},
