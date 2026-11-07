@@ -22,6 +22,7 @@
 #include "SessionRepository.h"
 #include "Settings.h"
 #include "SyncAccount.h"
+#include "SyncChannel.h"
 #include "SyncController.h"
 #include "SyncCrypto.h"
 #include "SyncSecrets.h"
@@ -86,6 +87,54 @@ struct Device {
         return out;
     }
     int keyringReads() const { return int(store.accesses(SyncSecrets::itemKey(), FakeSecretStore::Access::Read).size()); }
+};
+
+/// A kind of data for the controller's generic part: one text, the newest write wins.
+class TextChannel : public SyncChannel
+{
+public:
+    explicit TextChannel(SyncKind kind)
+        : m_kind(kind)
+    {
+    }
+    SyncKind kind() const override { return m_kind; }
+    bool ready() const override { return true; }
+    QByteArray localData(const QString &, qsizetype maxBytes) override
+    {
+        lastMaxBytes = maxBytes;
+        QJsonObject o{{QStringLiteral("format"), 1}, {QStringLiteral("text"), text}, {QStringLiteral("at"), at}};
+        return QJsonDocument(o).toJson(QJsonDocument::Compact);
+    }
+    Merge merge(const QByteArray &plaintext, const QString &) override
+    {
+        Merge m;
+        const QJsonObject o = QJsonDocument::fromJson(plaintext).object();
+        if (o.value(QStringLiteral("format")).toInt() != 1) {
+            m.result = Merge::Result::Unreadable;
+            return m;
+        }
+        const qint64 remoteAt = o.value(QStringLiteral("at")).toInteger();
+        if (remoteAt > at) {
+            text = o.value(QStringLiteral("text")).toString();
+            at = remoteAt;
+        }
+        m.changedRemote = at > remoteAt;
+        return m;
+    }
+    /// A change made on this device.
+    void edit(const QString &value)
+    {
+        text = value;
+        ++at;
+        notifyChanged();
+    }
+
+    QString text;
+    qint64 at = 0;
+    qsizetype lastMaxBytes = 0;
+
+private:
+    SyncKind m_kind;
 };
 
 TimerPreset remotePreset(const QString &uuid, const QString &name)
@@ -248,6 +297,90 @@ private Q_SLOTS:
         QCOMPARE(a.settings->value(QStringLiteral("Sync/Etag")).toByteArray(), blob().etag);
         QCOMPARE(a.sync->errorKind(), SyncController::NoError);
         QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
+    }
+
+    void plusRequiredKeepsTheTimersSyncing()
+    {
+        Device a(*server);
+        auto *sessions = new TextChannel(SyncKind::Sessions);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        QSignalSpy availability(a.sync.get(), &SyncController::availabilityChanged);
+        signInFirst(a);
+        QTRY_COMPARE(a.sync->availability(SyncKind::Sessions), SyncController::PlusRequired);
+        QCOMPARE(a.sync->availability(SyncKind::Presets), SyncController::Available);
+        QCOMPARE(availability.size(), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 0);
+
+        // Changes wait, the timers go on, and the kind is not asked about again by itself.
+        sessions->edit(QStringLiteral("Read a chapter"));
+        const int before = puts();
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Plus or not")}});
+        QTRY_COMPARE(puts(), before + 1);
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(gets(), 3);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 0);
+        QVERIFY(a.settings->value(QStringLiteral("Sync/sessions/Dirty")).toBool());
+
+        // Remembered over a restart.
+        a.build(*server);
+        auto *again = new TextChannel(SyncKind::Sessions);
+        again->text = sessions->text;
+        again->at = sessions->at;
+        sessions = again;
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        QCOMPARE(a.sync->availability(SyncKind::Sessions), SyncController::PlusRequired);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+
+        // With Plus, Sync Now asks again and uploads what waited.
+        server->accounts[kUser].plus = true;
+        a.sync->syncNow();
+        QTRY_COMPARE(a.sync->availability(SyncKind::Sessions), SyncController::Available);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        const SyncCrypto::OpenedBlob opened =
+            SyncCrypto::decryptBlob(a.account()->dataKey(), kUser, server->accounts[kUser].blobs["sessions"].blob, QStringLiteral("sessions"));
+        QVERIFY(opened.ok());
+        QVERIFY(opened.plaintext.contains("Read a chapter"));
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/sessions/Dirty")));
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/sessions/Unavailable")));
+        QCOMPARE(sessions->lastMaxBytes, qsizetype(1048576) - SyncKinds::BlobOverhead);
+    }
+
+    void unknownKindIsNotRetriedAtEveryPull()
+    {
+        // A Worker older than the kind answers 404 to the download and to the first upload.
+        server->blobKinds.remove("settings");
+        server->accounts[kUser].plus = true;
+        Device a(*server);
+        a.sync->addChannel(std::make_unique<TextChannel>(SyncKind::Settings));
+        signInFirst(a);
+        QTRY_COMPARE(a.sync->availability(SyncKind::Settings), SyncController::Unavailable);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(gets(), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+
+        // A day later it is asked about again, and the newer server takes it.
+        server->blobKinds.insert("settings", 8192);
+        a.settings->setValue(QStringLiteral("Sync/settings/CheckedAt"), QDateTime::currentDateTimeUtc().addSecs(-2000));
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(a.sync->availability(SyncKind::Settings), SyncController::Available);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
     }
 
     void notModified()

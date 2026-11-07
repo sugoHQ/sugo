@@ -53,6 +53,11 @@ class SyncSecrets;
  * - A merge the database does not store (disk full, locked) keeps the old ETag and Dirty:
  *   LocalSaveFailed, and the blob is downloaded and merged again on the same retry delays, so
  *   an upload never takes the unsaved state for what the server holds.
+ * - A kind that needs Plus, on an account without it (403 plus_required), is PlusRequired; a
+ *   kind the server does not know (an older Worker: 404 to the first upload) is Unavailable.
+ *   Neither is an error, and the other kinds go on syncing. Such a kind is asked about again
+ *   once a day, on syncNow(), or when a new sign-in starts over; its changes wait (Dirty) and
+ *   go up once it syncs.
  *
  * The keyring is read once per run, a few seconds after attach(), and only when the settings say
  * this computer is linked: never while signed out.
@@ -100,6 +105,14 @@ public:
     };
     Q_ENUM(State)
 
+    /// Whether a kind of data can sync with this account and server.
+    enum Availability {
+        Available,
+        PlusRequired, ///< The account lacks Plus.
+        Unavailable,  ///< The server does not know the kind (older than this Sugo).
+    };
+    Q_ENUM(Availability)
+
     enum ErrorKind {
         NoError,
         Network,            ///< Out of reach; tried again after 1, 5, 15 minutes.
@@ -131,6 +144,8 @@ public:
     /// Syncs another kind of data too, after the timers (one channel per kind: a second one of
     /// the same kind replaces the first).
     void addChannel(std::unique_ptr<SyncChannel> channel);
+    /// Available for a kind without a channel.
+    Availability availability(SyncKind kind) const;
 
     /// How the desktop opens a page and copies text (main.cpp; QML may also do it itself).
     void setDesktopActions(std::function<bool(const QUrl &)> openUrl, std::function<void(const QString &)> copyText);
@@ -241,6 +256,8 @@ Q_SIGNALS:
     void signedOut(bool remoteDone);
     /// Something worth a toast.
     void message(const QString &text);
+    /// availability() of a kind changed.
+    void availabilityChanged();
     /// The approval notification was clicked: show the window on the Sync settings.
     /// `activationToken` (may be empty) lets the window take the focus on Wayland.
     void showSyncPageRequested(const QString &activationToken);
@@ -275,6 +292,8 @@ private:
         int conflicts = 0;
         quint64 saves = 0;              ///< Changes, so an upload clears Dirty only if nothing came after.
         ErrorKind error = NoError;      ///< This channel's own error (errorKind() shows the first).
+        Availability availability = Available;
+        bool recheck = false;           ///< Ask the server about an unavailable kind at the next pull.
     };
 
     Channel &insertChannel(std::unique_ptr<SyncChannel> impl, bool first);
@@ -282,6 +301,9 @@ private:
     bool channelReady(const Channel &c) const;
     void onChanged(SyncKind kind);
     void requestPull();
+    /// Whether `c` takes part in transfers now (available, or due to be asked again).
+    bool channelOpen(const Channel &c) const;
+    void setAvailability(Channel &c, Availability availability);
     void runNext();
     void pull(Channel &c, bool unconditional);
     void push(Channel &c);

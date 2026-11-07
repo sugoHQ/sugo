@@ -26,6 +26,10 @@ const char kEtag[] = "Etag";
 const char kLastSync[] = "LastSync";
 /// The timers changed since the last upload (survives a restart before it went out).
 const char kDirty[] = "Dirty";
+/// A kind that cannot sync: "plus" (PlusRequired) or "server" (Unavailable); absent when it can.
+const char kUnavailable[] = "Unavailable";
+/// When the server last said so (UTC).
+const char kCheckedAt[] = "CheckedAt";
 
 QString key(const char *name)
 {
@@ -42,6 +46,7 @@ constexpr int kPullEvery = 5 * 60;
 constexpr int kConflictRetry = 5 * 60;
 constexpr int kMaxConflicts = 3;
 constexpr int kRetryDelays[] = {60, 5 * 60, 15 * 60};
+constexpr int kRecheckEvery = 24 * 60 * 60; ///< A kind that cannot sync is asked about again.
 
 /// The user's text of a recovery code group as the code writes it (Crockford Base32).
 QString normalizedGroup(const QString &text)
@@ -241,7 +246,7 @@ void SyncController::addChannel(std::unique_ptr<SyncChannel> channel)
         if (dirty(c)) {
             c.pushWanted = true;
         }
-        c.pullWanted = true;
+        c.pullWanted = channelOpen(c);
         runNext();
     }
 }
@@ -260,9 +265,59 @@ SyncController::Channel &SyncController::insertChannel(std::unique_ptr<SyncChann
             runNext();
         }
     });
+    const QString unavailable = m_settings->value(channelKey(*c, kUnavailable)).toString();
+    c->availability = unavailable == QLatin1String("plus") ? PlusRequired : unavailable == QLatin1String("server") ? Unavailable : Available;
     Channel &ref = *c;
     m_channels.insert(first ? m_channels.begin() : m_channels.end(), std::move(c));
     return ref;
+}
+
+SyncController::Availability SyncController::availability(SyncKind kind) const
+{
+    const Channel *c = channel(kind);
+    return c ? c->availability : Available;
+}
+
+bool SyncController::channelOpen(const Channel &c) const
+{
+    if (c.availability == Available || c.recheck) {
+        return true;
+    }
+    const QDateTime checked = m_settings->value(channelKey(c, kCheckedAt)).toDateTime();
+    return !checked.isValid() || checked.msecsTo(QDateTime::currentDateTimeUtc()) >= qint64(kRecheckEvery) * m_unitMs;
+}
+
+void SyncController::setAvailability(Channel &c, Availability availability)
+{
+    c.recheck = false;
+    if (availability == Available) {
+        if (c.availability == Available) {
+            return;
+        }
+        m_settings->remove(channelKey(c, kUnavailable));
+        m_settings->remove(channelKey(c, kCheckedAt));
+        // What changed here meanwhile goes up now.
+        if (dirty(c)) {
+            c.pushWanted = true;
+        }
+    } else {
+        qCInfo(lcSyncController) << "The synced" << SyncKinds::name(c.impl->kind())
+                                 << (availability == PlusRequired ? "need Plus" : "are not known to the server");
+        m_settings->setValue(channelKey(c, kUnavailable), availability == PlusRequired ? QStringLiteral("plus") : QStringLiteral("server"));
+        m_settings->setValue(channelKey(c, kCheckedAt), QDateTime::currentDateTimeUtc());
+        c.pullWanted = false;
+        c.pullUnconditional = false;
+        c.pushWanted = false;
+        c.pushTimer->stop();
+        c.conflicts = 0;
+        c.error = NoError;
+        updateErrorKind();
+    }
+    Settings::sync(*m_settings);
+    if (c.availability != availability) {
+        c.availability = availability;
+        Q_EMIT availabilityChanged();
+    }
 }
 
 SyncController::Channel *SyncController::channel(SyncKind kind) const
@@ -363,6 +418,15 @@ void SyncController::onSignedOut()
     m_load = Load::NotYet;
     m_loadTimer.stop();
     m_recoveryToConfirm.clear();
+    // (The settings that said otherwise went with the account.)
+    bool availabilityChanged = false;
+    for (const auto &c : m_channels) {
+        availabilityChanged = availabilityChanged || c->availability != Available;
+        c->availability = Available;
+    }
+    if (availabilityChanged) {
+        Q_EMIT this->availabilityChanged();
+    }
     if (!m_approvals.isEmpty()) {
         m_approvals.clear();
         Q_EMIT pendingApprovalChanged();
@@ -389,6 +453,7 @@ void SyncController::resetCycle()
         c->held = false;
         c->conflicts = 0;
         c->error = NoError;
+        c->recheck = false;
         c->pushTimer->stop();
     }
     m_failures = 0;
@@ -466,7 +531,9 @@ void SyncController::onChanged(SyncKind kind)
 void SyncController::requestPull()
 {
     for (const auto &c : m_channels) {
-        c->pullWanted = true;
+        if (channelOpen(*c)) {
+            c->pullWanted = true;
+        }
     }
     runNext();
 }
@@ -485,7 +552,7 @@ void SyncController::runNext()
     }
     for (const auto &c : m_channels) {
         // (While held, an upload would only meet the newer blob again: 412.)
-        if (!c->pushWanted || c->held || !channelReady(*c)) {
+        if (!c->pushWanted || c->held || !channelReady(*c) || !channelOpen(*c)) {
             continue;
         }
         if (c->formatTooNew || c->remoteUnreadable) {
@@ -511,6 +578,15 @@ void SyncController::pull(Channel &c, bool unconditional)
         if (!c || !channelReady(*c)) {
             updateState();
             return;
+        }
+        if (reply.error.kind == SyncError::Kind::PlusRequired) {
+            setAvailability(*c, PlusRequired);
+            runNext();
+            updateState();
+            return;
+        }
+        if (reply.ok()) {
+            setAvailability(*c, Available);
         }
         if (reply.http == 304) {
             setLastSyncNow(*c);
@@ -632,6 +708,14 @@ void SyncController::push(Channel &c)
             updateState();
             return;
         }
+        if (reply.error.kind == SyncError::Kind::PlusRequired
+            || (reply.error.kind == SyncError::Kind::NotFound && SyncKinds::needsPlus(kind))) {
+            // (The timers are known to every server: a 404 for them is an error.)
+            setAvailability(*c, reply.error.kind == SyncError::Kind::PlusRequired ? PlusRequired : Unavailable);
+            runNext();
+            updateState();
+            return;
+        }
         if (reply.ok()) {
             c->pushTooLarge = false; // an upload finally went through
             setEtag(*c, reply.etag);
@@ -639,6 +723,7 @@ void SyncController::push(Channel &c)
             if (saves == c->saves) {
                 setDirty(*c, false);
             }
+            setAvailability(*c, Available); // (after Dirty: what waited just went up)
             c->conflicts = 0;
             succeeded(*c);
         } else if (reply.error.kind == SyncError::Kind::PreconditionFailed) {
@@ -719,6 +804,9 @@ void SyncController::syncNow()
     m_retryTimer.stop();
     for (const auto &c : m_channels) {
         c->remoteUnreadable = false;
+        if (c->availability != Available) {
+            c->recheck = true; // the plan or the server may have changed
+        }
         if (c->pushTimer->isActive()) {
             c->pushTimer->stop();
             c->pushWanted = true;
