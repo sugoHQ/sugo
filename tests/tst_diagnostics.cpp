@@ -449,7 +449,7 @@ private Q_SLOTS:
                 }
             }
         }
-        const QString etag = QString::fromLatin1(server.accounts.value(QStringLiteral("usr_private_42")).etag);
+        const QString etag = QString::fromLatin1(server.accounts.value(QStringLiteral("usr_private_42")).blobs.value("presets").etag);
         QVERIFY(!etag.isEmpty());
         secrets << etag;
         for (const QString &secret : std::as_const(secrets)) {

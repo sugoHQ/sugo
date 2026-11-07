@@ -441,7 +441,7 @@ void SyncController::pull(bool unconditional)
     m_running = Op::Pull;
     m_pullWanted = false;
     m_sinceLastPull.start();
-    m_api->getBlob(unconditional ? QByteArray() : etag(), [this](const SyncReply &reply) {
+    m_api->getBlob(SyncKind::Presets, unconditional ? QByteArray() : etag(), [this](const SyncReply &reply) {
         m_running = Op::None;
         if (!readyToSync()) {
             updateState();
@@ -593,7 +593,7 @@ void SyncController::push()
         setError(Server);
         return;
     }
-    m_api->putBlob(blob, etag(), [this, saves](const SyncReply &reply) {
+    m_api->putBlob(SyncKind::Presets, blob, etag(), [this, saves](const SyncReply &reply) {
         m_running = Op::None;
         if (!readyToSync()) {
             updateState();

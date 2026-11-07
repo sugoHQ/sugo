@@ -105,7 +105,7 @@ class SyncControllerTest : public QObject
 
     std::unique_ptr<FakeSyncServer> server;
 
-    FakeSyncServer::Account &blob() { return server->accounts[kUser]; }
+    FakeSyncServer::Blob &blob() { return server->accounts[kUser].blobs["presets"]; }
     int puts() const { return server->count("PUT", kBlobPath); }
     int gets() const { return server->count("GET", kBlobPath); }
 
