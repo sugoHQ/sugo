@@ -53,6 +53,10 @@ class SyncSecrets;
  * - A merge the database does not store (disk full, locked) keeps the old ETag and Dirty:
  *   LocalSaveFailed, and the blob is downloaded and merged again on the same retry delays, so
  *   an upload never takes the unsaved state for what the server holds.
+ * - A blob over its kind's limit (SyncKinds::maxBytes()) is never sent: TooLarge, and no
+ *   upload of that kind is tried before the next change here (a channel that can drop old
+ *   data keeps within the limit by itself). A 413 (the server's limit, `max_bytes`) is taken
+ *   the same way.
  * - A kind that needs Plus, on an account without it (403 plus_required), is PlusRequired; a
  *   kind the server does not know (an older Worker: 404 to the first upload) is Unavailable.
  *   Neither is an error, and the other kinds go on syncing. Such a kind is asked about again
@@ -119,7 +123,7 @@ public:
         SignedOutRemotely,  ///< (state Off) Disconnected on sugo.stream: sign in again.
         FormatTooNew,       ///< A newer Sugo wrote the timers: update to keep syncing.
         UnreadableData,     ///< The blob does not open with this account's key.
-        TooLarge,
+        TooLarge,           ///< Over its kind's limit; not sent until a change makes it fit.
         KeyringUnavailable, ///< The keyring did not answer; tried again when the window is activated.
         KeyringWriteFailed,
         RateLimited,
@@ -263,8 +267,9 @@ Q_SIGNALS:
     void showSyncPageRequested(const QString &activationToken);
 
 private:
-    /// What statusText() says in the state Error about `kind` (empty for NoError).
-    static QString errorText(ErrorKind kind);
+    /// What statusText() says in the state Error about `kind`, of the data of `dataKind` when it
+    /// is a channel's error (empty for NoError).
+    static QString errorText(ErrorKind kind, SyncKind dataKind = SyncKind::Presets);
     enum class Op { None, Pull, Push };
 
     SyncController(Settings::Ptr settings, std::unique_ptr<SecretStore> ownedStore, SecretStore *store, const QUrl &baseUrl,
@@ -285,10 +290,9 @@ private:
         bool pushWanted = false;
         bool remoteUnreadable = false;  ///< The blob does not open: never overwritten until it does.
         bool formatTooNew = false;
-        /// The last upload was refused as too large (413). Later pulls must not clear the error:
-        /// like formatTooNew, it is shown until an upload succeeds.
-        bool pushTooLarge = false;
         bool held = false;              ///< A download waits for timerIdle(); no uploads meanwhile.
+        bool tooLarge = false;          ///< The last upload was over the limit: TooLarge stays until one fits.
+        quint64 tooLargeSaves = 0;      ///< `saves` then: no upload is tried again before a change.
         int conflicts = 0;
         quint64 saves = 0;              ///< Changes, so an upload clears Dirty only if nothing came after.
         ErrorKind error = NoError;      ///< This channel's own error (errorKind() shows the first).
@@ -306,7 +310,8 @@ private:
     void setAvailability(Channel &c, Availability availability);
     void runNext();
     void pull(Channel &c, bool unconditional);
-    void push(Channel &c);
+    /// False if nothing was sent (the data cannot be written, or is over the limit).
+    bool push(Channel &c);
     void takeRemote(Channel &c, const SyncReply &reply);
     void succeeded(Channel &c);
     void failed(Channel &c, const SyncError &error, Op op);

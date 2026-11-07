@@ -449,8 +449,8 @@ void SyncController::resetCycle()
         c->pushWanted = false;
         c->remoteUnreadable = false;
         c->formatTooNew = false;
-        c->pushTooLarge = false;
         c->held = false;
+        c->tooLarge = false;
         c->conflicts = 0;
         c->error = NoError;
         c->recheck = false;
@@ -560,8 +560,14 @@ void SyncController::runNext()
             c->pushWanted = false;
             continue;
         }
-        push(*c);
-        break;
+        if (c->tooLarge && c->saves == c->tooLargeSaves) {
+            // Refused for its size, and nothing changed here since.
+            c->pushWanted = false;
+            continue;
+        }
+        if (push(*c)) {
+            break;
+        }
     }
     updateState();
 }
@@ -672,7 +678,7 @@ void SyncController::takeRemote(Channel &c, const SyncReply &reply)
     if (merged.changedRemote) {
         // A fresh upload with the merged data is due; the too-large refusal of the previous
         // blob no longer says anything about it.
-        c.pushTooLarge = false;
+        c.tooLarge = false;
         c.pushWanted = true;
     } else {
         // The server holds what this computer has: nothing waits to go out.
@@ -684,7 +690,7 @@ void SyncController::takeRemote(Channel &c, const SyncReply &reply)
     succeeded(c);
 }
 
-void SyncController::push(Channel &c)
+bool SyncController::push(Channel &c)
 {
     m_running = Op::Push;
     c.pushWanted = false;
@@ -699,7 +705,17 @@ void SyncController::push(Channel &c)
         m_running = Op::None;
         qCWarning(lcSyncController) << "Cannot encrypt the" << SyncKinds::name(kind);
         setError(Server);
-        return;
+        return false;
+    }
+    if (blob.size() > SyncKinds::maxBytes(kind)) {
+        // The server would refuse it (413): the next change, or a merge, tries again.
+        m_running = Op::None;
+        qCWarning(lcSyncController) << "The synced" << SyncKinds::name(kind) << "take" << blob.size() << "bytes, over the limit of"
+                                    << SyncKinds::maxBytes(kind);
+        c.tooLarge = true;
+        c.tooLargeSaves = saves;
+        setChannelError(c, TooLarge);
+        return false;
     }
     m_api->putBlob(kind, blob, etag(c), [this, kind, saves](const SyncReply &reply) {
         m_running = Op::None;
@@ -717,12 +733,12 @@ void SyncController::push(Channel &c)
             return;
         }
         if (reply.ok()) {
-            c->pushTooLarge = false; // an upload finally went through
             setEtag(*c, reply.etag);
             setLastSyncNow(*c);
             if (saves == c->saves) {
                 setDirty(*c, false);
             }
+            c->tooLarge = false;
             setAvailability(*c, Available); // (after Dirty: what waited just went up)
             c->conflicts = 0;
             succeeded(*c);
@@ -738,11 +754,15 @@ void SyncController::push(Channel &c)
                 scheduleRetry(kConflictRetry);
             }
         } else {
+            if (reply.error.kind == SyncError::Kind::TooLarge) {
+                c->tooLargeSaves = saves;
+            }
             failed(*c, reply.error, Op::Push);
         }
         runNext();
         updateState();
     });
+    return true;
 }
 
 void SyncController::succeeded(Channel &c)
@@ -750,7 +770,7 @@ void SyncController::succeeded(Channel &c)
     m_failures = 0;
     // A refused upload stays the worst news: a later pull, even a 304, must not clear it while
     // what the server has is not what this computer shows.
-    setChannelError(c, c.pushTooLarge ? TooLarge : c.formatTooNew ? FormatTooNew : NoError);
+    setChannelError(c, c.tooLarge ? TooLarge : c.formatTooNew ? FormatTooNew : NoError);
     setError(m_secrets->hasUnsavedRefreshToken() ? KeyringWriteFailed : NoError);
 }
 
@@ -766,8 +786,10 @@ void SyncController::failed(Channel &c, const SyncError &error, Op op)
         // SyncAccount signs out (signedOutRemotely).
         return;
     case SyncError::Kind::TooLarge:
-        c.pushWanted = false;  // the next change tries again
-        c.pushTooLarge = true; // pulls and 304 answers must not clear the error meanwhile
+        qCWarning(lcSyncController) << "The server refused the synced" << SyncKinds::name(c.impl->kind()) << "as too large; its limit is"
+                                    << error.extra.value(QLatin1String("max_bytes")).toInteger() << "bytes";
+        c.pushWanted = false; // the next change tries again
+        c.tooLarge = true; // pulls and 304 answers must not clear the error meanwhile
         setChannelError(c, TooLarge);
         return;
     case SyncError::Kind::RateLimited:
@@ -922,11 +944,47 @@ QString SyncController::statusText() const
     case Error:
         break;
     }
-    return errorText(m_errorKind);
+    // A channel's error: say which data it is about.
+    SyncKind dataKind = SyncKind::Presets;
+    if (m_globalError == NoError) {
+        for (const auto &c : m_channels) {
+            if (c->error != NoError) {
+                dataKind = c->impl->kind();
+                break;
+            }
+        }
+    }
+    return errorText(m_errorKind, dataKind);
 }
 
-QString SyncController::errorText(ErrorKind kind)
+QString SyncController::errorText(ErrorKind kind, SyncKind dataKind)
 {
+    if (dataKind != SyncKind::Presets) {
+        switch (kind) {
+        case TooLarge:
+            switch (dataKind) {
+            case SyncKind::Sessions:
+                return i18n("The session history is too large to sync.");
+            case SyncKind::Tasks:
+                return i18n("The tasks are too large to sync.");
+            case SyncKind::Statistics:
+                return i18n("The statistics are too large to sync.");
+            case SyncKind::Settings:
+                return i18n("The settings are too large to sync.");
+            case SyncKind::Presets:
+                break;
+            }
+            break;
+        case UnreadableData:
+            return i18n("Some synced data does not open with this device's key.");
+        case Server:
+            return i18n("Sugo Sync could not save some of your data. Trying again later.");
+        case LocalSaveFailed:
+            return i18n("Sugo could not save some synced data on this device. Trying again later.");
+        default:
+            break;
+        }
+    }
     switch (kind) {
     case Network:
         return i18n("Cannot reach Sugo Sync. Trying again later.");
@@ -958,10 +1016,13 @@ QStringList SyncController::errorTexts()
 {
     QStringList texts;
     const QMetaEnum kinds = QMetaEnum::fromType<ErrorKind>();
-    for (int i = 0; i < kinds.keyCount(); ++i) {
-        const QString text = errorText(static_cast<ErrorKind>(kinds.value(i)));
-        if (!text.isEmpty() && !texts.contains(text)) {
-            texts.append(text);
+    constexpr SyncKind dataKinds[] = {SyncKind::Presets, SyncKind::Sessions, SyncKind::Tasks, SyncKind::Statistics, SyncKind::Settings};
+    for (const SyncKind dataKind : dataKinds) {
+        for (int i = 0; i < kinds.keyCount(); ++i) {
+            const QString text = errorText(static_cast<ErrorKind>(kinds.value(i)), dataKind);
+            if (!text.isEmpty() && !texts.contains(text)) {
+                texts.append(text);
+            }
         }
     }
     return texts;

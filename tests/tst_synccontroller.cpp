@@ -383,6 +383,70 @@ private Q_SLOTS:
         QTRY_COMPARE(a.sync->state(), SyncController::Idle);
     }
 
+    void overTheLimitIsNotSent()
+    {
+        server->accounts[kUser].plus = true;
+        Device a(*server);
+        auto *settings = new TextChannel(SyncKind::Settings);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(settings));
+        signInFirst(a);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+
+        // Over 8 KB: refused here, before any upload, and the timers still sync.
+        settings->edit(QString(9000, QLatin1Char('x')));
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QCOMPARE(a.sync->statusText(), QStringLiteral("The settings are too large to sync."));
+        QVERIFY(a.sync->errorTexts().contains(a.sync->statusText()));
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+        const int before = puts();
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Still syncing")}});
+        QTRY_COMPARE(puts(), before + 1);
+        QTRY_VERIFY(a.sync->state() != SyncController::Syncing);
+        // A download does not hide it.
+        a.sync->syncNow();
+        QTRY_COMPARE(server->count("GET", "/v1/blob/settings"), 2);
+        QTRY_VERIFY(a.sync->state() != SyncController::Syncing);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+
+        // A change that fits goes up and clears it.
+        settings->edit(QStringLiteral("small"));
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+    }
+
+    void tooLargeFromTheServerIsNotRetried()
+    {
+        server->accounts[kUser].plus = true;
+        server->blobKinds["sessions"] = 100; // a server with a smaller limit than this Sugo knows
+        Device a(*server);
+        auto *sessions = new TextChannel(SyncKind::Sessions);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        sessions->text = QString(200, QLatin1Char('y'));
+        a.sync->signIn(QStringLiteral("A"));
+        QTRY_VERIFY(!a.sync->userCode().isEmpty());
+        QVERIFY(server->approve(a.sync->userCode(), kUser).startsWith(QLatin1String("dev_")));
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QVERIFY(!blob().blob.isEmpty()); // the timers went up
+        QCOMPARE(a.sync->state(), SyncController::Error);
+        QCOMPARE(a.sync->statusText(), QStringLiteral("The session history is too large to sync."));
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        // Not at the next downloads either (each 404 asks for a first upload).
+        a.sync->syncNow();
+        QTRY_COMPARE(server->count("GET", "/v1/blob/sessions"), 2);
+        QTest::qWait(400 * kUnitMs); // past a periodic pull
+        QVERIFY(server->count("GET", "/v1/blob/sessions") >= 3);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+
+        // A change here tries again.
+        sessions->edit(QStringLiteral("short"));
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/sessions"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+    }
+
     void notModified()
     {
         Device a(*server);
