@@ -1040,6 +1040,24 @@ QQC2.ApplicationWindow {
                          + steppedWork + " (\"" + steppedText + "\"), expected " + (workField.to - 1));
                     return true;
                 }
+                // The wheel steps the field being edited by its vertical turn only: a horizontal
+                // scroll (touchpad, Shift+wheel) or an event without vertical turn (the end of a
+                // touchpad gesture) leaves it as it is, rather than stepping it down.
+                workField.forceActiveFocus();
+                const wheelSent = appSmokeInput.wheel(workField, 0, 120);
+                const wheeledUp = workField.value;
+                appSmokeInput.wheel(workField, 120, 0);
+                const wheeledSideways = workField.value;
+                appSmokeInput.wheel(workField, 0, 0);
+                const wheeledNothing = workField.value;
+                typedValue(workField, String(workBefore));
+                if (!wheelSent || wheeledUp !== workBefore + 1 || wheeledSideways !== workBefore + 1
+                        || wheeledNothing !== workBefore + 1) {
+                    fail(64, "The wheel stepped the field wrongly: from " + workBefore + ", up gave " + wheeledUp
+                         + ", then sideways " + wheeledSideways + " and no turn " + wheeledNothing
+                         + " (expected " + (workBefore + 1) + ")");
+                    return true;
+                }
                 // The longest set: its preview lays out on the next tick.
                 const cyclesField = findItem(editor, item => item.objectName === "cyclesField");
                 if (!cyclesField) {
