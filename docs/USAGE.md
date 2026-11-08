@@ -63,7 +63,7 @@ The first install also downloads the KDE runtime from Flathub, if it is not inst
 
 - **Updating:** the Flatpak does not update itself. **Settings → About → Check for Updates** tells you when a new release is out: download its bundle and install it the same way, over the old one. Your timers, statistics and settings are kept.
 - **Removing:** `flatpak uninstall --user stream.sugo.app` removes the app; add `--delete-data` to remove your data too.
-- **Permissions:** the sandbox has network access (for the update check and calendar sync), the notification and screen-saver services (to silence notifications and keep the screen awake), the system tray, and audio. *Start at login* goes through the desktop's background portal, which may ask for your permission the first time.
+- **Permissions:** the sandbox has network access (for the update check, calendar sync, Sugo Sync, and the usage statistics if you turn them on), the notification and screen-saver services (to silence notifications and keep the screen awake), the system tray, and audio. *Start at login* goes through the desktop's background portal, which may ask for your permission the first time.
 - **Your data** lives under `~/.var/app/stream.sugo.app/` instead of the usual folders (see [Data, backup and privacy](#data-backup-and-privacy)).
 - **From Sugo 1.0.2 or older:** the app ID changed from `io.github.mineraleyt.sugo` to `stream.sugo.app`, so 1.0.3 installs as a new app next to the old one. At its first start it copies your timers, statistics and settings from the old app (it may read `~/.var/app/io.github.mineraleyt.sugo/` for that); then remove the old one with `flatpak uninstall --user io.github.mineraleyt.sugo`. If Sugo started at login, turn **Start at login** on again.
 
@@ -306,8 +306,24 @@ Inside the Flatpak the Linux files live under `~/.var/app/stream.sugo.app/`.
 
 - **Updates**: the AppImage and the macOS app download a small file from GitHub every few hours to see whether a newer Sugo exists (see [Updates](#updates-and-diagnostics); you can turn this off), and the new version itself only when you click **Install update**. The other packages only look when you press **Check for Updates**. Either way the request carries only the program version.
 - **Calendar sync**, if you turn it on, sends the information described [above](#good-to-know) to the server you chose.
+- **Anonymous usage statistics**, only if you turn them on (see below).
 
-There is no telemetry.
+### Anonymous usage statistics
+
+Sugo can tell us, anonymously, how it is used, so we know what to improve. It is **off** unless you turn it on: the welcome tour asks once, and **Settings → Advanced → Privacy → Share anonymous usage statistics** turns it on or off at any time.
+
+While it is on, Sugo sends these events, and nothing else:
+
+| Event | When | What it says |
+|:---|:---|:---|
+| `app_started` | Once each time Sugo starts (a minute after), and when you turn the statistics on | The Sugo version and channel (stable or nightly); Linux or macOS; the package (AppImage, Flatpak, macOS app, or built from source / a distribution's package); the Qt version; the desktop (KDE, GNOME or other; "none" on macOS); the Linux distribution, if it is one of a [fixed list](#which-distributions) (otherwise just "other"; "none" on macOS); how many timers you have (1, 2-3 or 4 or more); and whether these are on: calendar sync, focus sound, tray icon, start at login, Sugo Sync, keeping the screen awake |
+| `session_ended` | Each time a phase ends | Work, short break or long break; its planned length in minutes; whether it ran to the end or was stopped or skipped |
+
+Each event carries a random identifier, made when you turn the statistics on and forgotten when you turn them off (turning them on again makes a new one), and the hour it happened (not the minute). Sugo never sends your name, your computer's name, file paths, task notes, the names of your timers, calendar data, your Sugo Sync account, or anything you type.
+
+The events go in small batches to Sugo's own server (`api.sugo.stream`, the one of Sugo Sync), which keeps only the events and values listed above, drops your IP address, and passes them on to [PostHog](https://posthog.com) in the EU, where we look at them in aggregate. Sugo itself never contacts PostHog. Events that cannot be sent (offline) wait, at most 200 of them, and are sent later; turning the statistics off deletes them unsent.
+
+<a id="which-distributions"></a>The distributions named by their own name (by the `ID` of their os-release, so Kubuntu, for example, counts as Ubuntu): Ubuntu, Debian, Fedora, Arch, Manjaro, EndeavourOS, CachyOS, openSUSE Tumbleweed and Leap, Linux Mint, Pop!_OS, KDE neon, elementary OS, Zorin OS, NixOS, Gentoo, Void, Alpine, RHEL, CentOS, Rocky, AlmaLinux, SteamOS, Bazzite and Fedora Kinoite.
 
 ---
 

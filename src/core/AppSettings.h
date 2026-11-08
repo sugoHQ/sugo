@@ -98,6 +98,8 @@ class AppSettings : public QObject
     Q_PROPERTY(QString updateChannel READ updateChannel WRITE setUpdateChannel NOTIFY updateChannelChanged FINAL)
     /// The AppImage looks for updates by itself (see UpdateChecker); it installs them when asked.
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged FINAL)
+    /// Anonymous usage statistics are sent (opt-in, off by default). Applied by Telemetry.
+    Q_PROPERTY(bool shareUsageStats READ shareUsageStats WRITE setShareUsageStats NOTIFY shareUsageStatsChanged FINAL)
     /// Sugo's debug messages are recorded (in the diagnostic report). Applied by Diagnostics.
     Q_PROPERTY(bool verboseLogging READ verboseLogging WRITE setVerboseLogging NOTIFY verboseLoggingChanged FINAL)
 
@@ -200,6 +202,8 @@ public:
     void setUpdateChannel(const QString &channel);
     bool autoCheckUpdates() const { return m_autoCheckUpdates; }
     void setAutoCheckUpdates(bool enabled);
+    bool shareUsageStats() const { return m_shareUsageStats; }
+    void setShareUsageStats(bool enabled);
     bool verboseLogging() const { return m_verboseLogging; }
     void setVerboseLogging(bool verbose);
 
@@ -306,6 +310,7 @@ Q_SIGNALS:
     void accentColorChanged();
     void updateChannelChanged();
     void autoCheckUpdatesChanged();
+    void shareUsageStatsChanged();
     void verboseLoggingChanged();
     void focusOnShortcutChanged();
     void focusOffShortcutChanged();
@@ -345,6 +350,7 @@ private:
         static constexpr QLatin1String accentColor{"red"};
         static constexpr QLatin1String updateChannel{"stable"};
         static constexpr bool autoCheckUpdates = true;
+        static constexpr bool shareUsageStats = false;
         static constexpr bool verboseLogging = false;
         static constexpr QLatin1String focusOnShortcut{"Sugo Focus On"};
         static constexpr QLatin1String focusOffShortcut{"Sugo Focus Off"};
@@ -385,6 +391,7 @@ private:
     QString m_accentColor = QString(Defaults::accentColor);
     QString m_updateChannel = QString(Defaults::updateChannel);
     bool m_autoCheckUpdates = Defaults::autoCheckUpdates;
+    bool m_shareUsageStats = Defaults::shareUsageStats;
     bool m_verboseLogging = Defaults::verboseLogging;
     QString m_focusOnShortcut = QString(Defaults::focusOnShortcut);
     QString m_focusOffShortcut = QString(Defaults::focusOffShortcut);
