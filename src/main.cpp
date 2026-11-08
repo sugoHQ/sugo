@@ -70,6 +70,7 @@
 #include "PowerInhibitor.h"
 #include "ScreenLockWatcher.h"
 #include "Diagnostics.h"
+#include "SmokeInput.h"
 #include "CalendarSync.h"
 #include "DesktopStyle.h"
 #include "SyncApi.h"
@@ -346,6 +347,10 @@ int main(int argc, char *argv[])
     const bool statsSmokeTest = qEnvironmentVariable("SUGO_STATS_SMOKE_TEST") == QStringLiteral("1");
     engine.rootContext()->setContextProperty(QStringLiteral("appStatsSmokeTest"), statsSmokeTest);
     engine.rootContext()->setContextProperty(QStringLiteral("appSmokePage"), smokePage);
+    // Input QML cannot make itself (a wheel event), for the smoke checks only.
+    SmokeInput smokeInput;
+    engine.rootContext()->setContextProperty(QStringLiteral("appSmokeInput"),
+                                             statsSmokeTest || !smokePage.isEmpty() ? &smokeInput : nullptr);
     // For development and screenshots: open on another page ("presets" for the timer in use, "stats",
     // "settings", "about" (the settings' About), "welcome"), or on a part of one ("settings/focus",
     // "welcome/2").

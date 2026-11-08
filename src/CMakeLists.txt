@@ -95,6 +95,8 @@ target_sources(sugo_core PRIVATE
     core/TelemetryInfo.cpp
     core/Diagnostics.h
     core/Diagnostics.cpp
+    core/SmokeInput.h
+    core/SmokeInput.cpp
     core/RetryAfter.h
     core/UrlPolicy.h
     core/QuitPolicy.h
