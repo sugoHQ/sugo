@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Sugo contributors
+# SPDX-License-Identifier: CC0-1.0
+#
+# Who is asked to review a pull request. One maintainer for now: the single line
+# covers the whole tree, and the paths that deserve a closer look are listed so
+# that the intent survives when there is more than one.
+
+*                       @MineraleYT
+
+/.github/workflows/     @MineraleYT
+/packaging/             @MineraleYT
+/src/sync/              @MineraleYT
+/src/platform/          @MineraleYT
