@@ -133,6 +133,7 @@ QQC2.Popup {
                     TimerIcon {
                         iconName: entry.modelData.timerIcon || ""
                         size: Theme.icon
+                        color: Theme.accent
                     }
                 }
                 Text {

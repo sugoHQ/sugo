@@ -73,11 +73,13 @@ void strokeProgress(QPainter &p, const QPainterPath &path, const QColor &color, 
 
 /// The application icon at several sizes:
 /// - When idle (minutes < 0): the application icon.
-/// - When active (minutes >= 0): the icon's dark tile, in red for work and green for breaks, with
+/// - When active (minutes >= 0): the icon's dark tile in the phase colour `primary` (the accent
+///   colour setting for work, the break colour for breaks), with
 ///   * style 0: a border that fills clockwise as the phase runs and the remaining minutes,
 ///   * style 1: a fill rising from the bottom and the remaining minutes,
 ///   * style 2: the icon's spiral filling from its centre, without numbers.
-QIcon trayIcon(int minutes, int badgeStyle, double progressRatio, bool isWork, bool isPaused)
+QIcon trayIcon(int minutes, int badgeStyle, double progressRatio, bool isPaused,
+               const QColor &primary)
 {
     if (minutes < 0) {
 #ifdef Q_OS_MACOS
@@ -110,8 +112,8 @@ QIcon trayIcon(int minutes, int badgeStyle, double progressRatio, bool isWork, b
             p.setOpacity(0.75);
         }
 
-        // Shared with the welcome tour's picture of this icon (see TrayIconStyle.h).
-        const QColor primary = isWork ? TrayIconColors::work() : TrayIconColors::rest();
+        // The phase colour comes in as `primary`: the accent for work, the break colour for breaks
+        // (both from TrayIconStyle, the same definition the interface's picture reads).
         const double progress = qBound(0.0, progressRatio, 1.0);
 
         const QRectF tileRect(0.5, 0.5, size - 1.0, size - 1.0);
@@ -185,6 +187,7 @@ TrayController::TrayController(TimerEngine *engine, PresetModel *presets, AppSet
     connect(settings, &AppSettings::showTrayIconChanged, this, &TrayController::sync);
     connect(settings, &AppSettings::trayAvailableChanged, this, &TrayController::sync);
     connect(settings, &AppSettings::trayBadgeStyleChanged, this, &TrayController::refresh);
+    connect(settings, &AppSettings::accentColorChanged, this, &TrayController::refresh);
     sync();
 }
 
@@ -329,16 +332,22 @@ void TrayController::refresh()
     const int progressStep = status.badgeMinutes >= 0 ? qRound(m_engine->progress() * 200.0) : 0;
 
     // Repainting and sending pixmaps over D-Bus is costly: do it only when the picture changes.
-    const QString iconKey = QStringLiteral("%1/%2/%3/%4/%5")
+    const QString accent = m_settings ? m_settings->accentColor() : QString();
+    const QString iconKey = QStringLiteral("%1/%2/%3/%4/%5/%6")
                                 .arg(status.badgeMinutes)
                                 .arg(badgeStyle)
                                 .arg(progressStep)
                                 .arg(isWork ? 1 : 0)
-                                .arg(isPaused ? 1 : 0);
+                                .arg(isPaused ? 1 : 0)
+                                .arg(accent);
     if (iconKey != m_iconKey) {
         m_iconKey = iconKey;
         m_badgeMinutes = status.badgeMinutes;
-        const QIcon icon = trayIcon(m_badgeMinutes, badgeStyle, progressStep / 200.0, isWork, isPaused);
+        // The phase colour, from the same shades the interface (TrayBadge.qml) reads.
+        const QColor primary = isWork ? TrayIconStyle::workBadgeColor(accent)
+                                      : TrayIconStyle::breakBadgeColor(accent);
+        const QIcon icon = trayIcon(m_badgeMinutes, badgeStyle, progressStep / 200.0, isPaused,
+                                    primary);
         m_item->setIcon(icon);
     }
     const QString toolTip = status.toolTipText.isEmpty() ? status.toolTipTitle : status.toolTipTitle + QLatin1Char('\n') + status.toolTipText;

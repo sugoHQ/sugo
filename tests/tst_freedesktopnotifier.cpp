@@ -43,6 +43,8 @@ public:
     QStringList capabilities{QStringLiteral("body"), QStringLiteral("actions")};
     QList<Call> calls;
     uint nextId = 1;
+    /// GetCapabilities answers with a server error (a broken or overloaded server).
+    bool capabilitiesFail = false;
 
     /// Sends one of the server's signals, as if the user had done something.
     void emitSignal(const QString &name, const QVariantList &arguments)
@@ -53,7 +55,14 @@ public:
     }
 
 public Q_SLOTS:
-    QStringList GetCapabilities() { return capabilities; }
+    QStringList GetCapabilities()
+    {
+        if (capabilitiesFail) {
+            sendErrorReply(QDBusError::Failed, QStringLiteral("The server is busy"));
+            return {};
+        }
+        return capabilities;
+    }
 
     uint Notify(const QString &appName, uint replacesId, const QString &icon, const QString &summary, const QString &body,
                 const QStringList &actions, const QVariantMap &hints, int timeout)
@@ -362,6 +371,34 @@ private Q_SLOTS:
         publishServer();
         QVERIFY(show(sample(&log)) > 0);
         QCOMPARE(tray->shown.size(), 1);
+    }
+
+    void aFailedCapabilitiesCallGoesToTheFallback()
+    {
+        // A server that is there but cannot answer (Plasma busy at login, a stuck daemon):
+        // nothing has been sent yet, so the tray shows the message instead of nobody.
+        auto fallback = std::make_unique<FakeNotifier>();
+        FakeNotifier *tray = fallback.get();
+        m_notifier->setFallback(std::move(fallback));
+        m_server->capabilitiesFail = true;
+        QStringList log;
+        m_notifier->notify(m_context.get(), sample(&log));
+        QTRY_COMPARE(tray->shown.size(), 1);
+        QCOMPARE(tray->last().title, QStringLiteral("Work session finished"));
+        QCOMPARE(tray->lastContext.data(), m_context.get());
+        QTest::qWait(100);
+        QVERIFY(m_server->calls.isEmpty());
+    }
+
+    void aFailedCapabilitiesCallStillSendsItWithoutAFallback()
+    {
+        // With nowhere else to go, the server still gets it, without the actions it may lack.
+        m_server->capabilitiesFail = true;
+        QStringList log;
+        m_notifier->notify(m_context.get(), sample(&log));
+        QTRY_COMPARE(m_server->calls.size(), 1);
+        QCOMPARE(m_server->calls.at(0).summary, QStringLiteral("Work session finished"));
+        QVERIFY(m_server->calls.at(0).actions.isEmpty());
     }
 };
 

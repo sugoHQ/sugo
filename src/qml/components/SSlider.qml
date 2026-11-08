@@ -23,7 +23,7 @@ QQC2.Slider {
             width: control.visualPosition * parent.width
             height: parent.height
             radius: height / 2
-            color: control.enabled ? Theme.dim : Theme.subtle
+            color: control.enabled ? Theme.accent : Theme.subtle
         }
     }
 

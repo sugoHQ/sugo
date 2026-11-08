@@ -101,6 +101,23 @@ private Q_SLOTS:
         QCOMPARE(readFile(config + QStringLiteral("/sugo/sugo.conf")), QByteArray("old conf"));
     }
 
+    void flatpakLoginStateIsNotCopied()
+    {
+        QTemporaryDir home;
+        const QString old = home.filePath(QStringLiteral("old"));
+        const QString data = home.filePath(QStringLiteral("new/data"));
+        const QString config = home.filePath(QStringLiteral("new/config"));
+        writeFile(old + QStringLiteral("/config/sugo/sugo.conf"), "conf");
+        writeFile(old + QStringLiteral("/config/sugo/portal-autostart"), "autostart=true\n");
+
+        // The Background portal was asked for the old app ID, never for ours: start at login is
+        // off until the user turns it on again, which asks the portal for this app.
+        QVERIFY(LegacyAppId::importFlatpakData(old, data, config));
+        QCOMPARE(readFile(config + QStringLiteral("/sugo/sugo.conf")), QByteArray("conf"));
+        QVERIFY(!QFileInfo::exists(config + QStringLiteral("/sugo/portal-autostart")));
+        QVERIFY(QFileInfo::exists(old + QStringLiteral("/config/sugo/portal-autostart"))); // left as it was
+    }
+
     void noOldFlatpakCopiesNothing()
     {
         QTemporaryDir home;

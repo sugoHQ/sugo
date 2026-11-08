@@ -43,7 +43,13 @@ TimerCommands::Result TimerCommands::toggle()
 
 TimerCommands::Result TimerCommands::start()
 {
-    return simple([](TimerEngine *engine) { engine->start(); });
+    return simple([](TimerEngine *engine) {
+        if (engine->isPaused()) {
+            engine->resume();
+        } else {
+            engine->start();
+        }
+    });
 }
 
 TimerCommands::Result TimerCommands::pause()

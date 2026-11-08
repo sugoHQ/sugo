@@ -35,6 +35,9 @@ QString key(const char *name)
 constexpr int kMaxNameLength = 64;
 /// Seconds before a failed step of the key phase is tried again.
 constexpr int kRetrySeconds = 30;
+/// While waiting for the key, the devices are listed again this often: an approver that signed
+/// out (or was disconnected) is replaced by whichever device holds the key now.
+constexpr int kKeyRelistSeconds = 60;
 /// The longest wait between two requests, whatever the server asks (interval, Retry-After): more
 /// would overflow the timers' milliseconds, and the polling would stop without a word.
 constexpr int kMaxWaitSeconds = 3600;
@@ -394,6 +397,7 @@ void SyncAccount::runKeyStep(KeyStep step)
     m_keyStep = step;
     switch (step) {
     case KeyStep::List:
+        m_keyListTaken.start();
         m_api->listDevices([this](const SyncReply &reply) {
             if (m_phase != Phase::WaitingForKey) {
                 return;
@@ -555,6 +559,12 @@ void SyncAccount::pollKey()
             return;
         }
         if (reply.error.kind == SyncError::Kind::NotFound) {
+            // Not sent yet. The approver may be gone meanwhile (signed out, disconnected): the
+            // devices are listed again after a while, so the code follows whoever can approve now.
+            if (m_keyListTaken.elapsed() >= kKeyRelistSeconds * m_unitMs) {
+                runKeyStep(KeyStep::List);
+                return;
+            }
             scheduleKeyStep(KeyStep::PollKey, keyPollSeconds()); // not sent yet
             return;
         }

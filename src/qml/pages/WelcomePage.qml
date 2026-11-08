@@ -54,15 +54,23 @@ QQC2.Page {
     /// The primary button: the next step, or out of the tour from the last one.
     function advance(): void {
         if (current === count - 1) {
-            finish();
+            finish(false);
         } else {
             go(current + 1);
         }
     }
 
-    function finish(): void {
-        AppSettings.firstRunCompleted = true;
+    function finish(skipped: bool): void {
+        end(skipped);
         applicationWindow().navigate("timer");
+    }
+
+    // The tour is over (the usage statistics, if they are on, note where and how).
+    function end(skipped: bool): void {
+        if (!AppSettings.firstRunCompleted) {
+            Telemetry.tourEnded(page.current, skipped);
+        }
+        AppSettings.firstRunCompleted = true;
     }
 
     Keys.onRightPressed: go(current + 1)
@@ -512,6 +520,7 @@ QQC2.Page {
                                 TimerIcon {
                                     iconName: presetRow.modelData.icon
                                     size: Theme.iconMd + Theme.spaceXs
+                                    color: Theme.accent
                                 }
                                 Text {
                                     text: presetRow.modelData.name
@@ -679,6 +688,24 @@ QQC2.Page {
                             onClicked: AppSettings.installFocusShortcuts()
                         }
                     }
+                    // Opt-in: off until the user turns it on (docs/USAGE.md lists what is sent).
+                    FormRow {
+                        id: usageStatsRow
+                        objectName: "welcomeUsageStatsRow"
+                        title: i18n("Share anonymous usage statistics")
+                        description: i18n("Helps us see which features to improve. Nothing about you is sent.")
+                        opacity: setupStep.reveal(8)
+                        transform: Translate { y: setupStep.rise(8) }
+                        SButton {
+                            objectName: "welcomeUsageStatsDetails"
+                            kind: "ghost"
+                            text: i18n("What is sent")
+                            iconName: "external"
+                            Accessible.description: i18n("Opens the list of what the usage statistics send, in your browser.")
+                            onClicked: Qt.openUrlExternally("https://github.com/sugoHQ/sugo/blob/main/docs/USAGE.md#anonymous-usage-statistics")
+                        }
+                        SettingSwitch { setting: "shareUsageStats"; row: usageStatsRow }
+                    }
                 }
             }
 
@@ -766,7 +793,7 @@ QQC2.Page {
                 transform: Translate { y: readyStep.rise(10) }
                 onStartPressed: {
                     if (TimerEngine.active && !TimerEngine.paused) {
-                        page.finish();
+                        page.finish(false);
                     }
                 }
             }
@@ -781,11 +808,11 @@ QQC2.Page {
             applicationWindow().chooseTimer(uuid);
         }
         function newTimer(): void {
-            AppSettings.firstRunCompleted = true;
+            page.end(false);
             applicationWindow().newTimer();
         }
         function openSettings(category: string): void {
-            AppSettings.firstRunCompleted = true;
+            page.end(false);
             applicationWindow().openSettings(category);
         }
         function requestEndPhase(skipping: bool): bool {
@@ -793,7 +820,7 @@ QQC2.Page {
         }
     }
 
-    // --- Bottom bar: skip at the left; the step dots, back and next at the right ---------------
+    // --- Bottom bar: skip at the left; the step dots, centred; back and next at the right ------
 
     // Opaque, so that a scrolled step never shows through it (the software renderer does not
     // clip shapes).
@@ -820,7 +847,7 @@ QQC2.Page {
             kind: "ghost"
             text: i18n("Skip Tour")
             visible: page.current < page.count - 1
-            onClicked: page.finish()
+            onClicked: page.finish(true)
         }
 
         Row {
@@ -829,14 +856,12 @@ QQC2.Page {
             readonly property int count: page.count
             // Only ever follows the steps; the dots move the steps themselves.
             readonly property int currentIndex: page.current
-            // Left of the room Back takes on every step but the first: the dots never move.
-            anchors.right: navButtons.right
-            anchors.rightMargin: backButton.implicitWidth + primaryButton.Layout.preferredWidth + navButtons.spacing + Theme.spaceLg
+            anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spaceSm
             // Hidden when the window is too narrow to fit the dots between the buttons.
-            visible: bottomBar.width - 2 * Theme.welcomeFooterPaddingX - skipButton.implicitWidth - anchors.rightMargin
-                     - Theme.space2xl > implicitWidth
+            visible: bottomBar.width - 2 * Theme.welcomeFooterPaddingX - skipButton.implicitWidth
+                     - navButtons.implicitWidth - navButtons.spacing > implicitWidth
 
             Repeater {
                 model: indicator.count

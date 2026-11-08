@@ -419,6 +419,42 @@ private Q_SLOTS:
         QVERIFY(asked.last().at(3).toString() != b.account->verificationCode());
     }
 
+    void approverGoneIsReplacedWhileWaiting()
+    {
+        Client a(*server);
+        Client b(*server);
+        twoDevices(a, b);
+        server->deviceLimit = 4; // A, B and now C
+        const QString codeOfA = b.account->verificationCode();
+        QCOMPARE(codeOfA, SyncCrypto::verificationCode(b.account->publicKey(), a.account->publicKey()));
+
+        // C joins and takes the key from A too.
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::WaitingForKey, QStringLiteral("C"));
+        QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
+        connect(a.api.get(), &SyncApi::pendingDevicesSeen, a.account.get(), &SyncAccount::checkPendingDevices);
+        a.api->getBlob(QByteArray(), [](const SyncReply &) {});
+        QVERIFY(asked.wait(5000));
+        QTRY_COMPARE_WITH_TIMEOUT(asked.size(), 2, 5000); // C goes after the still waiting B
+        QCOMPARE(asked.at(1).at(0).toString(), c.account->deviceId());
+        a.account->approveDevice(c.account->deviceId());
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::Ready, 5000);
+
+        // A signs out: its device is gone from the account, without ever having sent K.
+        QSignalSpy out(a.account.get(), &SyncAccount::signedOut);
+        a.account->signOut();
+        QVERIFY(out.wait(5000));
+        QVERIFY(!server->device(a.account->deviceId()));
+
+        // Without the re-list, B would keep A's code (and A's list) for ever: now the code
+        // and the approver follow whichever device holds the key.
+        QTRY_VERIFY_WITH_TIMEOUT(b.account->verificationCode() != codeOfA, 5000);
+        QCOMPARE(b.account->verificationCode(), SyncCrypto::verificationCode(b.account->publicKey(), c.account->publicKey()));
+        const auto devices = b.account->devices();
+        QVERIFY(std::none_of(devices.cbegin(), devices.cend(), [&](const SyncAccount::Device &d) { return d.id == a.account->deviceId(); }));
+        QVERIFY(std::any_of(devices.cbegin(), devices.cend(), [&](const SyncAccount::Device &d) { return d.id == c.account->deviceId(); }));
+    }
+
     void forgedSenderIsRejected_data()
     {
         QTest::addColumn<bool>("forgeKey");

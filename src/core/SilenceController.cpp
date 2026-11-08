@@ -29,6 +29,15 @@ void SilenceController::attach(TimerEngine *engine, PresetModel *presets, Notifi
     connect(engine, &TimerEngine::sessionEnded, this,
             [this](TimerEngine::Phase, const QDateTime &, const QDateTime &, qint64, qint64, bool completed) {
                 m_phaseEnding = completed;
+                if (completed && m_decided && m_wanted) {
+                    // The phase that just ended was silenced: let go now, before the announcement.
+                    // A timer without breaks goes straight back to Work, so no state change would
+                    // ever call update() and the inhibition would outlive the phase it belongs to.
+                    // phaseFinished() silences again on the next event-loop turn.
+                    m_wanted = false;
+                    m_silenceDeferred = true;
+                    m_inhibitor->release();
+                }
             });
     connect(engine, &TimerEngine::phaseFinished, this, [this]() {
         m_phaseEnding = false;

@@ -489,8 +489,12 @@ private Q_SLOTS:
         QCOMPARE(readFile(release.appImage), release.oldContent); // not without being asked
 
         QSignalSpy progress(&checker, &UpdateChecker::progressChanged);
+        QSignalSpy finished(&checker, &UpdateChecker::installFinished);
         checker.installUpdate();
         QTRY_COMPARE_WITH_TIMEOUT(checker.status(), UpdateChecker::Status::ReadyToRestart, 10000);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(0).toBool(), true);
+        QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("install"));
         QCOMPARE(readFile(release.appImage), release.newContent);
         QVERIFY(QFile::permissions(release.appImage) & QFileDevice::ExeOwner);
         QVERIFY(QFile::permissions(release.appImage) & QFileDevice::ExeGroup);
@@ -669,9 +673,16 @@ private Q_SLOTS:
         release.setUp(checker);
         checker.checkForUpdates();
         QTRY_COMPARE(checker.status(), afterCheck);
+        QSignalSpy finished(&checker, &UpdateChecker::installFinished);
         if (afterCheck == UpdateChecker::Status::UpdateAvailable) {
             checker.installUpdate();
             QTRY_COMPARE_WITH_TIMEOUT(checker.status(), UpdateChecker::Status::Error, 10000);
+            // A bad size or checksum fails at the check.
+            QCOMPARE(finished.count(), 1);
+            QCOMPARE(finished.at(0).at(0).toBool(), false);
+            QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("verify"));
+        } else {
+            QCOMPARE(finished.count(), 0); // nothing was installed
         }
         QVERIFY(!checker.errorMessage().isEmpty());
         QCOMPARE(readFile(release.appImage), release.oldContent);

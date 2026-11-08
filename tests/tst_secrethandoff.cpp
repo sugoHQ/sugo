@@ -232,6 +232,39 @@ private Q_SLOTS:
         QCOMPARE(newBuild.readWithoutAsking(syncToken), std::optional<QString>(QStringLiteral("token")));
     }
 
+    void aSecretTypedAgainSinceIsNotOverwritten()
+    {
+        // The update's first start found the Keychain locked, so the file kept the secret; the
+        // calendar then asked for the password and the user typed a new one.
+        BuildStore oldBuild(m_keychain, QStringLiteral("1.0.1"));
+        QVERIFY(oldBuild.write(calendar, QStringLiteral("old")));
+        QCOMPARE(SecretHandoff::handOver(oldBuild, m_path), 1);
+
+        BuildStore newBuild(m_keychain, QStringLiteral("1.0.2"));
+        m_keychain->failWrites = true;
+        QCOMPARE(SecretHandoff::takeBack(newBuild, m_path), 0);
+        QVERIFY(QFileInfo::exists(m_path));
+        m_keychain->failWrites = false;
+        QVERIFY(newBuild.write(calendar, QStringLiteral("typed again")));
+
+        // The newer secret wins: the file's copy is not written over it, and the file goes.
+        QCOMPARE(SecretHandoff::takeBack(newBuild, m_path), 0);
+        QVERIFY(!QFileInfo::exists(m_path));
+        QCOMPARE(newBuild.readWithoutAsking(calendar), std::optional<QString>(QStringLiteral("typed again")));
+    }
+
+    void aSecretTheKeychainDoesNotHaveIsWrittenAsBefore()
+    {
+        BuildStore oldBuild(m_keychain, QStringLiteral("1.0.1"));
+        QVERIFY(oldBuild.write(calendar, QStringLiteral("secret")));
+        QCOMPARE(SecretHandoff::handOver(oldBuild, m_path), 1);
+
+        BuildStore newBuild(m_keychain, QStringLiteral("1.0.2"));
+        QCOMPARE(SecretHandoff::takeBack(newBuild, m_path), 1);
+        QVERIFY(!QFileInfo::exists(m_path));
+        QCOMPARE(newBuild.readWithoutAsking(calendar), std::optional<QString>(QStringLiteral("secret")));
+    }
+
     void secretsStillWaitingAreKeptByTheNextHandOver()
     {
         BuildStore oldBuild(m_keychain, QStringLiteral("1.0.1"));
@@ -279,6 +312,27 @@ private Q_SLOTS:
         QCOMPARE(SecretHandoff::takeBack(build, m_path), 0);
         QVERIFY(QFileInfo::exists(m_path));
         QVERIFY(m_keychain->items.isEmpty());
+    }
+
+    void aHandOverDoesNotReplaceAFileItCannotRead()
+    {
+        // Still waiting, in a format of a newer Sugo (the user went back to an older one): the
+        // only copy of its secrets, so the handover leaves it, and the Keychain, as they are.
+        QVERIFY(QDir().mkpath(QFileInfo(m_path).absolutePath()));
+        const QByteArray waiting = R"({"format":2,"secrets":{"calendar-caldav":"waiting"}})";
+        QFile file(m_path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(waiting);
+        file.close();
+
+        BuildStore build(m_keychain, QStringLiteral("1.0.1"));
+        QVERIFY(build.write(syncToken, QStringLiteral("token")));
+        QCOMPARE(SecretHandoff::handOver(build, m_path), 0);
+
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), waiting);
+        file.close();
+        QCOMPARE(build.readWithoutAsking(syncToken), std::optional<QString>(QStringLiteral("token")));
     }
 
     void anIsolatedRunHasNoHandoff()

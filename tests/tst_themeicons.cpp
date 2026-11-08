@@ -79,6 +79,23 @@ private Q_SLOTS:
         QVERIFY(size.isEmpty());
     }
 
+    void tileIcons()
+    {
+        // Sugo's own tiles, as PresetModel::iconSource() hands them over; other names are not tiles.
+        QVERIFY(ThemeIcons::isTileIcon(QStringLiteral("qrc:/icons/sugo-focus.svg")));
+        QVERIFY(!ThemeIcons::isTileIcon(QStringLiteral("qrc:/icons/sugo-focus.png")));
+        QVERIFY(!ThemeIcons::isTileIcon(QStringLiteral("chronometer")));
+        QVERIFY(!ThemeIcons::isTileIcon(QString()));
+
+        // Without a colour, or a transparent or invalid one, the tile goes back as it is.
+        QCOMPARE(ThemeIcons::tintedTileIcon(QStringLiteral("qrc:/icons/sugo-focus.svg"), QColor()),
+                 QStringLiteral("qrc:/icons/sugo-focus.svg"));
+        QCOMPARE(ThemeIcons::tintedTileIcon(QStringLiteral("qrc:/icons/sugo-focus.svg"), QColor(0, 0, 0, 0)),
+                 QStringLiteral("qrc:/icons/sugo-focus.svg"));
+        QCOMPARE(ThemeIcons::tintedTileIcon(QStringLiteral("chronometer"), QColor(Qt::red)),
+                 QStringLiteral("chronometer"));
+    }
+
     void bundledFallbackTheme()
     {
         // A theme without the menus' icons, as macOS has none at all: the bundled Breeze subset

@@ -17,6 +17,8 @@ Item {
     property bool isBreak: false
     readonly property int totalMinutes: isBreak ? 5 : 25
     readonly property int minutes: Math.max(1, Math.ceil(totalMinutes * (1 - progress) - 0.0001))
+    /// The badge colours, the same definition the real icon is painted with (TrayIconStyle):
+    /// the accent colour for work.
     property color primary: isBreak ? TrayIconStyle.breakColor : TrayIconStyle.workColor
     Behavior on primary { ColorAnimation { duration: Theme.durationLong } }
 

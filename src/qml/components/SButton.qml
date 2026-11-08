@@ -21,6 +21,8 @@ QQC2.AbstractButton {
     property string toolTipText: iconOnly ? text : ""
     /// Turns red when hovered (delete).
     property bool destructive: false
+    /// When true, the label is drawn in the accent colour (a lit, prominent action).
+    property bool lit: false
     /// Every label the button takes in turn ("Copy", "Copied"): it is as wide as with the widest,
     /// so nothing beside it moves when the label changes.
     property var labels: []
@@ -35,6 +37,7 @@ QQC2.AbstractButton {
     readonly property bool isPrimary: kind === "primary"
     readonly property color contentColor: !enabled ? Theme.subtle
                                          : isPrimary ? Theme.accentText
+                                         : lit ? Theme.accent
                                          : kind === "danger" || (destructive && hovered) ? Theme.danger
                                          : kind === "ghost" && iconOnly && !hovered && !visualFocus ? Theme.muted
                                          : Theme.foreground

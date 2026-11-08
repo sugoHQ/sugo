@@ -58,6 +58,7 @@ public:
     }
 
     Result toggle();
+    /// Starts the pending phase, or resumes a paused timer (a running one is left alone).
     Result start();
     Result pause();
     Result resume();

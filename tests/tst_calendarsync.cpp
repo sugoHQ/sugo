@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QPointer>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -15,6 +16,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 
 #include "CalendarSync.h"
 #include "FakeSecretStore.h"
@@ -175,6 +177,18 @@ public:
     bool noPersonal = false;
     QHash<QByteArray, QByteArray> stored;
     std::function<void(const Request &)> onRequest; ///< Called before each request is answered.
+    std::function<bool(const Request &)> hold;      ///< A request it returns true for waits for releaseHeld().
+    int heldCount() const { return int(m_held.size()); }
+    /// Answers the requests held so far, as they would have been answered now.
+    void releaseHeld()
+    {
+        const auto held = std::exchange(m_held, {});
+        for (const auto &[s, req] : held) {
+            if (s) {
+                respond(s, req);
+            }
+        }
+    }
 
 private:
     void onConnection()
@@ -219,6 +233,10 @@ private:
             requests.append(req);
             if (onRequest) {
                 onRequest(req);
+            }
+            if (hold && hold(req)) {
+                m_held.append({QPointer<QTcpSocket>(s), req});
+                continue;
             }
             respond(s, req);
         }
@@ -324,6 +342,7 @@ private:
 
     QTcpServer m_server;
     QHash<QTcpSocket *, QByteArray> m_buffers;
+    QList<std::pair<QPointer<QTcpSocket>, Request>> m_held;
     QElapsedTimer m_clock;
 };
 
@@ -984,8 +1003,11 @@ private Q_SLOTS:
     {
         configureCustom();
         m_server->expectedAuth = basic(QStringLiteral("alice"), QStringLiteral("rotated"));
+        QSignalSpy failures(m_sync.get(), &CalendarSync::sendFailed);
         m_sync->enqueueWorkSession(record(1));
         QTRY_COMPARE(m_sync->status(), CalendarSync::Failed);
+        QCOMPARE(failures.count(), 1);
+        QCOMPARE(failures.at(0).at(0).toString(), QStringLiteral("auth"));
         QVERIFY(m_sync->isSendingPaused());
         QVERIFY(m_sync->lastError().startsWith(QStringLiteral("Login rejected")));
         QVERIFY(m_sync->statusText().startsWith(QStringLiteral("Login rejected")));
@@ -1065,6 +1087,34 @@ private Q_SLOTS:
         QTest::qWait(100);
         QVERIFY(m_sync->isSendingPaused());
         QCOMPARE(m_server->count("PUT"), 3); // nothing sent again with the credentials in doubt
+    }
+
+    void anEventAcceptedWhilePausedLiftsThePause()
+    {
+        // An event is on its way when three refused tests pause sending; the server then takes
+        // that event: the pause is lifted and the events waiting behind it go too.
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT" && !req.path.contains("sugo-test-");
+        };
+        m_sync->enqueueWorkSession(record(1));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        m_server->hold = nullptr;
+        m_sync->enqueueWorkSession(record(2));
+        m_server->defaultPut = 403;
+        for (int i = 0; i < 3; ++i) {
+            m_sync->testConnection();
+            QTRY_COMPARE(m_sync->status(), CalendarSync::Failed);
+        }
+        QVERIFY(m_sync->isSendingPaused());
+        QCOMPARE(m_sync->pendingCount(), 2);
+
+        m_server->defaultPut = 201;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        QVERIFY(!m_sync->isSendingPaused());
+        QTRY_COMPARE(m_sync->status(), CalendarSync::Ready);
+        QCOMPARE(m_server->count("PUT"), 5); // the held one, three tests, the second event
     }
 
     void put403IsTheCalendarRefusingNotTheLogin()
@@ -1439,6 +1489,27 @@ private Q_SLOTS:
         QCOMPARE(m_sync->pendingCount(), 0);
     }
 
+    void noteUpdateAfterRestartResendsSameUid()
+    {
+        configureCustom();
+        m_sync->setIncludeNote(true);
+        m_sync->enqueueWorkSession(record(9));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        QCOMPARE(m_server->count("PUT"), 1);
+        QVERIFY(!m_server->of("PUT").first().body.contains("DESCRIPTION"));
+
+        // What was sent is remembered across a restart, so the note still reaches the event.
+        m_sync.reset();
+        m_sync = makeSync();
+        m_sync->onNoteChanged(9, QStringLiteral("wrote the report, finally"));
+        QCOMPARE(m_sync->pendingCount(), 1);
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        const auto puts = m_server->of("PUT");
+        QCOMPARE(puts.size(), 2);
+        QCOMPARE(puts.at(1).path, puts.at(0).path);
+        QVERIFY(puts.at(1).body.contains("DESCRIPTION:wrote the report\\, finally"));
+    }
+
     void noteUpdatesQueuedItem()
     {
         configureCustom();
@@ -1789,12 +1860,14 @@ private Q_SLOTS:
         m_sync->startNextcloudLogin();
         QTRY_COMPARE(m_sync->status(), CalendarSync::WaitingForBrowser);
         QTRY_VERIFY(m_server->polls >= 2);
+        const int pollsAtCancel = m_server->polls;
         m_sync->cancelLogin();
         QCOMPARE(m_sync->status(), CalendarSync::NotConfigured);
-        QTest::qWait(60); // lets an in-flight poll finish
-        const int polls = m_server->polls;
-        QTest::qWait(200);
-        QCOMPARE(m_server->polls, polls);
+        // The one poll already on its way may still reach the server, however slow the machine;
+        // a poll timer left running would add one every 20 ms.
+        QTest::qWait(300);
+        QVERIFY2(m_server->polls <= pollsAtCancel + 1,
+                 qPrintable(QStringLiteral("%1 polls after the cancel").arg(m_server->polls - pollsAtCancel)));
         QVERIFY(!m_sync->hasPassword());
     }
 
@@ -2176,6 +2249,19 @@ private Q_SLOTS:
         QCOMPARE(m_sync->pendingCount(), 100);
         m_sync->onNoteChanged(1, QStringLiteral("late note"));
         QCOMPARE(m_sync->pendingCount(), 100);
+
+        // A note for an event already sent never pushes out one that never got there.
+        m_sync.reset();
+        m_server->defaultPut = 201;
+        m_sync = makeSync();
+        // A hundred events go one after another: more than the default 5 s on a slow runner.
+        QTRY_COMPARE_WITH_TIMEOUT(m_sync->pendingCount(), 0, 60000);
+        const QList<QByteArray> stored = m_server->stored.keys();
+        for (int i = 2; i <= 101; ++i) {
+            const QByteArray uid = "sugo-" + QByteArray::number(i) + '-';
+            QVERIFY2(std::any_of(stored.cbegin(), stored.cend(), [&uid](const QByteArray &path) { return path.contains(uid); }),
+                     uid.constData());
+        }
     }
 
     void leftoverTestEventIsRemovedLater()

@@ -33,7 +33,7 @@
 - **See your progress.** Daily, weekly, monthly and yearly statistics, streaks, and a note of what you worked on.
 - **Always at hand.** A live countdown in the system tray or the menu bar, with start, pause and skip one click away.
 - **Feels at home.** A clean interface that fits your desktop: at home on KDE Plasma, just as good on other Linux desktops, and a native-feeling app on the Mac.
-- **Private.** Your data stays on your computer. No account, no tracking. Calendar sync with Nextcloud or CalDAV is there if you want it.
+- **Private.** Your data stays on your computer. No account needed. Calendar sync with Nextcloud or CalDAV is there if you want it, and so are anonymous usage statistics, off unless you turn them on.
 
 ---
 

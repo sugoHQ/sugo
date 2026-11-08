@@ -27,7 +27,8 @@ bool moveLoginEntry(const QString &directory, const QString &suffix, const QStri
  *
  * `oldAppDirectory` is the old app's ~/.var/app folder; `dataDirectory` and `configDirectory` are
  * ours (XDG_DATA_HOME, XDG_CONFIG_HOME). Its data/sugo goes to `dataDirectory`/sugo unless that has
- * a database already; its config/sugo to `configDirectory`/sugo unless that has settings already.
+ * a database already; its config/sugo to `configDirectory`/sugo unless that has settings already,
+ * all but "portal-autostart": the Background portal's answer was for the old app ID, not ours.
  * Existing files are never overwritten, and the old folder is left as it is. Returns whether
  * anything was copied.
  */

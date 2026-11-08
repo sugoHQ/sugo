@@ -70,15 +70,14 @@
         "button: About",
         "button: Advanced",
         "button: Calendar",
-        "button: Discard",
         "button: Duplicate",
         "button: Focus",
         "button: General",
         "button: Icon",
         "button: Reset to Defaults",
+        "button: Revert",
         "button: Save",
         "button: Sounds",
-        "button: Start",
         "button: Sync",
         "button: The default timer cannot be deleted",
         "button: Timers",
@@ -324,7 +323,9 @@
         "row: Diagnostic report",
         "row: Reset settings",
         "row: Session history",
-        "setting: allowExternalControl"
+        "row: Share anonymous usage statistics",
+        "setting: allowExternalControl",
+        "setting: shareUsageStats"
       ]
     },
     "settings/about": {
@@ -360,10 +361,13 @@
         "button: Back",
         "button: Next",
         "button: Skip Tour",
+        "button: What is sent",
         "row: Protect weekend streaks",
+        "row: Share anonymous usage statistics",
         "row: Show an icon in the tray",
         "row: Start at login",
         "setting: protectWeekendStreak",
+        "setting: shareUsageStats",
         "setting: showTrayIcon",
         "setting: startAtLogin"
       ],

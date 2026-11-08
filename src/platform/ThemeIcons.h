@@ -26,6 +26,15 @@ public:
     /// Whether the icon theme (or its fallbacks) has an icon called `name`.
     Q_INVOKABLE static bool exists(const QString &name);
 
+    /// Whether `name` is one of Sugo's own tile icons (`qrc:/icons/…svg`), whose drawn part
+    /// can be repainted in the accent colour while the tile keeps its own look.
+    Q_INVOKABLE static bool isTileIcon(const QString &name);
+
+    /// The tile icon `name` (`qrc:/icons/…svg`) with every gradient of its drawn part
+    /// repainted in shades of `color`, as a `data:` URL for QML's Image. The dark tile
+    /// gradient keeps its own colours; `name` without a usable file comes back unchanged.
+    Q_INVOKABLE static QString tintedTileIcon(const QString &name, const QColor &color);
+
     /// The name of the icon theme bundled in the program (`:/icons/sugo-fallback`): the Breeze
     /// icons Sugo's menus use, for desktops without a freedesktop icon theme (macOS).
     static QString fallbackThemeName();

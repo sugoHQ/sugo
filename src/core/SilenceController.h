@@ -19,7 +19,9 @@ class TimerEngine;
  * notifications off.
  *
  * When an elapsed phase auto-starts Work, the silencing follows one event-loop turn later, so
- * the end-of-phase announcement reaches the desktop before the inhibition does.
+ * the end-of-phase announcement reaches the desktop before the inhibition does. The silencing of
+ * a phase that ends is released as soon as it ends, even when the next phase is Work again (a
+ * timer without breaks), where no state change would otherwise re-evaluate the rule.
  */
 class SilenceController : public QObject
 {

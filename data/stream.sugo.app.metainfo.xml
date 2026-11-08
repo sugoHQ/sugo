@@ -23,6 +23,7 @@
       <li>Optional calendar events for finished work sessions (Nextcloud login or any CalDAV calendar)</li>
       <li>KRunner integration, optional automatic pause when the screen is locked, and task notes for completed sessions</li>
     </ul>
+    <p>Sugo can send anonymous usage statistics (the version, the kind of system, which features are on, the planned length of each phase and whether it was finished) to help improve it. They are off unless you turn them on, in the welcome tour or in the settings, and never include personal data.</p>
   </description>
   <launchable type="desktop-id">stream.sugo.app.desktop</launchable>
   <developer id="stream.sugo">
@@ -38,6 +39,20 @@
     <id>io.github.mineraleyt.sugo</id>
   </replaces>
   <releases>
+    <release version="1.0.4" date="2026-11-08">
+      <description>
+        <p>Anonymous usage statistics, which you choose to share or not, and a round of fixes.</p>
+        <ul>
+          <li>Usage statistics are off until you turn them on, in the welcome tour or in Settings; the documentation lists exactly what is sent</li>
+          <li>The accent colour reaches the sliders, the timer icons and the running badge in the menu bar, and the cycle bar is taller and easier to grab</li>
+          <li>The timer editor keeps its title and groups Reset, Revert and Save; dropdown menus open centred on their field</li>
+          <li>Number fields step from the number you typed, and a sideways scroll no longer steps them</li>
+          <li>Calendar sync keeps unsent events across a restart and after a note update, and an accepted event lifts the pause</li>
+          <li>The start command resumes a paused timer, and notifications still show when the server's capabilities can't be read</li>
+          <li>Waiting for the key in Sugo Sync reads the device list again after a minute</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.3" date="2026-11-05">
       <description>
         <p>Sugo has moved to its new home, github.com/sugoHQ/sugo, and its app ID is now stream.sugo.app.</p>
@@ -52,7 +67,7 @@
       <description>
         <p>A new look: a title bar with the timer, statistics and settings, and a composer to choose the timer and start it.</p>
         <ul>
-          <li>Choose an accent colour, used by the main buttons, switches, sliders and the cycle track</li>
+          <li>Choose an accent colour, used by the main buttons, switches, sliders, the cycle track and the running badge in the menu bar</li>
           <li>Settings in categories beside the page, with a Timers category listing every timer and an About page</li>
           <li>Statistics with today's work time and sessions, the figures in one strip, quieter charts and the task notes of the shown period</li>
           <li>The update shows as a small icon in the title bar, and the search has the look of the menus</li>

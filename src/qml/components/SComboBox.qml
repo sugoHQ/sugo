@@ -3,9 +3,9 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import stream.sugo.app
 
-/// A drop-down list in the style of the other controls: its list is an SMenu under the field, with
-/// a check on the current entry. As wide as its longest entry, so it does not move when the choice
-/// changes.
+/// A drop-down list in the style of the other controls: its list is an SMenu centred under the
+/// field, with a check on the current entry. As wide as its longest entry, so it does not move
+/// when the choice changes.
 QQC2.ComboBox {
     id: combo
 
@@ -71,7 +71,7 @@ QQC2.ComboBox {
     popup: SMenu {
         anchorItem: combo
         side: "bottom"
-        align: "start"
+        align: "center"
         // The combo box keeps the keyboard (Up, Down, Enter, Escape) while its list is open.
         focus: false
         naturalWidth: {

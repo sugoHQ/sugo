@@ -45,7 +45,7 @@ QQC2.Page {
         return isNew ? "" : (PresetModel.get(uuid).name || "");
     }
 
-    /// The header shows "‹ Timers / <name>".
+    /// The header shows "Timers / <name>".
     title: isNew ? i18n("New Timer") : storedName
     background: null
 
@@ -212,17 +212,6 @@ QQC2.Page {
         resetDialog.open();
     }
 
-    function start(): void {
-        commitFields();
-        // Changes are saved first (Start is disabled meanwhile).
-        if (TimerEngine.active || modified) {
-            return;
-        }
-        PresetModel.currentUuid = uuid;
-        TimerEngine.start();
-        applicationWindow().navigate("timer");
-    }
-
     ConfirmDialog {
         id: discardDialog
         property var then: null
@@ -284,7 +273,7 @@ QQC2.Page {
 
     /// The window is too narrow for the list of the settings' categories beside the page.
     readonly property bool narrow: page.Window.width > 0 && page.Window.width < Theme.settingsNavBreakpoint
-    /// Too narrow for the timer's name in the header, and for the label of Start.
+    /// Too narrow for the timer's name in the header.
     readonly property bool compact: width < Theme.compactBreakpoint
     // The page's padding: less in a narrow window.
     readonly property real paddingX: narrow ? Theme.settingsBodyPaddingCompactX : Theme.settingsBodyPaddingX
@@ -292,25 +281,27 @@ QQC2.Page {
 
     // Back to the list of the timers, where the timer is, and what can be done with it. Above the
     // page, so Save stays at hand however far the page is scrolled.
+    // Laid out as the settings' categories: the title where theirs is and the page below it at
+    // the same height, the buttons (taller than the title) centred on it without making the row
+    // taller, so opening a timer from the Timers list moves nothing.
     header: Item {
-        implicitHeight: page.paddingY + headerRow.implicitHeight + Theme.spaceMd
+        implicitHeight: page.paddingY + titleText.implicitHeight + Theme.spaceXs + Theme.spaceSm
 
         RowLayout {
             id: headerRow
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.bottom: parent.bottom
+            anchors.top: parent.top
             anchors.leftMargin: page.paddingX
             anchors.rightMargin: page.paddingX
-            anchors.bottomMargin: Theme.spaceMd
+            anchors.topMargin: page.paddingY - (implicitHeight - titleText.implicitHeight) / 2
             spacing: Theme.spaceSm
 
-            // "‹ Timers": unsaved changes are only thrown away once confirmed.
+            // "Timers", back to the list: unsaved changes are only thrown away once confirmed.
             QQC2.AbstractButton {
                 id: backLink
                 objectName: "timersBackLink"
                 implicitHeight: Theme.controlHeight
-                implicitWidth: backRow.implicitWidth + Theme.spaceXs * 2
                 leftPadding: Theme.spaceXs
                 rightPadding: Theme.spaceXs
                 hoverEnabled: true
@@ -325,27 +316,14 @@ QQC2.Page {
                     border.width: backLink.visualFocus ? Theme.hairline : 0
                     border.color: Theme.focusRing
                 }
-                contentItem: Item {
-                    implicitWidth: backRow.implicitWidth
-                    implicitHeight: backRow.implicitHeight
-                    Row {
-                        id: backRow
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.hairline * 2
-                        LineIcon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: "chevron-left"
-                            size: Theme.iconSm
-                            color: backLink.hovered ? Theme.foreground : Theme.muted
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: backLink.text
-                            color: backLink.hovered ? Theme.foreground : Theme.muted
-                            font.pixelSize: Theme.fontSettingsTitle
-                            font.weight: Font.Medium
-                        }
-                    }
+                // Just the word, drawn as the Timers list draws its title and where it does, so
+                // opening a timer only adds "/ <name>" after it.
+                contentItem: Text {
+                    text: backLink.text
+                    verticalAlignment: Text.AlignVCenter
+                    color: backLink.hovered ? Theme.foreground : Theme.muted
+                    font.pixelSize: Theme.fontSettingsTitle
+                    font.weight: Font.DemiBold
                 }
             }
             Text {
@@ -355,6 +333,7 @@ QQC2.Page {
                 font.pixelSize: Theme.fontSettingsTitle
             }
             Text {
+                id: titleText
                 visible: !page.compact
                 Layout.fillWidth: true
                 text: page.title
@@ -369,48 +348,6 @@ QQC2.Page {
                 Layout.fillWidth: true
             }
 
-            // Only while there is something to drop; faded rather than hidden, so nothing moves.
-            // Its room, when it is faded, is the end of the title's.
-            SButton {
-                readonly property bool shown: page.isNew || page.modified
-                kind: "ghost"
-                text: page.isNew ? i18n("Cancel") : i18n("Discard")
-                opacity: shown ? 1 : 0
-                enabled: shown
-                onClicked: page.requestClose()
-                Behavior on opacity {
-                    NumberAnimation { duration: Theme.durationShort }
-                }
-            }
-            // A disabled button gets no hover events, so the wrapper says why it cannot start.
-            Item {
-                visible: !page.isNew
-                implicitWidth: startButton.implicitWidth
-                implicitHeight: startButton.implicitHeight
-                HoverHandler {
-                    id: startHover
-                }
-                QQC2.ToolTip.visible: !startButton.enabled && startHover.hovered && startButton.blockedBy.length > 0
-                QQC2.ToolTip.text: startButton.blockedBy
-                QQC2.ToolTip.delay: Theme.toolTipDelay
-                SButton {
-                    id: startButton
-                    readonly property bool running: page.isCurrent && TimerEngine.active
-                    /// Why Start is disabled ("Running" says it for this timer).
-                    readonly property string blockedBy: running ? ""
-                        : TimerEngine.active ? i18n("Stop the timer to switch to a different timer.")
-                        : page.modified ? i18n("Save your changes to start this timer.")
-                        : ""
-                    anchors.fill: parent
-                    kind: running ? "ghost" : "secondary"
-                    iconOnly: page.compact
-                    iconName: running ? "dot" : "play"
-                    text: running ? i18n("Running") : i18n("Start")
-                    labels: [i18n("Start"), i18n("Running")]
-                    enabled: !TimerEngine.active && !page.modified
-                    onClicked: page.start()
-                }
-            }
             SButton {
                 visible: !page.isNew
                 kind: "ghost"
@@ -445,8 +382,41 @@ QQC2.Page {
                     onClicked: deleteDialog.open()
                 }
             }
+            // The timer's own actions stand apart from what is done with its changes.
+            Rectangle {
+                visible: !page.isNew
+                Layout.preferredWidth: Theme.hairline
+                Layout.preferredHeight: Theme.controlHeight - Theme.spaceMd * 2
+                Layout.alignment: Qt.AlignVCenter
+                color: Theme.border
+            }
+            // The changes, together: back to the default values (a built-in timer only), back to
+            // what is stored, and Save.
+            SButton {
+                objectName: "resetButton"
+                visible: page.preset.builtin === true
+                kind: "ghost"
+                iconOnly: true
+                iconName: "refresh"
+                text: i18n("Reset to Defaults")
+                onClicked: page.requestReset()
+            }
+            // Always there, lit only when there is something to take back, so nothing moves.
+            SButton {
+                objectName: "revertButton"
+                readonly property bool active: page.isNew || page.modified
+                kind: "ghost"
+                iconOnly: true
+                iconName: "undo"
+                lit: active
+                text: page.isNew ? i18n("Cancel") : i18n("Revert")
+                enabled: active
+                onClicked: page.requestClose()
+            }
             SButton {
                 kind: "primary"
+                iconOnly: true
+                iconName: "save"
                 text: page.isNew ? i18n("Create Timer") : i18n("Save")
                 enabled: page.canSave
                 onClicked: page.save()
@@ -501,6 +471,7 @@ QQC2.Page {
                             anchors.centerIn: parent
                             iconName: iconBtn.modelData.iconName
                             size: Theme.iconLg - Theme.spaceXs
+                            color: Theme.accent
                         }
                     }
                     onClicked: {
@@ -587,8 +558,8 @@ QQC2.Page {
                         id: cycleRow
                         objectName: "cyclePreview"
                         Layout.fillWidth: true
-                        // Taller than the track, to grab it.
-                        implicitHeight: Theme.spaceLg
+                        // Taller than the track (a small space above and below), to grab it.
+                        implicitHeight: Theme.cyclePreviewHeight + Theme.spaceLg
                         // A long set (up to 99 work phases) still fits: the gaps take at most half the
                         // row, the blocks' minimum width shrinks to their share of the rest, and the
                         // row clips what rounding leaves over.
@@ -612,7 +583,7 @@ QQC2.Page {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            height: Theme.cycleTrackHeight
+                            height: Theme.cyclePreviewHeight
                             spacing: cycleRow.gap
                             Repeater {
                                 model: cycleRow.phases
@@ -734,6 +705,7 @@ QQC2.Page {
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconName: page.selectedIcon
                                     size: Theme.iconMd
+                                    color: Theme.accent
                                 }
                                 LineIcon {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -898,15 +870,6 @@ QQC2.Page {
                         checked: page.shown.notifyOnEnd
                     }
                 }
-            }
-
-            SButton {
-                visible: page.preset.builtin === true
-                Layout.topMargin: Theme.spaceLg
-                kind: "ghost"
-                iconName: "undo"
-                text: i18n("Reset to Defaults")
-                onClicked: page.requestReset()
             }
         }
     }

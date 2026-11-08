@@ -46,12 +46,15 @@ QString defaultPath();
 
 /// At the end of a build that installed an update: moves to `path` (mode 0600) every secret of
 /// `store` it can read without asking, adding them to those already waiting there, then deletes
-/// their items. Nothing is deleted unless the file was written. Returns how many were moved.
+/// their items. Nothing is deleted unless the file was written; a file at `path` that cannot be
+/// read, or is not a handoff file, is left as it is and nothing is moved. Returns how many were moved.
 int handOver(SecretHandoffStore &store, const QString &path);
 
 /// At the start: writes the secrets waiting at `path` into `store` as this build's items, and
-/// deletes the file once none is left. A secret that cannot be written stays in the file for the
-/// next start, unless `store` still has an item for it (the old build could not delete it: the
-/// user will be asked for that one, as before). Returns how many were written.
+/// deletes the file once none is left. A secret `store` already holds is left as it is (the user
+/// typed it again since, while the file was the only copy: the newer one wins). A secret that
+/// cannot be written stays in the file for the next start, unless `store` still has an item for
+/// it (the old build could not delete it: the user will be asked for that one, as before).
+/// Returns how many were written.
 int takeBack(SecretHandoffStore &store, const QString &path);
 } // namespace SecretHandoff

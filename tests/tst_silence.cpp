@@ -119,6 +119,26 @@ private Q_SLOTS:
         QVERIFY(silence->active());
     }
 
+    void workEndWithoutAnyBreakReleasesAndSilencesAgain()
+    {
+        // A timer with no breaks at all: the work phase that ends is followed by another work
+        // phase, so the state never leaves Working. The silencing must still be released, or the
+        // end-of-phase announcement waits for an inhibition that is never let go.
+        enableSilenceOnDefaultTimer();
+        QVERIFY(presets->update(PresetModel::DefaultUuid, {{QStringLiteral("shortBreakSeconds"), 0},
+                                                          {QStringLiteral("longBreakSeconds"), 0}}));
+        QVERIFY(presets->setOption(PresetModel::DefaultUuid, PresetOption::AutoStartMode, 2));
+
+        engine->start();
+        QVERIFY(inhibitor->isInhibited());
+
+        elapse(25 * 60); // work ends, the next work phase starts at once
+        QCOMPARE(engine->state(), State::Working);
+        QVERIFY(!inhibitor->isInhibited()); // released for the announcement
+        QTRY_VERIFY(inhibitor->isInhibited()); // and taken again for the new phase
+        QVERIFY(silence->active());
+    }
+
     void anAutoStartedWorkPhaseStoppedAtOnceIsNeverSilenced()
     {
         enableSilenceOnDefaultTimer();

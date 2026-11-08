@@ -162,11 +162,9 @@ jobs:
           fi
           ls -l
 
-      # The addresses in the feed keep the project's path from before it moved to sugoHQ: GitHub
-      # redirects it, and Sugo 1.0.2 and older download only from MineraleYT/sugo.
       - name: Write the stable feed
         env:
-          REPO: MineraleYT/sugo
+          REPO: sugoHQ/sugo
           VERSION: ${{ needs.check.outputs.version }}
         working-directory: release-assets
         run: |

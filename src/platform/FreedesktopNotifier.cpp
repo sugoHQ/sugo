@@ -73,8 +73,21 @@ void FreedesktopNotifier::notify(QObject *context, const Notification &notificat
         w->deleteLater();
         const QDBusPendingReply<QStringList> reply = *w;
         if (reply.isError()) {
-            if (!showElsewhere(reply.error(), guard, notification)) {
+            if (showElsewhere(reply.error(), guard, notification)) {
+                return;
+            }
+            if (noServer(reply.error()) || !guard) {
                 qCWarning(lcNotifier) << "No notification server:" << reply.error().message();
+                return;
+            }
+            // A server that is there but did not answer (busy, stuck, broken). Nothing has been
+            // sent yet, so the fallback cannot make it appear twice: it is sure to show it.
+            // Without one, try the server anyway, with no capabilities known (no actions).
+            qCWarning(lcNotifier) << "The notification server did not give its capabilities:" << reply.error().message();
+            if (m_fallback) {
+                m_fallback->notify(guard, notification);
+            } else {
+                send(guard, notification, {});
             }
             return;
         }

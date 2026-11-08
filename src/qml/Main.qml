@@ -362,6 +362,12 @@ QQC2.ApplicationWindow {
                 fail(23, "Settings switches without an accessible name: found=" + switches.length + " unnamed=" + unnamed.join(","));
                 return;
             }
+            // The usage statistics are opt-in: their switch is there, and off.
+            const usageStats = switches.find(sw => sw.setting === "shareUsageStats");
+            if (!usageStats || usageStats.checked || AppSettings.shareUsageStats) {
+                fail(66, "The usage statistics switch is missing from Settings, or on by default");
+                return;
+            }
             // A dragged slider keeps following the setting (a drag sets `value` from C++, which
             // does not drop the binding).
             const slider = findItem(page, item => item.objectName === "soundVolumeSlider");
@@ -589,6 +595,13 @@ QQC2.ApplicationWindow {
             const focusInstall = findItem(page, item => item.objectName === "welcomeInstallFocusShortcuts");
             if (!focusInstall || focusInstall.enabled || (!DesktopStyle.macos && focusInstall.visible)) {
                 fail(46, "The welcome tour's Focus shortcuts row is missing, or shown outside macOS");
+                return true;
+            }
+            // The usage statistics: asked on the setup step, off until the user turns them on.
+            const usageRow = findItem(page, item => item.objectName === "welcomeUsageStatsRow");
+            const usageSwitch = usageRow ? findItem(usageRow, item => item.setting === "shareUsageStats") : null;
+            if (!usageRow || !usageSwitch || usageSwitch.checked || AppSettings.shareUsageStats || usageSwitch.accessibleName.length === 0) {
+                fail(66, "The welcome tour's usage statistics row is missing, unnamed, or on by default");
                 return true;
             }
             // The step dots are named, move the slides, and keep following them.
@@ -1012,6 +1025,37 @@ QQC2.ApplicationWindow {
                         || typedWork !== workField.from || restoredWork !== workBefore || typedText !== workBefore) {
                     fail(64, "A number typed with a sign, or text that is no number, was misread: \"-5\" gave " + typedShort + " and "
                          + typedWork + ", \"abc7\" over " + restoredWork + " gave " + typedText);
+                    return true;
+                }
+                // A step (arrow keys, wheel) starts from what is typed, brought into range: a number
+                // above the maximum, not yet committed, steps down from the maximum.
+                const workInput = findItem(workField, item => item.cursorPosition !== undefined);
+                workInput.text = String(workField.to + 21);
+                workField.step(-1);
+                const steppedWork = workField.value;
+                const steppedText = workInput.text;
+                typedValue(workField, String(workBefore));
+                if (steppedWork !== workField.to - 1 || steppedText !== String(workField.to - 1)) {
+                    fail(64, "A step did not start from the number typed: " + (workField.to + 21) + " and a step down gave "
+                         + steppedWork + " (\"" + steppedText + "\"), expected " + (workField.to - 1));
+                    return true;
+                }
+                // The wheel steps the field being edited by its vertical turn only: a horizontal
+                // scroll (touchpad, Shift+wheel) or an event without vertical turn (the end of a
+                // touchpad gesture) leaves it as it is, rather than stepping it down.
+                workField.forceActiveFocus();
+                const wheelSent = appSmokeInput.wheel(workField, 0, 120);
+                const wheeledUp = workField.value;
+                appSmokeInput.wheel(workField, 120, 0);
+                const wheeledSideways = workField.value;
+                appSmokeInput.wheel(workField, 0, 0);
+                const wheeledNothing = workField.value;
+                typedValue(workField, String(workBefore));
+                if (!wheelSent || wheeledUp !== workBefore + 1 || wheeledSideways !== workBefore + 1
+                        || wheeledNothing !== workBefore + 1) {
+                    fail(64, "The wheel stepped the field wrongly: from " + workBefore + ", up gave " + wheeledUp
+                         + ", then sideways " + wheeledSideways + " and no turn " + wheeledNothing
+                         + " (expected " + (workBefore + 1) + ")");
                     return true;
                 }
                 // The longest set: its preview lays out on the next tick.

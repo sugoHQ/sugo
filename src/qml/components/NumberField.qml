@@ -40,6 +40,13 @@ QQC2.Control {
         setValue(match ? Math.max(from, Math.min(to, parseInt(match[1], 10))) : value);
     }
 
+    /// One step up (1) or down (-1), as the arrow keys and the mouse wheel do: from what is typed
+    /// (brought into range), not from the value it had.
+    function step(delta: int): void {
+        commit();
+        setValue(value + delta);
+    }
+
     readonly property string displayText: fromText.length > 0 && value === from ? fromText : String(value)
 
     implicitWidth: Math.max(Theme.space4xl * 1.7, row.implicitWidth + leftPadding + rightPadding)
@@ -75,8 +82,8 @@ QQC2.Control {
             selectByMouse: true
             inputMethodHints: Qt.ImhDigitsOnly
             Accessible.name: field.Accessible.name
-            Keys.onUpPressed: field.setValue(field.value + 1)
-            Keys.onDownPressed: field.setValue(field.value - 1)
+            Keys.onUpPressed: field.step(1)
+            Keys.onDownPressed: field.step(-1)
             onEditingFinished: field.commit()
             // A number in range counts while it is typed (unsaved changes, Save), out of range only
             // once committed. The text stays as typed until then: no rewriting under the caret
@@ -104,6 +111,11 @@ QQC2.Control {
     WheelHandler {
         enabled: input.activeFocus
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        onWheel: event => field.setValue(field.value + (event.angleDelta.y > 0 ? 1 : -1))
+        // Only a vertical turn steps: a horizontal scroll (touchpad, Shift+wheel) or an event
+        // without one (the end of a touchpad gesture) is no step down.
+        onWheel: event => {
+            if (event.angleDelta.y !== 0)
+                field.step(event.angleDelta.y > 0 ? 1 : -1);
+        }
     }
 }

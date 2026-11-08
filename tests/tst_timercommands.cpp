@@ -88,6 +88,34 @@ private Q_SLOTS:
         QVERIFY(!unknown.message.isEmpty());
     }
 
+    void startResumesAPausedTimer()
+    {
+        Fixture f;
+
+        // From Idle it begins the pending phase.
+        QVERIFY(f.commands.start().ok());
+        QCOMPARE(f.engine.state(), TimerEngine::State::Working);
+        QVERIFY(f.engine.isRunning());
+
+        // Paused: start resumes it, and the countdown goes on from where it stopped.
+        f.clock.advanceSeconds(10);
+        QVERIFY(f.commands.pause().ok());
+        QVERIFY(f.engine.isPaused());
+        const int paused = f.engine.remainingSeconds();
+        QVERIFY(f.commands.start().ok());
+        QCOMPARE(f.engine.state(), TimerEngine::State::Working);
+        QVERIFY(f.engine.isRunning());
+        QCOMPARE(f.engine.remainingSeconds(), paused);
+        f.clock.advanceSeconds(5);
+        QCOMPARE(f.engine.remainingSeconds(), paused - 5);
+
+        // Running: start leaves the phase alone (it does not restart it).
+        const int running = f.engine.remainingSeconds();
+        QVERIFY(f.commands.start().ok());
+        QCOMPARE(f.engine.state(), TimerEngine::State::Working);
+        QCOMPARE(f.engine.remainingSeconds(), running);
+    }
+
     void linksChooseAndStartTimers()
     {
         Fixture f;

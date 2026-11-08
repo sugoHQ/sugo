@@ -89,8 +89,14 @@ target_sources(sugo_core PRIVATE
     core/TrayIconStyle.h
     core/UpdateChecker.h
     core/UpdateChecker.cpp
+    core/Telemetry.h
+    core/Telemetry.cpp
+    core/TelemetryInfo.h
+    core/TelemetryInfo.cpp
     core/Diagnostics.h
     core/Diagnostics.cpp
+    core/SmokeInput.h
+    core/SmokeInput.cpp
     core/RetryAfter.h
     core/UrlPolicy.h
     core/QuitPolicy.h

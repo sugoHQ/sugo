@@ -156,7 +156,7 @@ A test that builds a GUI application sets `QT_QPA_PLATFORM=offscreen` for itself
 
 CI builds on Linux with GCC (and runs the suite) and with Clang (its warnings are close to those of Apple's compiler), both with warnings as errors, and on macOS (arm64, Qt from qt.io, warnings as errors, the whole suite; not blocking yet).
 
-CI runs only what a change can affect: its first job, Changes, reads the changed files and `.github/scripts/ci-changes.sh` decides which builds they need. Documentation runs nothing, a macOS-only file (`packaging/macos/`, the `.mm` sources, the `Mac*` sources built under `if(APPLE)`) only the macOS job, a Linux-only one (the D-Bus services, the desktop entry and the metainfo) only the Linux jobs, and the test scripts skip the Clang build; anything else, or a change it cannot read, runs everything. A file added for one platform only goes in that script's lists. The Linux jobs run in a container with every build dependency already installed (`.github/ci-image/Dockerfile`, on ghcr.io as `sugo-ci`, tagged with a hash of the Dockerfile): the CI image job builds it only when the Dockerfile changes, so a new dependency goes in the Dockerfile. The jobs keep the compiler cache (ccache) between runs, and a newer push cancels the run of the older one.
+CI runs only what a change can affect: its first job, Changes, reads the changed files and `.github/scripts/ci-changes.sh` decides which builds they need. Documentation runs nothing, a macOS-only file (`packaging/macos/`, the `.mm` sources, the `Mac*` sources built under `if(APPLE)`) only the macOS job, a Linux-only one (the D-Bus services, the desktop entry and the metainfo) only the Linux jobs, and the test scripts skip the Clang build; anything else, or a change it cannot read, runs everything. A pull request is compared with its base; a push with the commit of the newest CI run on its branch that passed, not with the commit before it, so the changes of a run that failed or was cancelled stay in the comparison until a run passes with them (otherwise a push of `po/sugo.pot` alone after a failed one would pass, and on `testing` publish a nightly no test ran on); with no such run, or one whose commit is not an ancestor of the push, everything runs. A file added for one platform only goes in that script's lists. The Linux jobs run in a container with every build dependency already installed (`.github/ci-image/Dockerfile`, on ghcr.io as `sugo-ci`, tagged with a hash of the Dockerfile): the CI image job builds it only when the Dockerfile changes, so a new dependency goes in the Dockerfile. The jobs keep the compiler cache (ccache) between runs, and a newer push cancels the run of the older one.
 
 **On macOS** the same `ctest` command works (the smoke runs need GNU `timeout`, see [Building the macOS app](#building-the-macos-app)). What is tested only on Linux: the freedesktop services over D-Bus (notifications, notification and power inhibitors, KRunner, the `/Timer` service, the single-instance bus name, the Secret Service, the Background portal), which the macOS build does not compile at all: QtDBus is not linked there (`SUGO_DBUS` in the top-level `CMakeLists.txt`), so `tst_powerinhibitor`, `tst_dbustimerservice`, `tst_singleinstance`, `tst_freedesktopnotifier`, `tst_freedesktopinhibitor`, `tst_krunnerservice` and `tst_secretstore` are not built, and the D-Bus cases of `tst_screenlockwatcher` and `tst_autostart` skip. The AppImage's self-update is not used on macOS, where the app bundle updates itself instead (`MacBundleInstaller`); `tst_updatechecker` tests both installers with stand-in tools on either system. `tst_mackeychainstore` writes to the real login Keychain, so it runs only with `SUGO_TEST_KEYCHAIN=1` from a terminal of the logged-in desktop session; over SSH there is no login session (every Keychain call fails with OSStatus -25308) and it skips. What happens to the Keychain items across updates of an ad hoc signed app is checked by hand (`tests/manual-review-checklist.md`, "macOS: Keychain").
 
@@ -192,6 +192,7 @@ It takes the same screenshots of every screen on both and writes `/tmp/sugo-comp
 | `SUGO_WINDOW_STYLE` | Forces the title bar style (`kde`, `gnome`, `macos`, `windows`, `generic`, ...); `macos` also shows the wording and shortcuts of the Mac version, to preview it on Linux |
 | `SUGO_DATA_DIR` | The folder that holds `sugo.db` and `sugo.conf`, instead of the usual ones: keeps test runs (and the macOS smoke runs, where `XDG_*` has no effect) away from your data |
 | `SUGO_OVERRIDE_VERSION` | The version the update check compares, to try it against the published feeds |
+| `SUGO_SYNC_URL` | Another server for Sugo Sync and the usage statistics (`POST /v1/telemetry`), e.g. `http://localhost:8787` (`wrangler dev` of sugo-sync) |
 
 ---
 
@@ -210,6 +211,8 @@ It takes the same screenshots of every screen on both and writes `/tmp/sugo-comp
 | `.github/workflows/` | CI and release workflows |
 
 All the C++ code but `src/main.cpp` is built once, as the static library `sugo_core` (also the QML module), which the program and every test link.
+
+Usage statistics (`src/core/Telemetry.h`, opt-in, off by default): the events and their values are listed in `docs/USAGE.md` ("Anonymous usage statistics") and must be exactly what the Worker accepts (sugo-sync, `worker/src/telemetry.ts`, `EVENTS`). To add an event or a property, or a distribution to `TelemetryInfo::distroFrom()`, change the Worker first and deploy it, then Sugo, then `docs/USAGE.md`: the Worker silently drops what it does not know. Smoke runs never send anything.
 
 Conventions worth knowing: user-visible strings go through `i18n()` (never `tr()`), with `i18np()` for anything that can be plural; QML uses only the colours and sizes of `Theme` (`src/qml/theme/Theme.qml`).
 
@@ -269,13 +272,13 @@ A release is a version bump, a commit, an annotated tag on `main` and a push. Th
    mv Sugo-macOS-universal.dmg "$dmg"
    gh release upload vX.Y.Z "$dmg" --repo sugoHQ/sugo
    gh release download vX.Y.Z --repo sugoHQ/sugo --pattern stable.json --clobber
-   jq --arg url "https://github.com/MineraleYT/sugo/releases/download/vX.Y.Z/$dmg" \
+   jq --arg url "https://github.com/sugoHQ/sugo/releases/download/vX.Y.Z/$dmg" \
       --arg sha256 "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
       --argjson size "$(wc -c < "$dmg" | tr -d ' ')" \
       '. + {macos: {url: $url, sha256: $sha256, size: $size}}' stable.json > stable.json.new
    mv stable.json.new stable.json
    gh release upload vX.Y.Z stable.json --repo sugoHQ/sugo --clobber
    ```
-   The address keeps the path from before the move to sugoHQ, as `release.yml` writes it: GitHub redirects it, and Sugo 1.0.2 and older download only from there. The disk image goes first: the feed must never announce a file that is not there. On a Mac, open the disk image, drag Sugo to Applications, and check the first launch and `Sugo.app/Contents/MacOS/Sugo --version`.
+   The address is the project's current one, as `release.yml` writes it (from 1.0.4; the feeds of 1.0.3 and older releases keep the path from before the move to sugoHQ, where Sugo 1.0.2 and older download from). The disk image goes first: the feed must never announce a file that is not there. On a Mac, open the disk image, drag Sugo to Applications, and check the first launch and `Sugo.app/Contents/MacOS/Sugo --version`.
 
 The workflow refuses to publish unless the tag, the version in `CMakeLists.txt` and the newest `<release>` in the metainfo all agree. Every `v*` tag is built, tested and published, whatever the tagged commit changed. Pushes that only change Markdown files or `docs/` skip CI. Third-party actions and the build image are pinned to a commit or digest; Dependabot proposes updates.

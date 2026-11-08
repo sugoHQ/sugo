@@ -12,7 +12,7 @@ import stream.sugo.app
  *         id: menu
  *         anchorItem: button
  *         side: "bottom"      // or "top"; it goes to the other side when there is not room enough
- *         align: "end"        // right edges together ("start": left edges)
+ *         align: "end"        // right edges together ("start": left, "center": centres)
  *         SMenuItem { text: …; checked: …; onTriggered: … }
  *     }
  *
@@ -29,7 +29,7 @@ QQC2.Popup {
     property Item anchorItem
     /// "bottom" (under the button) or "top" (over it).
     property string side: "bottom"
-    /// "start" (left edges together) or "end" (right edges together).
+    /// "start" (left edges together), "center" (centres together), or "end" (right edges together).
     property string align: "start"
     /// A width of its own (the whole menu's) instead of the widest row's; still kept inside the window.
     property real fixedWidth: 0
@@ -91,7 +91,14 @@ QQC2.Popup {
         readonly property real room: side === "top" ? roomAbove : roomBelow
         // In the window's coordinates.
         readonly property real left: {
-            const wanted = menu.align === "end" ? anchor.x + anchor.width - menu.width : anchor.x;
+            let wanted;
+            if (menu.align === "end") {
+                wanted = anchor.x + anchor.width - menu.width;
+            } else if (menu.align === "center") {
+                wanted = anchor.x + (anchor.width - menu.width) / 2;
+            } else {
+                wanted = anchor.x;
+            }
             return Math.max(Theme.menuEdgeMargin, Math.min(wanted, windowWidth - Theme.menuEdgeMargin - menu.width));
         }
         readonly property real top: side === "top" ? anchor.y - Theme.menuOffset - menu.height
@@ -180,8 +187,13 @@ QQC2.Popup {
     }
     implicitHeight: rows.implicitHeight + (Theme.menuPadding - Theme.hairline) * 2 + topPadding + bottomPadding
     height: anchorItem ? Math.min(implicitHeight, Math.max(0, placement.room)) : implicitHeight
-    transformOrigin: placement.side === "top" ? (align === "end" ? QQC2.Popup.BottomRight : QQC2.Popup.BottomLeft)
-                                              : (align === "end" ? QQC2.Popup.TopRight : QQC2.Popup.TopLeft)
+    transformOrigin: {
+        if (align === "center") {
+            return placement.side === "top" ? QQC2.Popup.Bottom : QQC2.Popup.Top;
+        }
+        return placement.side === "top" ? (align === "end" ? QQC2.Popup.BottomRight : QQC2.Popup.BottomLeft)
+                                        : (align === "end" ? QQC2.Popup.TopRight : QQC2.Popup.TopLeft);
+    }
 
     onAboutToShow: {
         adoptRows();

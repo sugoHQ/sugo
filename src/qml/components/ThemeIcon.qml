@@ -5,7 +5,8 @@ import stream.sugo.app
 /**
  * An icon of the desktop's icon theme (`name`), or an image file when `name` is a URL
  * ("qrc:/…", "file:/…"). With `color` set, a theme icon is painted in that one colour (for
- * symbolic icons). `valid` is false when there is nothing to show: the theme has no such icon.
+ * symbolic icons), and a Sugo tile icon keeps its dark tile but gets its drawn part in that
+ * colour. `valid` is false when there is nothing to show: the theme has no such icon.
  */
 Item {
     id: icon
@@ -16,6 +17,7 @@ Item {
     property color color: "transparent"
 
     readonly property bool isUrl: name.indexOf(":/") > 0
+    readonly property bool isTile: isUrl && ThemeIcons.isTileIcon(name)
     readonly property bool valid: isUrl || ThemeIcons.exists(name)
 
     implicitWidth: size
@@ -30,6 +32,9 @@ Item {
         source: {
             if (!icon.valid || icon.name.length === 0) {
                 return "";
+            }
+            if (icon.isTile && icon.color.a > 0) {
+                return ThemeIcons.tintedTileIcon(icon.name, icon.color);
             }
             if (icon.isUrl) {
                 return icon.name;
