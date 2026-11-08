@@ -11,15 +11,17 @@ Sugo is a local application: your timers, statistics and notes stay on your comp
 
 **Please do not open a public issue for a security problem.** Use GitHub's private reporting instead: [Security → Report a vulnerability](https://github.com/sugoHQ/sugo/security/advisories/new). Only the maintainers can read the report, and the advisory stays private until a fix is out.
 
-A useful report says what an attacker gains, the version of Sugo (`Settings → About`), how it was installed, and the steps to reproduce it. A proof of concept helps but is not required.
+A useful report says what an attacker gains, the version of Sugo (`Settings → About`), how it was installed (Flatpak, AppImage, source, macOS app), your operating system and desktop, and the steps to reproduce it. A proof of concept helps but is not required. If you attach the report from `Settings → Advanced → Troubleshooting & Diagnostics`, check it first: it hides your home directory, user name and credentials, but read it before you send it.
 
 What to expect:
 
-- an acknowledgement within a week;
+- an acknowledgement within 7 days, and an update at least every 14 days until the report is resolved;
 - an assessment, and a fix or a mitigation plan, as soon as we can;
 - credit in the advisory and the release notes, unless you prefer to stay anonymous.
 
-Please give us the time to publish a fix before writing about the problem in public.
+Sugo is maintained by volunteers, so these times are goals, not guarantees. Please give us the time to publish a fix before writing about the problem in public: we ask you to keep the details private until the fixed release is out, and in any case for up to 90 days from your report.
+
+If you act in good faith, test only against your own installation and accounts, and do not read, change or destroy other people's data, we will not take action against you and will treat your report as authorized research.
 
 ## Supported versions
 
@@ -33,8 +35,10 @@ Fixes go into the latest release and the latest nightly build. Older releases ar
 
 ## What is not in scope
 
+- The first-launch warning of the macOS app, which is not signed with a Developer ID nor notarized.
 - Builds of Sugo that come from anywhere but this repository's releases.
-- Problems that need an attacker who already controls your user account, your desktop session, or your keyring.
+- Problems that need an attacker who already controls your user account, your desktop session, or your keyring (a modified `~/.config/sugo`, root access).
+- Denial of service by a large or malformed local file with no further impact.
 - Denial of service against the free sync service, and reports produced only by a scanner without a working exploit.
 - Vulnerabilities in Qt, libsodium or another dependency: report them upstream. We still want to hear about them if Sugo uses the affected code in a way that makes them worse.
 
