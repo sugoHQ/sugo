@@ -391,6 +391,15 @@ private Q_SLOTS:
         QCOMPARE(t->queue().at(3).toObject().value(QStringLiteral("props")).toObject(),
                  QJsonObject({{QStringLiteral("area"), QStringLiteral("calendar")}, {QStringLiteral("kind"), QStringLiteral("network")}}));
 
+        // Also after a restart the same day.
+        Telemetry *restarted = make();
+        restarted->setNow([&now]() { return now; });
+        restarted->setEnabled(true);
+        const qsizetype queued = restarted->queue().size();
+        restarted->recordSyncError(QStringLiteral("calendar"), QStringLiteral("network"));
+        QCOMPARE(restarted->queue().size(), queued);
+        t = restarted;
+
         // Turned off and on: counted afresh.
         t->setEnabled(false);
         t->setEnabled(true);

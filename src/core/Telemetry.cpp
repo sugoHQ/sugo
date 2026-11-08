@@ -17,6 +17,8 @@ namespace
 {
 const char kId[] = "Telemetry/Id";
 const char kQueue[] = "Telemetry/Queue";
+/// sync_error: "area/kind" → the day (yyyy-MM-dd, UTC) it was last recorded, kept across restarts.
+const char kSyncErrorDays[] = "Telemetry/SyncErrorDays";
 constexpr int kTransferTimeoutMs = 15 * 1000;
 
 QString phaseName(TimerEngine::Phase phase)
@@ -113,6 +115,13 @@ Telemetry::Telemetry(Settings::Ptr settings, TelemetryTransport *transport, QObj
             m_queue.append(event);
         }
     }
+    const QJsonObject days = QJsonDocument::fromJson(m_settings->value(QLatin1String(kSyncErrorDays)).toString().toUtf8()).object();
+    for (auto it = days.begin(); it != days.end(); ++it) {
+        const QDate day = QDate::fromString(it.value().toString(), Qt::ISODate);
+        if (day.isValid()) {
+            m_syncErrorsSent.insert(it.key(), day);
+        }
+    }
 }
 
 void Telemetry::setStartProperties(std::function<QJsonObject()> properties)
@@ -136,7 +145,8 @@ void Telemetry::setEnabled(bool enabled, const QString &source)
 {
     if (!enabled) {
         const bool hadState = m_enabled || !m_id.isEmpty() || !m_queue.isEmpty()
-            || m_settings->contains(QLatin1String(kId)) || m_settings->contains(QLatin1String(kQueue));
+            || m_settings->contains(QLatin1String(kId)) || m_settings->contains(QLatin1String(kQueue))
+            || m_settings->contains(QLatin1String(kSyncErrorDays));
         m_enabled = false;
         m_startedRecorded = false;
         m_timer.stop();
@@ -212,6 +222,13 @@ void Telemetry::recordSyncError(const QString &area, const QString &kind)
         return;
     }
     m_syncErrorsSent.insert(key, today);
+    QJsonObject days;
+    for (auto it = m_syncErrorsSent.cbegin(); it != m_syncErrorsSent.cend(); ++it) {
+        if (it.value() == today) { // older days no longer matter
+            days.insert(it.key(), it.value().toString(Qt::ISODate));
+        }
+    }
+    m_settings->setValue(QLatin1String(kSyncErrorDays), QString::fromUtf8(QJsonDocument(days).toJson(QJsonDocument::Compact)));
     record(QStringLiteral("sync_error"), {{QStringLiteral("area"), area}, {QStringLiteral("kind"), kind}});
 }
 
