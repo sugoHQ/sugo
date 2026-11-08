@@ -39,10 +39,16 @@ jobs:
   # Skips the jobs a change cannot affect: documentation runs nothing, a macOS-only change only the
   # macOS job, a Linux-only one (D-Bus services, metadata) only the Linux jobs. The file lists are
   # in .github/scripts/ci-changes.sh; when the changed files cannot be known, everything runs.
+  # A pull request is compared with its base; a push with the commit of the newest run on its
+  # branch that passed, so the changes of a failed or cancelled run are tested by the next one.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # actions: read to find the newest CI run of the branch that passed.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       linux: ${{ steps.detect.outputs.linux }}
       clang: ${{ steps.detect.outputs.clang }}
@@ -58,9 +64,16 @@ jobs:
         id: detect
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: bash .github/scripts/ci-changes.sh "$BASE" "$HEAD"
+        run: |
+          if [ "$EVENT" = push ]; then
+            bash .github/scripts/ci-changes.sh --last-green "$BRANCH" "$HEAD"
+          else
+            bash .github/scripts/ci-changes.sh "$BASE" "$HEAD"
+          fi
 
   # The system the Linux jobs run in: .github/ci-image/Dockerfile, every build dependency installed,
   # on ghcr.io tagged with a hash of the Dockerfile. Built and pushed only when that tag is missing,
