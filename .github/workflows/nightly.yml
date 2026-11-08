@@ -173,13 +173,6 @@ jobs:
             echo "The branch testing at $SHA, built automatically. It may have bugs; the stable releases are tested."
             echo
             echo "Download Sugo-$VERSION-x86_64.AppImage, make it executable and start it. In Settings → Updates, the Nightly channel keeps it up to date by itself."
-            dmg=Sugo-$VERSION-macOS-universal.dmg
-            if [ -f "$dmg" ]; then
-              echo
-              cat <<EOF
-          On macOS 13 or later (Apple Silicon or Intel), open $dmg and drag Sugo to Applications. Sugo is not notarized by Apple, so macOS blocks the first launch: on macOS 15, open System Settings → Privacy & Security and click "Open Anyway" next to the message about Sugo (on macOS 13 and 14, Control-click Sugo in Applications and choose Open), or run \`xattr -dr com.apple.quarantine /Applications/Sugo.app\` in Terminal. Sugo for macOS installs its updates by itself too (the Nightly channel in Settings → Updates) when it is in a folder it can write to (Applications for an administrator).
-          EOF
-            fi
             if [ -n "$highlights" ]; then printf '\n## Highlights\n%s\n' "$highlights"; fi
             if [ -n "$fixes" ]; then printf '\n## Fixes\n%s\n' "$fixes"; fi
             if [ -n "$prev" ] && [ "$prev" != "$SHA" ]; then
