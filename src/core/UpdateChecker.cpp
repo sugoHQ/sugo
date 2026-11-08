@@ -502,6 +502,7 @@ void UpdateChecker::installUpdate()
         const QString reason = m_saveFile->errorString();
         m_saveFile.reset();
         fail(i18n("Cannot write the update next to %1: %2", m_installer->target(), reason));
+        Q_EMIT installFinished(false, QStringLiteral("write"));
         return;
     }
     m_hash = std::make_unique<QCryptographicHash>(QCryptographicHash::Sha256);
@@ -526,6 +527,7 @@ void UpdateChecker::installUpdate()
         if (m_received > m_expectedSize) {
             abortDownload();
             fail(i18n("The update is larger than announced."));
+            Q_EMIT installFinished(false, QStringLiteral("verify"));
             return;
         }
         m_hash->addData(chunk);
@@ -533,6 +535,7 @@ void UpdateChecker::installUpdate()
             const QString reason = m_saveFile->errorString();
             abortDownload();
             fail(i18n("Cannot write the update: %1", reason));
+            Q_EMIT installFinished(false, QStringLiteral("write"));
             return;
         }
         m_progress = qreal(m_received) / qreal(m_expectedSize);
@@ -556,11 +559,13 @@ void UpdateChecker::finishDownload(QNetworkReply *reply)
         const QString reason = reply->errorString();
         abortDownload();
         fail(i18n("Could not download the update: %1", reason));
+        Q_EMIT installFinished(false, QStringLiteral("download"));
         return;
     }
     if (m_received != m_expectedSize || m_hash->result().toHex() != m_expectedSha256) {
         abortDownload();
         fail(i18n("The downloaded update is damaged; it was not installed."));
+        Q_EMIT installFinished(false, QStringLiteral("verify"));
         return;
     }
 
@@ -570,8 +575,10 @@ void UpdateChecker::finishDownload(QNetworkReply *reply)
     m_installer->install(*download, [this](const QString &error) {
         if (error.isEmpty()) {
             setStatus(Status::ReadyToRestart);
+            Q_EMIT installFinished(true, QStringLiteral("install"));
         } else {
             fail(error);
+            Q_EMIT installFinished(false, QStringLiteral("install"));
         }
     });
 }

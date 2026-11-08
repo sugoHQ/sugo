@@ -149,6 +149,10 @@ public:
 Q_SIGNALS:
     void statusChanged();
     void progressChanged();
+    /// An installation asked with installUpdate() ended: put in place (`ok`, stage "install"), or
+    /// failed at `stage`: "write" (the file next to the program), "download", "verify" (size or
+    /// checksum) or "install". For the anonymous usage statistics.
+    void installFinished(bool ok, const QString &stage);
 
 private:
     void setStatus(Status s);
