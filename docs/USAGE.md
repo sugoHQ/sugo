@@ -191,9 +191,9 @@ Sugo can add an event to your calendar every time you **finish a work session**,
 ### With Nextcloud
 
 1. Choose **Nextcloud** as the calendar service and type your server address (for example `https://cloud.example.org`).
-2. Press **Log in** and authorize Sugo in the browser tab that opens. Sugo receives an *app password* by itself; you do not copy anything.
+2. Press the **Log in** icon next to the address and authorize Sugo in the browser tab that opens. Sugo receives an *app password* by itself; you do not copy anything.
 3. If you have several calendars, pick one in the **Calendar** list. The refresh button next to it reloads the list from the server.
-4. Press **Test** to check the connection: a green check on the button means it works.
+4. Press the **Test** icon to check the connection: a green check on the icon means it works.
 
 In Nextcloud (*Settings → Security → Devices & sessions*) the new entry is named **Sugo**. Delete it there to revoke Sugo's access, and press **Disconnect** in Sugo to forget the login.
 
