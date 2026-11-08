@@ -1549,7 +1549,10 @@ QQC2.Page {
                             id: calServerField
                             enabled: !page.calConnected && !page.calWaiting
                             Layout.fillWidth: !page.wide
+                            // With Log in alone, the field takes the room of the second icon: the row
+                            // keeps its width and the field its left edge in every state.
                             Layout.preferredWidth: Theme.space4xl * 5
+                                                   + (enabled ? Theme.controlHeight + Theme.spaceSm : 0)
                             placeholderText: "https://cloud.example.org"
                             objectName: "calendarServerField"
                             inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
@@ -1567,12 +1570,12 @@ QQC2.Page {
                                 }
                             }
                         }
-                        // Icons only, in a place as wide as two of them: the field keeps its place
-                        // whether Log in, the wait (spinner and Cancel) or Test and Disconnect show.
+                        // Icons only: Log in, the wait (spinner and Cancel), or Test and Disconnect.
                         Item {
-                            implicitWidth: Theme.controlHeight * 2 + Theme.spaceSm
+                            implicitWidth: calLoginButtons.implicitWidth
                             implicitHeight: Theme.controlHeight
                             RowLayout {
+                                id: calLoginButtons
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: Theme.spaceSm
