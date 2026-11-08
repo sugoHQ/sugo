@@ -51,11 +51,16 @@ QQC2.Page {
     property string calAction: ""   // "refresh" or "test"
     readonly property bool calWorking: CalendarSync ? calStatus === CalendarSync.Working : false
     readonly property bool calFailed: CalendarSync ? calStatus === CalendarSync.Failed : false
-    readonly property bool calNotConfigured: CalendarSync ? calStatus === CalendarSync.NotConfigured : false
     readonly property bool calRefreshing: calWorking && calAction === "refresh"
     // A successful connection test is shown on the Test button itself (a green check for a few
-    // seconds); failures are explained in the message at the bottom of the card.
+    // seconds); failures are explained in a toast.
     property bool calTestOk: false
+    onCalFailedChanged: {
+        if (calFailed && CalendarSync) {
+            applicationWindow().showPassiveNotification(
+                CalendarSync.lastError.length > 0 ? CalendarSync.lastError : CalendarSync.statusText);
+        }
+    }
     onCalWorkingChanged: {
         if (calWorking) {
             calTestOk = false;
@@ -86,6 +91,7 @@ QQC2.Page {
         target: CalendarSync
         function onInputRejected(message) {
             page.calInputError = message;
+            applicationWindow().showPassiveNotification(message);
         }
         function onProviderChanged() {
             page.resetCalFields();
@@ -1525,13 +1531,23 @@ QQC2.Page {
                         }
                     }
 
-                    // Nextcloud: server address and browser login.
+                    // Nextcloud: server address and browser login, on one row. Who is signed in (or
+                    // what the login waits for) is the description, with room kept so nothing moves.
                     SettingRow {
                         visible: !page.calCustom
                         title: i18n("Server address")
-                        enabled: !page.calConnected && !page.calWaiting
+                        // Always a line, so the title never moves when the state changes.
+                        description: page.calConnected
+                            ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
+                            : (page.calWaiting && CalendarSync ? CalendarSync.statusText : i18n("Not connected"))
+                        descriptionVariants: [
+                            i18n("Connected as %1", CalendarSync ? CalendarSync.username : ""),
+                            CalendarSync ? CalendarSync.statusText : "",
+                            i18n("Not connected")
+                        ]
                         STextField {
                             id: calServerField
+                            enabled: !page.calConnected && !page.calWaiting
                             Layout.fillWidth: !page.wide
                             Layout.preferredWidth: Theme.space4xl * 5
                             placeholderText: "https://cloud.example.org"
@@ -1551,61 +1567,68 @@ QQC2.Page {
                                 }
                             }
                         }
-                    }
-                    SettingRow {
-                        visible: !page.calCustom
-                        title: page.calConnected
-                            ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
-                            : (page.calWaiting && CalendarSync ? CalendarSync.statusText : "")
-                        QQC2.BusyIndicator {
-                            Layout.preferredWidth: Theme.iconLg
-                            Layout.preferredHeight: Theme.iconLg
-                            visible: page.calWaiting
-                            running: visible && page.visible
-                        }
-                        SButton {
-                            visible: !page.calConnected && !page.calWaiting
-                            text: i18n("Log in")
-                            iconName: "external"
-                            onClicked: {
-                                page.commitCalendarFields();
-                                CalendarSync.startNextcloudLogin();
-                            }
-                        }
-                        SButton {
-                            visible: page.calWaiting
-                            text: i18n("Cancel")
-                            iconName: "close"
-                            onClicked: CalendarSync.cancelLogin()
-                        }
-                        SButton {
-                            kind: "ghost"
-                            visible: page.calConnected && !page.calWaiting
-                            text: i18n("Test")
-                            iconName: page.calTestOk ? "check" : "refresh"
-                            // Not while any request runs: the test would not run, yet look passed.
-                            enabled: !page.calWorking
-                            Accessible.name: i18n("Test connection")
-                            QQC2.ToolTip.text: i18n("Test connection")
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.delay: Theme.toolTipDelay
-                            onClicked: {
-                                page.commitCalendarFields();
-                                page.calAction = "test";
-                                CalendarSync.testConnection();
-                                // Nothing was started (e.g. not signed in yet): a later request's
-                                // result must not be taken for this one's.
-                                if (!page.calWorking) {
-                                    page.calAction = "";
+                        // Icons only, in a place as wide as two of them: the field keeps its place
+                        // whether Log in, the wait (spinner and Cancel) or Test and Disconnect show.
+                        Item {
+                            implicitWidth: Theme.controlHeight * 2 + Theme.spaceSm
+                            implicitHeight: Theme.controlHeight
+                            RowLayout {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: Theme.spaceSm
+                                QQC2.BusyIndicator {
+                                    Layout.preferredWidth: Theme.controlHeight
+                                    Layout.preferredHeight: Theme.controlHeight
+                                    visible: page.calWaiting
+                                    running: visible && page.visible
+                                }
+                                SButton {
+                                    kind: "ghost"
+                                    iconOnly: true
+                                    visible: !page.calConnected && !page.calWaiting
+                                    text: i18n("Log in")
+                                    iconName: "external"
+                                    onClicked: {
+                                        page.commitCalendarFields();
+                                        CalendarSync.startNextcloudLogin();
+                                    }
+                                }
+                                SButton {
+                                    kind: "ghost"
+                                    iconOnly: true
+                                    visible: page.calWaiting
+                                    text: i18n("Cancel")
+                                    iconName: "close"
+                                    onClicked: CalendarSync.cancelLogin()
+                                }
+                                SButton {
+                                    kind: "ghost"
+                                    iconOnly: true
+                                    visible: page.calConnected && !page.calWaiting
+                                    text: i18n("Test connection")
+                                    iconName: page.calTestOk ? "check" : "refresh"
+                                    // Not while any request runs: the test would not run, yet look passed.
+                                    enabled: !page.calWorking
+                                    onClicked: {
+                                        page.commitCalendarFields();
+                                        page.calAction = "test";
+                                        CalendarSync.testConnection();
+                                        // Nothing was started (e.g. not signed in yet): a later request's
+                                        // result must not be taken for this one's.
+                                        if (!page.calWorking) {
+                                            page.calAction = "";
+                                        }
+                                    }
+                                }
+                                SButton {
+                                    kind: "ghost"
+                                    iconOnly: true
+                                    visible: page.calConnected && !page.calWaiting
+                                    text: i18n("Disconnect")
+                                    iconName: "close"
+                                    onClicked: page.requestDisconnect()
                                 }
                             }
-                        }
-                        SButton {
-                            kind: "ghost"
-                            visible: page.calConnected && !page.calWaiting
-                            text: i18n("Disconnect")
-                            iconName: "close"
-                            onClicked: page.requestDisconnect()
                         }
                     }
 
@@ -1681,14 +1704,11 @@ QQC2.Page {
                         title: i18n("Connection")
                         SButton {
                             kind: "ghost"
-                            text: i18n("Test")
+                            iconOnly: true
+                            text: i18n("Test connection")
                             iconName: page.calTestOk ? "check" : "refresh"
                             // Not while any request runs: the test would not run, yet look passed.
                             enabled: !page.calWorking
-                            Accessible.name: i18n("Test connection")
-                            QQC2.ToolTip.text: i18n("Test connection")
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.delay: Theme.toolTipDelay
                             onClicked: {
                                 page.commitCalendarFields();
                                 page.calAction = "test";
@@ -1702,6 +1722,7 @@ QQC2.Page {
                         }
                         SButton {
                             kind: "ghost"
+                            iconOnly: true
                             text: i18n("Disconnect")
                             iconName: "close"
                             onClicked: page.requestDisconnect()
@@ -1711,6 +1732,16 @@ QQC2.Page {
                     SettingRow {
                         visible: page.calChoices.length > 0 || page.calConfigured
                         title: i18n("Calendar")
+                        // The last event sent and those waiting; one line kept for it, so nothing moves.
+                        description: {
+                            const lastSent = page.calLastSuccess.length > 0 ? i18n("Last event sent: %1", page.calLastSuccess) : "";
+                            const waiting = page.calPending > 0
+                                ? i18np("%1 event waiting to be sent", "%1 events waiting to be sent", page.calPending) : "";
+                            return lastSent.length > 0 && waiting.length > 0
+                                ? i18nc("last event sent · events waiting", "%1 · %2", lastSent, waiting)
+                                : lastSent + waiting;
+                        }
+                        descriptionVariants: [i18n("Last event sent: %1", page.calLastSuccess)]
                         SComboBox {
                             id: calChoiceBox
                             Layout.fillWidth: !page.wide
@@ -1798,60 +1829,6 @@ QQC2.Page {
                                 checked = Qt.binding(() => CalendarSync ? CalendarSync.includeNote : false);
                             }
                         }
-                    }
-                }
-
-                // Status area, kept readable even while the sync is switched off. Nothing is shown while
-                // the server is being asked (the buttons are disabled meanwhile): only a result is.
-                MessageSlot {
-                    objectName: "calendarStatusMessage"
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spaceSm
-                    Layout.bottomMargin: Theme.spaceSm
-                    shown: page.calInputError.length > 0 || page.calFailed || (page.calNotConfigured && !page.calWaiting)
-                    tone: page.calInputError.length > 0 || page.calFailed ? "danger" : "info"
-                    text: {
-                        if (page.calInputError.length > 0) {
-                            return page.calInputError;
-                        }
-                        if (!CalendarSync) {
-                            return "";
-                        }
-                        if (page.calNotConfigured) {
-                            // Signed in but no calendar chosen: the status says so.
-                            if (page.calConfigured) {
-                                return CalendarSync.statusText;
-                            }
-                            return page.calCustom
-                                ? i18n("Enter the calendar address, your username and password to start sending events.")
-                                : (CalendarSync.serverUrl.length > 0
-                                   ? i18n("Log in to start sending events.")
-                                   : i18n("Enter your server address and log in to start sending events."));
-                        }
-                        if (page.calFailed && CalendarSync.lastError.length > 0) {
-                            return CalendarSync.lastError;
-                        }
-                        return CalendarSync.statusText;
-                    }
-                }
-                // The last event sent and those waiting, on one line that keeps its place.
-                SmallText {
-                    readonly property string lastSent: page.calLastSuccess.length > 0 ? i18n("Last event sent: %1", page.calLastSuccess) : ""
-                    readonly property string waiting: page.calPending > 0
-                        ? i18np("%1 event waiting to be sent", "%1 events waiting to be sent", page.calPending) : ""
-                    Layout.bottomMargin: Theme.spaceMd
-                    Layout.preferredHeight: calendarFooterMetrics.height
-                    maximumLineCount: 1
-                    elide: Text.ElideRight
-                    opacity: text.length > 0 ? 1 : 0
-                    text: lastSent.length > 0 && waiting.length > 0 ? i18nc("last event sent · events waiting", "%1 · %2", lastSent, waiting)
-                                                                    : lastSent + waiting
-                    Behavior on opacity {
-                        NumberAnimation { duration: Theme.durationShort }
-                    }
-                    FontMetrics {
-                        id: calendarFooterMetrics
-                        font.pixelSize: Theme.fontCaption
                     }
                 }
             }
