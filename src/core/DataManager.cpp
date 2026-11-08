@@ -88,7 +88,7 @@ const QList<RestoredTable> &restoredTables()
                         "is_builtin, sort_order, created_at")},
         {QStringLiteral("preset_option"), QStringLiteral("preset_id, key, value")},
         {QStringLiteral("session"),
-         QStringLiteral("id, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_id, "
+         QStringLiteral("id, uuid, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_id, "
                         "preset_name, category, note")},
         // The one-time look for Sugo 1.0.0's data (Database::recoverSugo100Database()) was made
         // for this file: a backup from before it, or from another computer, must not undo it.

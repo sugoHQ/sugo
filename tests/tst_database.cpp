@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStringList>
@@ -136,6 +138,7 @@ void clearUserData(const QString &connection)
     QVERIFY(query.exec(QStringLiteral("DELETE FROM session")));
     QVERIFY(query.exec(QStringLiteral("DELETE FROM preset WHERE is_builtin = 0")));
     QVERIFY(query.exec(QStringLiteral("DELETE FROM preset_tombstone")));
+    QVERIFY(query.exec(QStringLiteral("DELETE FROM session_tombstone")));
 }
 
 void addBuiltinTimer(const QString &connection)
@@ -160,7 +163,8 @@ private Q_SLOTS:
         QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
         QCOMPARE(tableNames(db.connectionName()),
                  (QStringList{QStringLiteral("meta"), QStringLiteral("preset"), QStringLiteral("preset_option"),
-                              QStringLiteral("preset_tombstone"), QStringLiteral("session")}));
+                              QStringLiteral("preset_tombstone"), QStringLiteral("session"),
+                              QStringLiteral("session_tombstone")}));
     }
 
     void foreignKeysAreEnforced()
@@ -277,7 +281,7 @@ private Q_SLOTS:
         Database db(path);
         QVERIFY2(db.open(), qPrintable(db.lastError()));
         QVERIFY(db.movedAsidePath().isEmpty());
-        QCOMPARE(db.schemaVersion(), 2);
+        QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
         QCOMPARE(scalar(db.connectionName(), QStringLiteral("SELECT created_at FROM preset WHERE uuid = 'old'")).toLongLong(),
                  1700000000000LL); // now milliseconds
         QCOMPARE(scalar(db.connectionName(), QStringLiteral("SELECT updated_at FROM preset WHERE uuid = 'old'")).toLongLong(), 0);
@@ -288,6 +292,61 @@ private Q_SLOTS:
         QVERIFY(query.exec(QStringLiteral("INSERT INTO preset_tombstone (uuid, deleted_at) VALUES ('gone', 5)")));
         QCOMPARE(scalar(db.connectionName(), QStringLiteral("SELECT deleted_by FROM preset_tombstone")).toString(), QString());
         QVERIFY(!query.exec(QStringLiteral("INSERT INTO preset_tombstone (uuid, deleted_at) VALUES ('gone', 6)"))); // one per uuid
+    }
+
+    void version2SessionsGetUuidsForSync()
+    {
+        // A file as Sugo 1.0.3 left it: schema 2, sessions without uuid.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("v2.db"));
+        {
+            Database db(path);
+            QVERIFY(db.open());
+            QSqlQuery query(QSqlDatabase::database(db.connectionName(), false));
+            // Back to version 2: the session table as it was then.
+            for (const char *statement : {
+                     "DROP TABLE session_tombstone",
+                     "DROP INDEX idx_session_uuid",
+                     "ALTER TABLE session DROP COLUMN uuid",
+                     "ALTER TABLE session DROP COLUMN updated_at",
+                     "ALTER TABLE session DROP COLUMN updated_by",
+                     "PRAGMA user_version = 2",
+                 }) {
+                QVERIFY2(query.exec(QString::fromLatin1(statement)), statement);
+            }
+            for (int i = 0; i < 50; ++i) {
+                QVERIFY(query.exec(QStringLiteral(
+                    "INSERT INTO session (kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_name, note) "
+                    "VALUES ('work', %1, %1, 1, 1, 1, 'Old', 'Chapter 3')").arg(i)));
+            }
+        }
+
+        Database db(path);
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QVERIFY(db.movedAsidePath().isEmpty());
+        QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
+        QSqlQuery query(QSqlDatabase::database(db.connectionName(), false));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at, updated_by, note FROM session")));
+        QSet<QString> uuids;
+        const QRegularExpression v4(QStringLiteral("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"));
+        while (query.next()) {
+            const QString uuid = query.value(0).toString();
+            QVERIFY2(v4.match(uuid).hasMatch(), qPrintable(uuid));
+            QCOMPARE(QUuid::fromString(uuid).version(), QUuid::Random);
+            uuids.insert(uuid);
+            QCOMPARE(query.value(1).toLongLong(), 0);
+            QCOMPARE(query.value(2).toString(), QString());
+            QCOMPARE(query.value(3).toString(), QStringLiteral("Chapter 3"));
+        }
+        QCOMPARE(uuids.size(), 50); // all different
+
+        QVERIFY(!query.exec(QStringLiteral(
+            "INSERT INTO session (uuid, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_name) "
+            "VALUES ('%1', 'work', 1, 1, 1, 1, 1, 'x')").arg(*uuids.cbegin()))); // one row per uuid
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('gone', 5)")));
+        QCOMPARE(scalar(db.connectionName(), QStringLiteral("SELECT deleted_by FROM session_tombstone")).toString(), QString());
+        QVERIFY(!query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('gone', 6)")));
     }
 
     void sugo100DatabaseIsKeptAndUpgraded_data()
@@ -430,7 +489,8 @@ private Q_SLOTS:
         QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
         QCOMPARE(tableNames(db.connectionName()),
                  (QStringList{QStringLiteral("meta"), QStringLiteral("preset"), QStringLiteral("preset_option"),
-                              QStringLiteral("preset_tombstone"), QStringLiteral("session")}));
+                              QStringLiteral("preset_tombstone"), QStringLiteral("session"),
+                              QStringLiteral("session_tombstone")}));
         QCOMPARE(scalar(db.connectionName(), QStringLiteral("PRAGMA application_id")).toInt(), Database::kApplicationId);
 
         // The old file survives untouched under a new name.
@@ -801,6 +861,7 @@ private Q_SLOTS:
             QStringLiteral("INSERT INTO preset (uuid, name, work_sec, short_break_sec, long_break_sec, created_at) "
                            "VALUES ('new', 'New', 1500, 300, 900, 0)"),
             QStringLiteral("INSERT INTO preset_tombstone (uuid, deleted_at) VALUES ('gone', 1)"),
+            QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('gone', 1)"),
         };
         for (const QString &row : rows) {
             QFile::remove(path);

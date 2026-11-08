@@ -196,6 +196,7 @@ private Q_SLOTS:
         const QString sourcePath = elsewhere.filePath(QStringLiteral("source.db"));
         const QString copiedPath = elsewhere.filePath(QStringLiteral("copied.db"));
         const QString wal = QStringLiteral("-wal");
+        QStringList sourceUuids;
         {
             Database source(sourcePath);
             QVERIFY(source.open());
@@ -208,6 +209,9 @@ private Q_SLOTS:
                 QVERIFY(sourceSessions.insert(sampleRecord(QStringLiteral("In the log %1").arg(i))));
             }
             QVERIFY(QFileInfo(sourcePath + wal).size() > 0);
+            for (const SessionRecord &r : sourceSessions.between(0, 2000)) {
+                sourceUuids.append(r.uuid);
+            }
             QVERIFY(QFile::copy(sourcePath, copiedPath));
             QVERIFY(QFile::copy(sourcePath + wal, copiedPath + wal));
         }
@@ -218,6 +222,11 @@ private Q_SLOTS:
         QCOMPARE(succeeded.count(), 1);
         QCOMPARE(manager->sessionCount(), 3);
         QCOMPARE(sessions->between(0, 2000).first().presetName, QStringLiteral("In the log 0"));
+        QStringList restoredUuids;
+        for (const SessionRecord &r : sessions->between(0, 2000)) {
+            restoredUuids.append(r.uuid);
+        }
+        QCOMPARE(restoredUuids, sourceUuids); // the same sessions, as Sugo Sync knows them
         // The user's files are left as they were.
         QVERIFY(QFile::exists(copiedPath + wal));
         QVERIFY(!QFile::exists(copiedPath + QStringLiteral("-shm")));

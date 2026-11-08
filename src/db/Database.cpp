@@ -83,6 +83,26 @@ CREATE TABLE preset_tombstone (
     deleted_by TEXT    NOT NULL DEFAULT ''
 ))"),
         },
+        // Version 3: what Sugo Sync needs to merge sessions. Each gets a uuid (version 4, random,
+        // like the timers'), the same on every device; existing rows get one here. updated_at 0:
+        // not changed since it was recorded (its note, later, sets it, in milliseconds).
+        // updated_by / deleted_by as for the timers.
+        {
+            QStringLiteral("ALTER TABLE session ADD COLUMN uuid TEXT NOT NULL DEFAULT ''"),
+            QStringLiteral("ALTER TABLE session ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"),
+            QStringLiteral("ALTER TABLE session ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''"),
+            // random() & 3 picks the variant digit; abs(random()) would fail on the smallest integer.
+            QStringLiteral("UPDATE session SET uuid = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' "
+                           "|| substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (random() & 3), 1) "
+                           "|| substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))"),
+            QStringLiteral("CREATE UNIQUE INDEX idx_session_uuid ON session(uuid)"),
+            QStringLiteral(R"(
+CREATE TABLE session_tombstone (
+    uuid       TEXT    PRIMARY KEY,
+    deleted_at INTEGER NOT NULL,
+    deleted_by TEXT    NOT NULL DEFAULT ''
+))"),
+        },
     };
     return list;
 }
@@ -122,12 +142,12 @@ void restrictToOwner(const QString &path)
 }
 
 /// What the user made in a database of the current schema: sessions, timers of their own (the
-/// built-in one is there from the start) and deleted timers. -1 if it cannot be read.
+/// built-in one is there from the start) and deleted timers and sessions. -1 if it cannot be read.
 int userRows(QSqlDatabase &db)
 {
     QSqlQuery query(db);
     if (!query.exec(QStringLiteral("SELECT (SELECT count(*) FROM session) + (SELECT count(*) FROM preset WHERE is_builtin = 0) "
-                                   "+ (SELECT count(*) FROM preset_tombstone)"))
+                                   "+ (SELECT count(*) FROM preset_tombstone) + (SELECT count(*) FROM session_tombstone)"))
         || !query.next()) {
         return -1;
     }
