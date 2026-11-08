@@ -1003,8 +1003,11 @@ private Q_SLOTS:
     {
         configureCustom();
         m_server->expectedAuth = basic(QStringLiteral("alice"), QStringLiteral("rotated"));
+        QSignalSpy failures(m_sync.get(), &CalendarSync::sendFailed);
         m_sync->enqueueWorkSession(record(1));
         QTRY_COMPARE(m_sync->status(), CalendarSync::Failed);
+        QCOMPARE(failures.count(), 1);
+        QCOMPARE(failures.at(0).at(0).toString(), QStringLiteral("auth"));
         QVERIFY(m_sync->isSendingPaused());
         QVERIFY(m_sync->lastError().startsWith(QStringLiteral("Login rejected")));
         QVERIFY(m_sync->statusText().startsWith(QStringLiteral("Login rejected")));
