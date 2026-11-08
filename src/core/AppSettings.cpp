@@ -59,6 +59,7 @@ const char kColorScheme[] = "ColorScheme";
 const char kAccentColor[] = "AccentColor";
 const char kUpdateChannel[] = "UpdateChannel";
 const char kAutoCheckUpdates[] = "AutoCheckUpdates";
+const char kShareUsageStats[] = "ShareUsageStats";
 const char kVerboseLogging[] = "VerboseLogging";
 const char kFocusOnShortcut[] = "FocusOnShortcut";
 const char kFocusOffShortcut[] = "FocusOffShortcut";
@@ -276,6 +277,7 @@ AppSettings::AppSettings(Settings::Ptr config, std::unique_ptr<Autostart> autost
     m_accentColor = validAccentColor(settings.value(QLatin1String(kAccentColor), QString(Defaults::accentColor)).toString());
     m_updateChannel = settings.value(QLatin1String(kUpdateChannel)).toString() == QLatin1String("nightly") ? QStringLiteral("nightly") : QString(Defaults::updateChannel);
     m_autoCheckUpdates = settings.value(QLatin1String(kAutoCheckUpdates), Defaults::autoCheckUpdates).toBool();
+    m_shareUsageStats = settings.value(QLatin1String(kShareUsageStats), Defaults::shareUsageStats).toBool();
     m_verboseLogging = settings.value(QLatin1String(kVerboseLogging), Defaults::verboseLogging).toBool();
     m_focusOnShortcut = settings.value(QLatin1String(kFocusOnShortcut), QString(Defaults::focusOnShortcut)).toString().trimmed();
     m_focusOffShortcut = settings.value(QLatin1String(kFocusOffShortcut), QString(Defaults::focusOffShortcut)).toString().trimmed();
@@ -645,6 +647,16 @@ void AppSettings::setAutoCheckUpdates(bool enabled)
     Q_EMIT autoCheckUpdatesChanged();
 }
 
+void AppSettings::setShareUsageStats(bool enabled)
+{
+    if (m_shareUsageStats == enabled) {
+        return;
+    }
+    m_shareUsageStats = enabled;
+    store(kShareUsageStats, enabled);
+    Q_EMIT shareUsageStatsChanged();
+}
+
 void AppSettings::setVerboseLogging(bool verbose)
 {
     if (m_verboseLogging == verbose) {
@@ -784,6 +796,7 @@ void AppSettings::resetToDefaults()
     setAccentColor(QString(Defaults::accentColor));
     setUpdateChannel(QString(Defaults::updateChannel));
     setAutoCheckUpdates(Defaults::autoCheckUpdates);
+    setShareUsageStats(Defaults::shareUsageStats);
     setVerboseLogging(Defaults::verboseLogging);
     setFocusOnShortcut(QString(Defaults::focusOnShortcut));
     setFocusOffShortcut(QString(Defaults::focusOffShortcut));

@@ -15,6 +15,8 @@
 #include <QDebug>
 #include <QEvent>
 #include <QFileOpenEvent>
+#include <QHash>
+#include <QJsonObject>
 #include <QPointer>
 #include <QUrl>
 #include <QQmlContext>
@@ -70,7 +72,10 @@
 #include "Diagnostics.h"
 #include "CalendarSync.h"
 #include "DesktopStyle.h"
+#include "SyncApi.h"
 #include "SyncController.h"
+#include "Telemetry.h"
+#include "TelemetryInfo.h"
 #include "ThemeIcons.h"
 #include "UpdateChecker.h"
 
@@ -479,6 +484,84 @@ int main(int argc, char *argv[])
     }
     auto *focusSound = new FocusSoundController(&services);
     focusSound->attach(timer, settings);
+    // Anonymous usage statistics, only while the user lets them (off by default); never in a smoke
+    // run (there it exists for the pages, never turned on). They go to Sugo's server (the one of
+    // Sugo Sync), which forwards them to PostHog.
+    auto *telemetryTransport =
+        new HttpTelemetryTransport(SyncApi::defaultBaseUrl().resolved(QUrl(QStringLiteral("/v1/telemetry"))), &services);
+    auto *telemetry = new Telemetry(Settings::openDefault(), telemetryTransport, &services);
+    engine.rootContext()->setContextProperty(QStringLiteral("Telemetry"), telemetry);
+    if (!smokeTest) {
+        telemetry->setStartProperties([settings, presets, calendarSync, presetSync, databaseOpened]() {
+            const QString version = TelemetryInfo::version();
+            QJsonObject properties{
+                {QStringLiteral("version"), version},
+                {QStringLiteral("channel"), TelemetryInfo::channel(version)},
+                {QStringLiteral("os"), TelemetryInfo::os()},
+                {QStringLiteral("packaging"), TelemetryInfo::packaging()},
+                {QStringLiteral("desktop"), TelemetryInfo::desktop()},
+                {QStringLiteral("distro"), TelemetryInfo::distro()},
+                {QStringLiteral("presets"), TelemetryInfo::presetsBand(presets->count())},
+                {QStringLiteral("calendar_sync"), calendarSync && calendarSync->enabled()},
+                {QStringLiteral("focus_sound"), settings->focusSoundMode() != 0},
+                {QStringLiteral("tray_icon"), settings->trayAvailable() && settings->showTrayIcon()},
+                {QStringLiteral("start_at_login"), settings->startAtLogin()},
+                {QStringLiteral("sugo_sync"), presetSync && presetSync->state() != SyncController::Off},
+                {QStringLiteral("keep_screen_awake"), settings->keepScreenAwake()},
+                {QStringLiteral("color_scheme"), settings->colorScheme()},
+                {QStringLiteral("auto_pause_on_lock"), settings->autoPauseOnScreenLock()},
+                {QStringLiteral("pre_alarm"), settings->preAlarmEnabled()},
+                {QStringLiteral("task_notes"), settings->promptTaskNote()},
+                {QStringLiteral("external_control"), settings->externalControlSupported() && settings->allowExternalControl()},
+                {QStringLiteral("storage"), databaseOpened ? QStringLiteral("file") : QStringLiteral("memory")},
+            };
+            const QString qt = TelemetryInfo::qtVersion();
+            if (!qt.isEmpty()) {
+                properties.insert(QStringLiteral("qt"), qt);
+            }
+            return properties;
+        });
+        telemetry->setEnabled(settings->shareUsageStats());
+        // Turned on before the welcome tour was finished: from the tour.
+        QObject::connect(settings, &AppSettings::shareUsageStatsChanged, telemetry, [settings, telemetry]() {
+            telemetry->setEnabled(settings->shareUsageStats(),
+                                  settings->firstRunCompleted() ? QStringLiteral("settings") : QStringLiteral("welcome"));
+        });
+        QObject::connect(timer, &TimerEngine::sessionEnded, telemetry,
+                         [telemetry](TimerEngine::Phase phase, const QDateTime &, const QDateTime &, qint64, qint64 plannedMs, bool completed) {
+                             telemetry->recordSession(phase, plannedMs, completed);
+                         });
+        if (updates) {
+            QObject::connect(updates, &UpdateChecker::installFinished, telemetry, &Telemetry::recordUpdateInstall);
+        }
+        if (calendarSync) {
+            QObject::connect(calendarSync, &CalendarSync::sendFailed, telemetry, [telemetry](const QString &kind) {
+                telemetry->recordSyncError(QStringLiteral("calendar"), kind);
+            });
+        }
+        if (presetSync) {
+            QObject::connect(presetSync, &SyncController::stateChanged, telemetry, [presetSync, telemetry]() {
+                const bool failed = presetSync->state() == SyncController::Error
+                    || (presetSync->state() == SyncController::Off && presetSync->errorKind() == SyncController::SignedOutRemotely);
+                if (!failed) {
+                    return;
+                }
+                static const QHash<int, QString> kinds = {
+                    {SyncController::Network, QStringLiteral("network")},
+                    {SyncController::SignedOutRemotely, QStringLiteral("signed_out")},
+                    {SyncController::FormatTooNew, QStringLiteral("format_too_new")},
+                    {SyncController::UnreadableData, QStringLiteral("unreadable_data")},
+                    {SyncController::TooLarge, QStringLiteral("too_large")},
+                    {SyncController::KeyringUnavailable, QStringLiteral("keyring_unavailable")},
+                    {SyncController::KeyringWriteFailed, QStringLiteral("keyring_write_failed")},
+                    {SyncController::RateLimited, QStringLiteral("rate_limited")},
+                    {SyncController::Server, QStringLiteral("server")},
+                    {SyncController::LocalSaveFailed, QStringLiteral("local_save_failed")},
+                };
+                telemetry->recordSyncError(QStringLiteral("sugo_sync"), kinds.value(presetSync->errorKind()));
+            });
+        }
+    }
     engine.rootContext()->setContextProperty(QStringLiteral("FocusSoundController"), focusSound);
     stats->setProtectWeekendStreak(settings->protectWeekendStreak());
     QObject::connect(settings, &AppSettings::protectWeekendStreakChanged, stats, [settings, stats]() {

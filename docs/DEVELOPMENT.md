@@ -192,6 +192,7 @@ It takes the same screenshots of every screen on both and writes `/tmp/sugo-comp
 | `SUGO_WINDOW_STYLE` | Forces the title bar style (`kde`, `gnome`, `macos`, `windows`, `generic`, ...); `macos` also shows the wording and shortcuts of the Mac version, to preview it on Linux |
 | `SUGO_DATA_DIR` | The folder that holds `sugo.db` and `sugo.conf`, instead of the usual ones: keeps test runs (and the macOS smoke runs, where `XDG_*` has no effect) away from your data |
 | `SUGO_OVERRIDE_VERSION` | The version the update check compares, to try it against the published feeds |
+| `SUGO_SYNC_URL` | Another server for Sugo Sync and the usage statistics (`POST /v1/telemetry`), e.g. `http://localhost:8787` (`wrangler dev` of sugo-sync) |
 
 ---
 
@@ -210,6 +211,8 @@ It takes the same screenshots of every screen on both and writes `/tmp/sugo-comp
 | `.github/workflows/` | CI and release workflows |
 
 All the C++ code but `src/main.cpp` is built once, as the static library `sugo_core` (also the QML module), which the program and every test link.
+
+Usage statistics (`src/core/Telemetry.h`, opt-in, off by default): the events and their values are listed in `docs/USAGE.md` ("Anonymous usage statistics") and must be exactly what the Worker accepts (sugo-sync, `worker/src/telemetry.ts`, `EVENTS`). To add an event or a property, or a distribution to `TelemetryInfo::distroFrom()`, change the Worker first and deploy it, then Sugo, then `docs/USAGE.md`: the Worker silently drops what it does not know. Smoke runs never send anything.
 
 Conventions worth knowing: user-visible strings go through `i18n()` (never `tr()`), with `i18np()` for anything that can be plural; QML uses only the colours and sizes of `Theme` (`src/qml/theme/Theme.qml`).
 

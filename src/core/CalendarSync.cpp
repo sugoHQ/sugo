@@ -1459,6 +1459,13 @@ void CalendarSync::onSendFinished(const Result &r, bool credentialsChangedMeanwh
         trySend();
         return;
     }
+    Q_EMIT sendFailed(r.http == 0                                                   ? QStringLiteral("network")
+                          : r.http == 401                                           ? QStringLiteral("auth")
+                          : r.http == 403                                           ? QStringLiteral("refused")
+                          : r.http == 404 || r.http == 409                          ? QStringLiteral("not_found")
+                          : r.http == 408 || r.http == 423 || r.http == 429         ? QStringLiteral("rate_limited")
+                          : r.http >= 400 && r.http < 500                           ? QStringLiteral("rejected_event")
+                                                                                    : QStringLiteral("server"));
     if (r.http == 401) {
         const QString message = describeFailure(r);
         m_paused = true;
