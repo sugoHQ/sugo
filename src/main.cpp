@@ -15,6 +15,7 @@
 #include <QDebug>
 #include <QEvent>
 #include <QFileOpenEvent>
+#include <QJsonObject>
 #include <QPointer>
 #include <QUrl>
 #include <QQmlContext>
@@ -70,7 +71,10 @@
 #include "Diagnostics.h"
 #include "CalendarSync.h"
 #include "DesktopStyle.h"
+#include "SyncApi.h"
 #include "SyncController.h"
+#include "Telemetry.h"
+#include "TelemetryInfo.h"
 #include "ThemeIcons.h"
 #include "UpdateChecker.h"
 
@@ -479,6 +483,44 @@ int main(int argc, char *argv[])
     }
     auto *focusSound = new FocusSoundController(&services);
     focusSound->attach(timer, settings);
+    // Anonymous usage statistics, only while the user lets them (off by default); never in a smoke
+    // run. They go to Sugo's server (the one of Sugo Sync), which forwards them to PostHog.
+    if (!smokeTest) {
+        auto *telemetryTransport =
+            new HttpTelemetryTransport(SyncApi::defaultBaseUrl().resolved(QUrl(QStringLiteral("/v1/telemetry"))), &services);
+        auto *telemetry = new Telemetry(Settings::openDefault(), telemetryTransport, &services);
+        telemetry->setStartProperties([settings, presets, calendarSync, presetSync]() {
+            const QString version = TelemetryInfo::version();
+            QJsonObject properties{
+                {QStringLiteral("version"), version},
+                {QStringLiteral("channel"), TelemetryInfo::channel(version)},
+                {QStringLiteral("os"), TelemetryInfo::os()},
+                {QStringLiteral("packaging"), TelemetryInfo::packaging()},
+                {QStringLiteral("desktop"), TelemetryInfo::desktop()},
+                {QStringLiteral("distro"), TelemetryInfo::distro()},
+                {QStringLiteral("presets"), TelemetryInfo::presetsBand(presets->count())},
+                {QStringLiteral("calendar_sync"), calendarSync && calendarSync->enabled()},
+                {QStringLiteral("focus_sound"), settings->focusSoundMode() != 0},
+                {QStringLiteral("tray_icon"), settings->trayAvailable() && settings->showTrayIcon()},
+                {QStringLiteral("start_at_login"), settings->startAtLogin()},
+                {QStringLiteral("sugo_sync"), presetSync && presetSync->state() != SyncController::Off},
+                {QStringLiteral("keep_screen_awake"), settings->keepScreenAwake()},
+            };
+            const QString qt = TelemetryInfo::qtVersion();
+            if (!qt.isEmpty()) {
+                properties.insert(QStringLiteral("qt"), qt);
+            }
+            return properties;
+        });
+        telemetry->setEnabled(settings->shareUsageStats());
+        QObject::connect(settings, &AppSettings::shareUsageStatsChanged, telemetry, [settings, telemetry]() {
+            telemetry->setEnabled(settings->shareUsageStats());
+        });
+        QObject::connect(timer, &TimerEngine::sessionEnded, telemetry,
+                         [telemetry](TimerEngine::Phase phase, const QDateTime &, const QDateTime &, qint64, qint64 plannedMs, bool completed) {
+                             telemetry->recordSession(phase, plannedMs, completed);
+                         });
+    }
     engine.rootContext()->setContextProperty(QStringLiteral("FocusSoundController"), focusSound);
     stats->setProtectWeekendStreak(settings->protectWeekendStreak());
     QObject::connect(settings, &AppSettings::protectWeekendStreakChanged, stats, [settings, stats]() {
