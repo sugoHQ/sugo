@@ -110,6 +110,10 @@ private Q_SLOTS:
         QCOMPARE(id, id.toLower());
         QCOMPARE(m_settings->value(QStringLiteral("Telemetry/Id")).toString(), id);
 
+        // The start is recorded at the first send.
+        QVERIFY(t->queue().isEmpty());
+        t->flush();
+        QCOMPARE(m_transport->sent.size(), 1);
         QCOMPARE(t->queue().size(), 1);
         const QJsonObject started = t->queue().at(0).toObject();
         QCOMPARE(started.value(QStringLiteral("event")).toString(), QStringLiteral("app_started"));
@@ -117,20 +121,26 @@ private Q_SLOTS:
         QCOMPARE(started.value(QStringLiteral("props")).toObject().value(QStringLiteral("os")).toString(), QStringLiteral("linux"));
 
         // Once per run: turning it on again does not repeat it, the id stays.
+        m_transport->answer(202);
         t->setEnabled(true);
+        t->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
+        t->flush();
+        QCOMPARE(m_transport->sent.size(), 2);
         QCOMPARE(t->queue().size(), 1);
+        QCOMPARE(t->queue().at(0).toObject().value(QStringLiteral("event")).toString(), QStringLiteral("session_ended"));
         QCOMPARE(t->installId(), id);
     }
 
     void theIdSurvivesARestart()
     {
         make()->setEnabled(true);
+        m_telemetry->flush(); // records the start, not answered
         const QString id = m_telemetry->installId();
-        m_settings->sync();
         Telemetry *again = make();
         again->setEnabled(true);
         QCOMPARE(again->installId(), id);
-        // Each run records its own start.
+        // Each run records its own start; the unanswered one is still queued.
+        again->flush();
         QCOMPARE(again->queue().size(), 2);
     }
 
@@ -155,7 +165,9 @@ private Q_SLOTS:
         t->setEnabled(true);
         QVERIFY(!t->installId().isEmpty());
         QVERIFY(t->installId() != first);
+        t->flush();
         QCOMPARE(t->queue().size(), 1);
+        QCOMPARE(t->queue().at(0).toObject().value(QStringLiteral("event")).toString(), QStringLiteral("app_started"));
     }
 
     void startingOffDropsWhatAnEarlierRunLeft()
@@ -210,14 +222,14 @@ private Q_SLOTS:
         for (int i = 0; i < 59; ++i) {
             t->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
         }
-        QCOMPARE(t->queue().size(), 60);
-        t->flush();
+        QCOMPARE(t->queue().size(), 59);
+        t->flush(); // and the start: 60
+
         QCOMPARE(m_transport->sent.size(), 1);
         const QJsonObject body = m_transport->sent.at(0);
         QCOMPARE(keysOf(body), QSet<QString>({QStringLiteral("id"), QStringLiteral("events")}));
         QCOMPARE(body.value(QStringLiteral("id")).toString(), t->installId());
         QCOMPARE(body.value(QStringLiteral("events")).toArray().size(), Telemetry::maxBatch);
-        QCOMPARE(body.value(QStringLiteral("events")).toArray().at(0).toObject().value(QStringLiteral("event")).toString(), QStringLiteral("app_started"));
 
         t->flush(); // one at a time
         QCOMPARE(m_transport->sent.size(), 1);
@@ -303,6 +315,7 @@ private Q_SLOTS:
         auto late = m_transport->pending; // the answer arrives although abort() was asked
         t->setEnabled(false);
         t->setEnabled(true);
+        t->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
         QCOMPARE(t->queue().size(), 1);
         late(202);
         QCOMPARE(t->queue().size(), 1);

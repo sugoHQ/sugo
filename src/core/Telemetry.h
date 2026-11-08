@@ -52,7 +52,8 @@ private:
  *
  * While off, nothing is recorded, queued or sent, and there is no install id. Turned on, it makes a
  * random id (Telemetry/Id in the settings file), records `app_started` (once per run, and when turned
- * on) and `session_ended` for every phase that ends, and sends them in batches of at most 50 a
+ * on, at the first send so that what it reports has settled) and `session_ended` for every phase that
+ * ends, and sends them in batches of at most 50 a
  * minute after starting and then every 15 minutes. Times are cut to the hour. The queue (at most
  * 200 events, the oldest dropped first) is kept in the settings file, so sessions done offline are
  * sent later; a failed send is retried after 1, 10, then 60 minutes. Turning it off forgets the id

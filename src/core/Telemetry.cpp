@@ -156,10 +156,6 @@ void Telemetry::setEnabled(bool enabled)
         m_settings->setValue(QLatin1String(kId), m_id);
         Settings::sync(*m_settings);
     }
-    if (!m_startedRecorded) {
-        m_startedRecorded = true;
-        record(QStringLiteral("app_started"), m_startProperties ? m_startProperties() : QJsonObject());
-    }
     schedule(m_firstMs);
 }
 
@@ -215,6 +211,11 @@ void Telemetry::flush()
 {
     if (!m_enabled || m_sending) {
         return;
+    }
+    // At the first send rather than at startup, when the tray and Sugo Sync have settled.
+    if (!m_startedRecorded) {
+        m_startedRecorded = true;
+        record(QStringLiteral("app_started"), m_startProperties ? m_startProperties() : QJsonObject());
     }
     if (m_queue.isEmpty()) {
         schedule(m_intervalMs);
