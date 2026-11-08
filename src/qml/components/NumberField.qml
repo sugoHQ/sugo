@@ -111,6 +111,11 @@ QQC2.Control {
     WheelHandler {
         enabled: input.activeFocus
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        onWheel: event => field.step(event.angleDelta.y > 0 ? 1 : -1)
+        // Only a vertical turn steps: a horizontal scroll (touchpad, Shift+wheel) or an event
+        // without one (the end of a touchpad gesture) is no step down.
+        onWheel: event => {
+            if (event.angleDelta.y !== 0)
+                field.step(event.angleDelta.y > 0 ? 1 : -1);
+        }
     }
 }
