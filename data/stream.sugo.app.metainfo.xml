@@ -23,6 +23,7 @@
       <li>Optional calendar events for finished work sessions (Nextcloud login or any CalDAV calendar)</li>
       <li>KRunner integration, optional automatic pause when the screen is locked, and task notes for completed sessions</li>
     </ul>
+    <p>Sugo can send anonymous usage statistics (the version, the kind of system, which features are on, and the length of finished phases) to help improve it. They are off unless you turn them on, in the welcome tour or in the settings, and never include personal data.</p>
   </description>
   <launchable type="desktop-id">stream.sugo.app.desktop</launchable>
   <developer id="stream.sugo">
