@@ -74,10 +74,10 @@ QString desktop()
 
 QString distroFrom(const QByteArray &osRelease)
 {
-    // The same list as the Worker's DISTROS (sugo-sync, worker/src/telemetry.ts).
+    // Each of these is in the Worker's DISTROS (sugo-sync, worker/src/telemetry.ts).
     static const QStringList known = {
-        QStringLiteral("ubuntu"),      QStringLiteral("kubuntu"),
-        QStringLiteral("debian"),      QStringLiteral("fedora"),
+        QStringLiteral("ubuntu"),      QStringLiteral("debian"),
+        QStringLiteral("fedora"),
         QStringLiteral("arch"),        QStringLiteral("manjaro"),
         QStringLiteral("endeavouros"), QStringLiteral("cachyos"),
         QStringLiteral("opensuse-tumbleweed"), QStringLiteral("opensuse-leap"),
@@ -90,19 +90,27 @@ QString distroFrom(const QByteArray &osRelease)
         QStringLiteral("almalinux"),   QStringLiteral("steamos"),
         QStringLiteral("bazzite"),     QStringLiteral("kinoite"),
     };
-    for (const QByteArray &raw : osRelease.split('\n')) {
-        const QByteArray line = raw.trimmed();
-        if (!line.startsWith("ID=")) {
-            continue;
+    // ID, and VARIANT_ID for the Fedora editions told apart by it (Kinoite). Kubuntu says
+    // ID=ubuntu: it counts as Ubuntu.
+    const auto value = [&osRelease](const QByteArray &key) {
+        for (const QByteArray &raw : osRelease.split('\n')) {
+            const QByteArray line = raw.trimmed();
+            if (!line.startsWith(QByteArray(key + '='))) {
+                continue;
+            }
+            QString v = QString::fromUtf8(line.mid(key.size() + 1)).trimmed();
+            if (v.size() >= 2 && (v.startsWith(QLatin1Char('"')) || v.startsWith(QLatin1Char('\''))) && v.endsWith(v.at(0))) {
+                v = v.mid(1, v.size() - 2);
+            }
+            return v.toLower();
         }
-        QString id = QString::fromUtf8(line.mid(3)).trimmed();
-        if (id.size() >= 2 && (id.startsWith(QLatin1Char('"')) || id.startsWith(QLatin1Char('\''))) && id.endsWith(id.at(0))) {
-            id = id.mid(1, id.size() - 2);
-        }
-        id = id.toLower();
-        return known.contains(id) ? id : QStringLiteral("other");
+        return QString();
+    };
+    const QString id = value("ID");
+    if (id == QLatin1String("fedora") && value("VARIANT_ID") == QLatin1String("kinoite")) {
+        return QStringLiteral("kinoite");
     }
-    return QStringLiteral("other");
+    return known.contains(id) ? id : QStringLiteral("other");
 }
 
 QString distro()

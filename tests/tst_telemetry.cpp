@@ -346,6 +346,9 @@ private Q_SLOTS:
         QCOMPARE(TelemetryInfo::distroFrom("ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n"), QStringLiteral("opensuse-tumbleweed"));
         QCOMPARE(TelemetryInfo::distroFrom("ID_LIKE=arch\nID=cachyos\n"), QStringLiteral("cachyos"));
         QCOMPARE(TelemetryInfo::distroFrom("ID=myhomebrew-alice\n"), QStringLiteral("other"));
+        QCOMPARE(TelemetryInfo::distroFrom("ID=fedora\nVARIANT_ID=kinoite\n"), QStringLiteral("kinoite"));
+        QCOMPARE(TelemetryInfo::distroFrom("ID=fedora\nVARIANT_ID=workstation\n"), QStringLiteral("fedora"));
+        QCOMPARE(TelemetryInfo::distroFrom("NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n"), QStringLiteral("ubuntu"));
         QCOMPARE(TelemetryInfo::distroFrom(""), QStringLiteral("other"));
         QCOMPARE(TelemetryInfo::presetsBand(0), QStringLiteral("1"));
         QCOMPARE(TelemetryInfo::presetsBand(1), QStringLiteral("1"));
