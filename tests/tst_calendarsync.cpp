@@ -1857,12 +1857,14 @@ private Q_SLOTS:
         m_sync->startNextcloudLogin();
         QTRY_COMPARE(m_sync->status(), CalendarSync::WaitingForBrowser);
         QTRY_VERIFY(m_server->polls >= 2);
+        const int pollsAtCancel = m_server->polls;
         m_sync->cancelLogin();
         QCOMPARE(m_sync->status(), CalendarSync::NotConfigured);
-        QTest::qWait(60); // lets an in-flight poll finish
-        const int polls = m_server->polls;
-        QTest::qWait(200);
-        QCOMPARE(m_server->polls, polls);
+        // The one poll already on its way may still reach the server, however slow the machine;
+        // a poll timer left running would add one every 20 ms.
+        QTest::qWait(300);
+        QVERIFY2(m_server->polls <= pollsAtCancel + 1,
+                 qPrintable(QStringLiteral("%1 polls after the cancel").arg(m_server->polls - pollsAtCancel)));
         QVERIFY(!m_sync->hasPassword());
     }
 
