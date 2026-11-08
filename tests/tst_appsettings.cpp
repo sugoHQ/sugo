@@ -784,6 +784,22 @@ private Q_SLOTS:
         QVERIFY(!reloaded->autoCheckUpdates());
     }
 
+    void usageStatsAreOffByDefaultAndPersist()
+    {
+        {
+            const auto settings = make();
+            QVERIFY(!settings->shareUsageStats());
+            QSignalSpy spy(settings.get(), &AppSettings::shareUsageStatsChanged);
+            settings->setShareUsageStats(false);
+            QCOMPARE(spy.count(), 0);
+            settings->setShareUsageStats(true);
+            settings->setShareUsageStats(true);
+            QCOMPARE(spy.count(), 1);
+        }
+        QCOMPARE(stored("ShareUsageStats"), QStringLiteral("true"));
+        QVERIFY(make()->shareUsageStats());
+    }
+
     void verboseLoggingIsOffByDefaultAndPersists()
     {
         {
@@ -833,6 +849,7 @@ private Q_SLOTS:
         settings->setAccentColor(QStringLiteral("cyan"));
         settings->setUpdateChannel(QStringLiteral("nightly"));
         settings->setAutoCheckUpdates(false);
+        settings->setShareUsageStats(true);
         settings->setVerboseLogging(true);
         settings->setFocusOnShortcut(QStringLiteral("Mine On"));
         settings->setFocusOffShortcut(QStringLiteral("Mine Off"));
@@ -869,6 +886,7 @@ private Q_SLOTS:
         QCOMPARE(settings->accentColor(), QStringLiteral("red"));
         QCOMPARE(settings->updateChannel(), QStringLiteral("stable"));
         QVERIFY(settings->autoCheckUpdates());
+        QVERIFY(!settings->shareUsageStats());
         QVERIFY(!settings->verboseLogging());
 
         // Views are told ...
