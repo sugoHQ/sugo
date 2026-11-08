@@ -685,9 +685,17 @@ QQC2.Page {
                         id: usageStatsRow
                         objectName: "welcomeUsageStatsRow"
                         title: i18n("Share anonymous usage statistics")
-                        description: i18n("Helps us see what to improve. Nothing about you is sent.")
+                        description: i18n("Helps us see which features to improve. Nothing about you is sent.")
                         opacity: setupStep.reveal(8)
                         transform: Translate { y: setupStep.rise(8) }
+                        SButton {
+                            objectName: "welcomeUsageStatsDetails"
+                            kind: "ghost"
+                            text: i18n("What is sent")
+                            iconName: "external"
+                            Accessible.description: i18n("Opens the list of what the usage statistics send, in your browser.")
+                            onClicked: Qt.openUrlExternally("https://github.com/sugoHQ/sugo/blob/main/docs/USAGE.md#anonymous-usage-statistics")
+                        }
                         SettingSwitch { setting: "shareUsageStats"; row: usageStatsRow }
                     }
                 }
