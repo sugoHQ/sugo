@@ -1576,6 +1576,7 @@ QQC2.Page {
                             implicitHeight: Theme.controlHeight
                             RowLayout {
                                 id: calLoginButtons
+                                objectName: "calendarLoginButtons"
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: Theme.spaceSm
