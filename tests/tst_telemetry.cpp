@@ -4,9 +4,13 @@
 #include "core/TelemetryInfo.h"
 
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSet>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimeZone>
+#include <QUuid>
 
 namespace
 {
@@ -269,6 +273,15 @@ private Q_SLOTS:
         t->flush();
         m_transport->answer(400);
         QVERIFY(t->queue().isEmpty());
+    }
+
+    void keepsTheBatchOnARedirect()
+    {
+        Telemetry *t = make();
+        t->setEnabled(true);
+        t->flush();
+        m_transport->answer(308); // moved elsewhere: not followed, not lost
+        QCOMPARE(t->queue().size(), 1);
     }
 
     void theQueueHasACapAndSurvivesARestart()

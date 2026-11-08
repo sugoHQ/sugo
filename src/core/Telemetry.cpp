@@ -55,7 +55,12 @@ void HttpTelemetryTransport::send(const QByteArray &json, std::function<void(int
 {
     abort();
     if (!m_endpoint.isValid() || !UrlPolicy::isAllowed(m_endpoint)) {
-        QTimer::singleShot(0, this, [done]() { done(0); });
+        const int serial = m_serial;
+        QTimer::singleShot(0, this, [this, serial, done]() {
+            if (serial == m_serial) {
+                done(0);
+            }
+        });
         return;
     }
     if (!m_nam) {
@@ -82,6 +87,7 @@ void HttpTelemetryTransport::send(const QByteArray &json, std::function<void(int
 
 void HttpTelemetryTransport::abort()
 {
+    ++m_serial;
     if (QNetworkReply *reply = m_reply) {
         m_reply = nullptr;
         reply->abort();
@@ -240,7 +246,8 @@ void Telemetry::finished(int generation, int count, int status)
         return; // turned off meanwhile
     }
     m_sending = false;
-    const bool retry = status == 0 || status == 408 || status == 429 || status >= 500;
+    // A redirect elsewhere (not followed: SameOriginRedirectPolicy) is not a refusal: keep the events.
+    const bool retry = status == 0 || (status >= 300 && status < 400) || status == 408 || status == 429 || status >= 500;
     if (retry) {
         const int delay = m_retryMs.isEmpty() ? m_intervalMs : m_retryMs.at(std::min<int>(m_failures, int(m_retryMs.size()) - 1));
         ++m_failures;

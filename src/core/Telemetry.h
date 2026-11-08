@@ -43,6 +43,8 @@ public:
 
 private:
     QUrl m_endpoint;
+    /// Bumped by abort(): a refusal scheduled before is not reported.
+    int m_serial = 0;
     QNetworkAccessManager *m_nam = nullptr;
     QPointer<QNetworkReply> m_reply;
 };
