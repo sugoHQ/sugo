@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-08 00:22+0000\n"
+"POT-Creation-Date: 2026-11-08 00:38+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1389,7 +1389,7 @@ msgid ""
 "manager."
 msgstr ""
 
-#: src/qml/Main.qml:1848 src/qml/pages/WelcomePage.qml:925
+#: src/qml/Main.qml:1848 src/qml/pages/WelcomePage.qml:933
 msgid "Done"
 msgstr ""
 
@@ -2727,7 +2727,7 @@ msgid "Share anonymous usage statistics"
 msgstr ""
 
 #: src/qml/pages/AppSettingsPage.qml:2243 src/qml/pages/WelcomePage.qml:688
-msgid "Helps us see what to improve. Nothing about you is sent."
+msgid "Helps us see which features to improve. Nothing about you is sent."
 msgstr ""
 
 #: src/qml/pages/AppSettingsPage.qml:2252
@@ -3141,7 +3141,7 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: src/qml/pages/StatsPage.qml:219 src/qml/pages/WelcomePage.qml:919
+#: src/qml/pages/StatsPage.qml:219 src/qml/pages/WelcomePage.qml:927
 msgid "Next"
 msgstr ""
 
@@ -3413,23 +3413,31 @@ msgstr ""
 msgid "Install Focus Shortcuts"
 msgstr ""
 
-#: src/qml/pages/WelcomePage.qml:759
+#: src/qml/pages/WelcomePage.qml:694
+msgid "What is sent"
+msgstr ""
+
+#: src/qml/pages/WelcomePage.qml:696
+msgid "Opens the list of what the usage statistics send, in your browser."
+msgstr ""
+
+#: src/qml/pages/WelcomePage.qml:767
 msgid "You're all set"
 msgstr ""
 
-#: src/qml/pages/WelcomePage.qml:765
+#: src/qml/pages/WelcomePage.qml:773
 msgid "Your timer is ready. Sessions and streaks will show up in Statistics."
 msgstr ""
 
-#: src/qml/pages/WelcomePage.qml:832
+#: src/qml/pages/WelcomePage.qml:840
 msgid "Skip Tour"
 msgstr ""
 
-#: src/qml/pages/WelcomePage.qml:859
+#: src/qml/pages/WelcomePage.qml:867
 msgctxt "@action:button welcome tour"
 msgid "Step %1 of %2"
 msgstr ""
 
-#: src/qml/pages/WelcomePage.qml:899
+#: src/qml/pages/WelcomePage.qml:907
 msgid "Back"
 msgstr ""
