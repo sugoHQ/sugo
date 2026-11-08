@@ -6,19 +6,31 @@
 #   linux  the GCC build with the tests and the metadata checks (ubuntu)
 #   clang  the Clang build, warnings as errors (only the compiled sources matter)
 #   macos  the macOS build with the tests
-# It fails open: when the changed files cannot be known (a manual run, a new branch, a force push
-# the API cannot compare, too many files), every job runs.
+# A pull request compares its head with its base. A push compares the pushed commit with the commit
+# of the newest CI run on that branch that passed (--last-green), not with the commit before the
+# push: a run that failed or was cancelled leaves its changes in the comparison until a later run
+# passes with them, so a push that changes nothing tested cannot pass (and, on testing, publish a
+# nightly) on top of code no test has run on.
+# It fails open: when the changed files cannot be known (a manual run, no passed run on the branch,
+# a passed commit that is not an ancestor of the head, a comparison the API cannot make, too many
+# files), every job runs.
 #
-# usage: ci-changes.sh <base commit> <head commit>   (GH_TOKEN, GITHUB_REPOSITORY, GITHUB_OUTPUT)
+# usage: ci-changes.sh <base commit> <head commit>          (pull request)
+#        ci-changes.sh --last-green <branch> <head commit>  (push; needs actions: read)
+# (GH_TOKEN, GITHUB_REPOSITORY, GITHUB_OUTPUT)
 set -uo pipefail
 
-base=${1:-}
-head=${2:-}
 linux=false clang=false macos=false
 
 all() {
     echo "Running every job: $1"
     linux=true clang=true macos=true
+}
+
+# The commit of the newest CI run on branch $1 that passed on a push, or nothing.
+last_green() {
+    gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$1&event=push&status=success&per_page=1" \
+        --jq '.workflow_runs[0].head_sha // empty'
 }
 
 # What a file needs. Anything not listed below goes to every job.
@@ -68,8 +80,35 @@ classify() {
     esac
 }
 
-if [[ -z $base || -z $head || $base =~ ^0+$ ]]; then
+base='' head='' branch='' reason=''
+if [[ ${1:-} == --last-green ]]; then
+    branch=${2:-} head=${3:-}
+    if [[ -z $branch ]]; then
+        reason="no branch given"
+    elif ! base=$(last_green "$branch" 2>&1); then
+        reason="the CI runs of $branch could not be read ($base)"
+    elif [[ -z $base ]]; then
+        reason="no CI run on $branch has passed yet"
+    elif [[ ! $base =~ ^[0-9a-f]{40}$ ]]; then
+        reason="unexpected answer for the CI runs of $branch ($base)"
+    else
+        echo "Base: $base, the newest CI run on $branch that passed"
+    fi
+else
+    base=${1:-} head=${2:-}
+fi
+
+if [[ -n $reason ]]; then
+    all "$reason"
+elif [[ -z $base || -z $head || $base =~ ^0+$ ]]; then
     all "no previous commit to compare with"
+elif [[ -n $branch ]] && ! status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head?per_page=1" \
+        --jq '.status' 2>&1); then
+    all "the comparison failed ($status)"
+elif [[ -n $branch && $status == identical ]]; then
+    all "$head is the commit that passed (a run started again)"
+elif [[ -n $branch && $status != ahead ]]; then
+    all "$base is not an ancestor of $head (comparison: $status)"
 elif ! files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head?per_page=100" --paginate \
         --jq '.files[].filename' 2>&1); then
     all "the comparison failed ($files)"
