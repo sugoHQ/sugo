@@ -54,15 +54,23 @@ QQC2.Page {
     /// The primary button: the next step, or out of the tour from the last one.
     function advance(): void {
         if (current === count - 1) {
-            finish();
+            finish(false);
         } else {
             go(current + 1);
         }
     }
 
-    function finish(): void {
-        AppSettings.firstRunCompleted = true;
+    function finish(skipped: bool): void {
+        end(skipped);
         applicationWindow().navigate("timer");
+    }
+
+    // The tour is over (the usage statistics, if they are on, note where and how).
+    function end(skipped: bool): void {
+        if (!AppSettings.firstRunCompleted) {
+            Telemetry.tourEnded(page.current, skipped);
+        }
+        AppSettings.firstRunCompleted = true;
     }
 
     Keys.onRightPressed: go(current + 1)
@@ -785,7 +793,7 @@ QQC2.Page {
                 transform: Translate { y: readyStep.rise(10) }
                 onStartPressed: {
                     if (TimerEngine.active && !TimerEngine.paused) {
-                        page.finish();
+                        page.finish(false);
                     }
                 }
             }
@@ -800,11 +808,11 @@ QQC2.Page {
             applicationWindow().chooseTimer(uuid);
         }
         function newTimer(): void {
-            AppSettings.firstRunCompleted = true;
+            page.end(false);
             applicationWindow().newTimer();
         }
         function openSettings(category: string): void {
-            AppSettings.firstRunCompleted = true;
+            page.end(false);
             applicationWindow().openSettings(category);
         }
         function requestEndPhase(skipping: bool): bool {
@@ -839,7 +847,7 @@ QQC2.Page {
             kind: "ghost"
             text: i18n("Skip Tour")
             visible: page.current < page.count - 1
-            onClicked: page.finish()
+            onClicked: page.finish(true)
         }
 
         Row {

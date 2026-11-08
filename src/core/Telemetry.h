@@ -5,6 +5,7 @@
 #include "TimerEngine.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -54,8 +55,9 @@ private:
  *
  * While off, nothing is recorded, queued or sent, and there is no install id. Turned on, it makes a
  * random id (Telemetry/Id in the settings file), records `app_started` (once per run, and when turned
- * on, at the first send so that what it reports has settled) and `session_ended` for every phase that
- * ends, and sends them in batches of at most 50 a
+ * on, at the first send so that what it reports has settled), `session_ended` for every phase that
+ * ends, `stats_enabled` and `onboarding_finished` (tour), `update_install` and `sync_error` (at most
+ * once a day per kind), and sends them in batches of at most 50 a
  * minute after starting and then every 15 minutes. Times are cut to the hour. The queue (at most
  * 200 events, the oldest dropped first) is kept in the settings file, so sessions done offline are
  * sent later; a failed send is retried after 1, 10, then 60 minutes. Turning it off forgets the id
@@ -81,8 +83,9 @@ public:
     void setTimingForTesting(int firstMs, int intervalMs, const QList<int> &retryMs);
 
     bool isEnabled() const { return m_enabled; }
-    /// Turns sending on or off (from AppSettings::shareUsageStats).
-    void setEnabled(bool enabled);
+    /// Turns sending on or off (from AppSettings::shareUsageStats). Turned on with a `source`
+    /// ("welcome" or "settings"), it also records `stats_enabled`.
+    void setEnabled(bool enabled, const QString &source = QString());
 
     QString installId() const { return m_id; }
     QJsonArray queue() const { return m_queue; }
@@ -90,6 +93,13 @@ public:
 
     /// A phase ended (TimerEngine::sessionEnded).
     void recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed);
+    /// The welcome tour ended on `step`, finished or skipped (from WelcomePage).
+    Q_INVOKABLE void tourEnded(int step, bool skipped);
+    /// An update was installed (`ok`, stage "install") or failed at `stage` ("write", "download", "verify", "install").
+    void recordUpdateInstall(bool ok, const QString &stage);
+    /// A failure of the calendar or of Sugo Sync (`area` "calendar" or "sugo_sync"), by kind; at
+    /// most once a day for each area and kind, so that a computer offline for hours sends one.
+    void recordSyncError(const QString &area, const QString &kind);
     /// Sends the next batch now, if there is one and none is on its way.
     void flush();
 
@@ -119,4 +129,6 @@ private:
     int m_generation = 0;
     QString m_id;
     QJsonArray m_queue;
+    /// "area/kind" of sync_error → the day it was last recorded.
+    QHash<QString, QDate> m_syncErrorsSent;
 };

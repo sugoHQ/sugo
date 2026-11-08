@@ -5,6 +5,7 @@
 #include "UrlPolicy.h"
 
 #include <QJsonDocument>
+#include <QStringList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -16,6 +17,8 @@ namespace
 {
 const char kId[] = "Telemetry/Id";
 const char kQueue[] = "Telemetry/Queue";
+/// sync_error: "area/kind" → the day (yyyy-MM-dd, UTC) it was last recorded, kept across restarts.
+const char kSyncErrorDays[] = "Telemetry/SyncErrorDays";
 constexpr int kTransferTimeoutMs = 15 * 1000;
 
 QString phaseName(TimerEngine::Phase phase)
@@ -112,6 +115,13 @@ Telemetry::Telemetry(Settings::Ptr settings, TelemetryTransport *transport, QObj
             m_queue.append(event);
         }
     }
+    const QJsonObject days = QJsonDocument::fromJson(m_settings->value(QLatin1String(kSyncErrorDays)).toString().toUtf8()).object();
+    for (auto it = days.begin(); it != days.end(); ++it) {
+        const QDate day = QDate::fromString(it.value().toString(), Qt::ISODate);
+        if (day.isValid()) {
+            m_syncErrorsSent.insert(it.key(), day);
+        }
+    }
 }
 
 void Telemetry::setStartProperties(std::function<QJsonObject()> properties)
@@ -131,11 +141,12 @@ void Telemetry::setTimingForTesting(int firstMs, int intervalMs, const QList<int
     m_retryMs = retryMs;
 }
 
-void Telemetry::setEnabled(bool enabled)
+void Telemetry::setEnabled(bool enabled, const QString &source)
 {
     if (!enabled) {
         const bool hadState = m_enabled || !m_id.isEmpty() || !m_queue.isEmpty()
-            || m_settings->contains(QLatin1String(kId)) || m_settings->contains(QLatin1String(kQueue));
+            || m_settings->contains(QLatin1String(kId)) || m_settings->contains(QLatin1String(kQueue))
+            || m_settings->contains(QLatin1String(kSyncErrorDays));
         m_enabled = false;
         m_startedRecorded = false;
         m_timer.stop();
@@ -147,6 +158,7 @@ void Telemetry::setEnabled(bool enabled)
         m_failures = 0;
         m_id.clear();
         m_queue = QJsonArray();
+        m_syncErrorsSent.clear();
         if (hadState) {
             m_settings->remove(QLatin1String("Telemetry"));
             Settings::sync(*m_settings);
@@ -162,6 +174,9 @@ void Telemetry::setEnabled(bool enabled)
         m_settings->setValue(QLatin1String(kId), m_id);
         Settings::sync(*m_settings);
     }
+    if (source == QLatin1String("welcome") || source == QLatin1String("settings")) {
+        record(QStringLiteral("stats_enabled"), {{QStringLiteral("source"), source}});
+    }
     schedule(m_firstMs);
 }
 
@@ -175,6 +190,46 @@ void Telemetry::recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool c
            {{QStringLiteral("phase"), phaseName(phase)},
             {QStringLiteral("planned_min"), static_cast<int>(minutes)},
             {QStringLiteral("completed"), completed}});
+}
+
+void Telemetry::tourEnded(int step, bool skipped)
+{
+    if (!m_enabled) {
+        return;
+    }
+    record(QStringLiteral("onboarding_finished"),
+           {{QStringLiteral("result"), skipped ? QStringLiteral("skipped") : QStringLiteral("done")},
+            {QStringLiteral("step"), std::clamp(step, 0, 9)}});
+}
+
+void Telemetry::recordUpdateInstall(bool ok, const QString &stage)
+{
+    static const QStringList stages = {QStringLiteral("write"), QStringLiteral("download"), QStringLiteral("verify"), QStringLiteral("install")};
+    if (!m_enabled || !stages.contains(stage)) {
+        return;
+    }
+    record(QStringLiteral("update_install"), {{QStringLiteral("ok"), ok}, {QStringLiteral("stage"), stage}});
+}
+
+void Telemetry::recordSyncError(const QString &area, const QString &kind)
+{
+    if (!m_enabled || kind.isEmpty()) {
+        return;
+    }
+    const QString key = area + QLatin1Char('/') + kind;
+    const QDate today = m_now().toUTC().date();
+    if (m_syncErrorsSent.value(key) == today) {
+        return;
+    }
+    m_syncErrorsSent.insert(key, today);
+    QJsonObject days;
+    for (auto it = m_syncErrorsSent.cbegin(); it != m_syncErrorsSent.cend(); ++it) {
+        if (it.value() == today) { // older days no longer matter
+            days.insert(it.key(), it.value().toString(Qt::ISODate));
+        }
+    }
+    m_settings->setValue(QLatin1String(kSyncErrorDays), QString::fromUtf8(QJsonDocument(days).toJson(QJsonDocument::Compact)));
+    record(QStringLiteral("sync_error"), {{QStringLiteral("area"), area}, {QStringLiteral("kind"), kind}});
 }
 
 QString Telemetry::hourNow() const

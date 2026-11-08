@@ -167,6 +167,10 @@ Q_SIGNALS:
     /// An address typed in (setServerUrl, setCalendarUrl) was refused and nothing was stored:
     /// `message` says why, so the view can keep what was typed and explain it.
     void inputRejected(const QString &message);
+    /// Sending a session's event failed, by kind: "network" (no answer), "auth" (401), "refused"
+    /// (403), "not_found" (404, 409), "rate_limited" (408, 423, 429), "rejected_event" (another
+    /// 4xx: the event was skipped) or "server". For the anonymous usage statistics.
+    void sendFailed(const QString &kind);
 
 private:
     struct Result {
