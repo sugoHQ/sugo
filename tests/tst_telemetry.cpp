@@ -334,6 +334,70 @@ private Q_SLOTS:
         QCOMPARE(t->queue().size(), 1);
     }
 
+    void optInAndTourEvents()
+    {
+        Telemetry *t = make();
+        t->tourEnded(2, true); // off: nothing
+        t->setEnabled(true, QStringLiteral("welcome"));
+        t->tourEnded(3, false);
+        t->tourEnded(42, true);
+        QCOMPARE(t->queue().size(), 3);
+        const auto at = [t](int i) { return t->queue().at(i).toObject(); };
+        QCOMPARE(at(0).value(QStringLiteral("event")).toString(), QStringLiteral("stats_enabled"));
+        QCOMPARE(at(0).value(QStringLiteral("props")).toObject(), QJsonObject({{QStringLiteral("source"), QStringLiteral("welcome")}}));
+        QCOMPARE(at(1).value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("result"), QStringLiteral("done")}, {QStringLiteral("step"), 3}}));
+        QCOMPARE(at(2).value(QStringLiteral("props")).toObject().value(QStringLiteral("step")).toInt(), 9); // clamped
+
+        // On at startup (no source): no stats_enabled. An unknown source is ignored too.
+        Telemetry *again = make();
+        again->setEnabled(true);
+        QCOMPARE(again->queue().size(), 3);
+        again->setEnabled(false);
+        again->setEnabled(true, QStringLiteral("somewhere"));
+        QVERIFY(again->queue().isEmpty());
+    }
+
+    void updateInstallEvents()
+    {
+        Telemetry *t = make();
+        t->recordUpdateInstall(false, QStringLiteral("download")); // off
+        t->setEnabled(true);
+        t->recordUpdateInstall(false, QStringLiteral("verify"));
+        t->recordUpdateInstall(true, QStringLiteral("install"));
+        t->recordUpdateInstall(false, QStringLiteral("Could not download the update: host not found")); // not a stage
+        QCOMPARE(t->queue().size(), 2);
+        QCOMPARE(t->queue().at(0).toObject().value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("ok"), false}, {QStringLiteral("stage"), QStringLiteral("verify")}}));
+    }
+
+    void syncErrorsAtMostOnceADayEach()
+    {
+        QDateTime now = kNow;
+        Telemetry *t = make();
+        t->setNow([&now]() { return now; });
+        t->recordSyncError(QStringLiteral("calendar"), QStringLiteral("network")); // off
+        t->setEnabled(true);
+        for (int i = 0; i < 5; ++i) {
+            t->recordSyncError(QStringLiteral("calendar"), QStringLiteral("network"));
+        }
+        t->recordSyncError(QStringLiteral("calendar"), QStringLiteral("auth"));
+        t->recordSyncError(QStringLiteral("sugo_sync"), QStringLiteral("network"));
+        t->recordSyncError(QStringLiteral("sugo_sync"), QString()); // no kind
+        QCOMPARE(t->queue().size(), 3);
+        now = now.addDays(1);
+        t->recordSyncError(QStringLiteral("calendar"), QStringLiteral("network"));
+        QCOMPARE(t->queue().size(), 4);
+        QCOMPARE(t->queue().at(3).toObject().value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("area"), QStringLiteral("calendar")}, {QStringLiteral("kind"), QStringLiteral("network")}}));
+
+        // Turned off and on: counted afresh.
+        t->setEnabled(false);
+        t->setEnabled(true);
+        t->recordSyncError(QStringLiteral("calendar"), QStringLiteral("network"));
+        QCOMPARE(t->queue().size(), 1);
+    }
+
     void infoValues()
     {
         QCOMPARE(TelemetryInfo::channel(QStringLiteral("1.2.0")), QStringLiteral("stable"));
