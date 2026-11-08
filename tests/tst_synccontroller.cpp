@@ -327,12 +327,13 @@ private Q_SLOTS:
         QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 0);
         QVERIFY(a.settings->value(QStringLiteral("Sync/sessions/Dirty")).toBool());
 
-        // Remembered over a restart.
+        // Remembered over a restart. (The old controller deletes its channel: copy it first.)
+        const QString text = sessions->text;
+        const qint64 at = sessions->at;
         a.build(*server);
-        auto *again = new TextChannel(SyncKind::Sessions);
-        again->text = sessions->text;
-        again->at = sessions->at;
-        sessions = again;
+        sessions = new TextChannel(SyncKind::Sessions);
+        sessions->text = text;
+        sessions->at = at;
         a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
         QCOMPARE(a.sync->availability(SyncKind::Sessions), SyncController::PlusRequired);
         QTRY_COMPARE(a.sync->state(), SyncController::Idle);
