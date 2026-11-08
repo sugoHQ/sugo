@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -24,9 +25,12 @@ class SyncSecrets;
  * - The first device of an account creates K and the recovery code, and uploads K sealed with
  *   the code (recoveryCodeCreated()).
  * - Any later device waits for a linked device to approve it: both show verificationCode() of
- *   the two public keys, and the linked one sends K in an authenticated crypto_box. The new
- *   device takes K only from the device the code was computed with (a server that hands it a
- *   key of its own is caught: keyRejected(), and the key is not confirmed).
+ *   the two public keys, and the linked one sends K in an authenticated crypto_box. While
+ *   waiting, the device list is read again every minute, so the code and its approver follow
+ *   whichever device holds the key now (one that signed out does not leave the wait stuck on
+ *   a code of its own). The new device takes K only from the device the code was computed
+ *   with (a server that hands it a key of its own is caught: keyRejected(), and the key is
+ *   not confirmed).
  * - A device can also open K with the recovery code (useRecoveryCode()).
  * - K is stored before the server is told (DELETE /v1/key), so it can never be lost between.
  * - The recovery code stays in the keyring of the device that made it; it can be shown again
@@ -280,6 +284,7 @@ private:
     QList<Device> m_devices;
     Device m_approver;
     QString m_verificationCode;
+    QElapsedTimer m_keyListTaken; ///< When the devices were last read: paces the re-list while waiting.
 
     // Approval of other devices
     bool m_checkingPending = false;
