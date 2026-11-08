@@ -820,7 +820,7 @@ QQC2.Page {
         }
     }
 
-    // --- Bottom bar: skip at the left; the step dots, back and next at the right ---------------
+    // --- Bottom bar: skip at the left; the step dots, centred; back and next at the right ------
 
     // Opaque, so that a scrolled step never shows through it (the software renderer does not
     // clip shapes).
@@ -856,14 +856,12 @@ QQC2.Page {
             readonly property int count: page.count
             // Only ever follows the steps; the dots move the steps themselves.
             readonly property int currentIndex: page.current
-            // Left of the room Back takes on every step but the first: the dots never move.
-            anchors.right: navButtons.right
-            anchors.rightMargin: backButton.implicitWidth + primaryButton.Layout.preferredWidth + navButtons.spacing + Theme.spaceLg
+            anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spaceSm
             // Hidden when the window is too narrow to fit the dots between the buttons.
-            visible: bottomBar.width - 2 * Theme.welcomeFooterPaddingX - skipButton.implicitWidth - anchors.rightMargin
-                     - Theme.space2xl > implicitWidth
+            visible: bottomBar.width - 2 * Theme.welcomeFooterPaddingX - skipButton.implicitWidth
+                     - navButtons.implicitWidth - navButtons.spacing > implicitWidth
 
             Repeater {
                 model: indicator.count
