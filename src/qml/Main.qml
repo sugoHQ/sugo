@@ -362,6 +362,12 @@ QQC2.ApplicationWindow {
                 fail(23, "Settings switches without an accessible name: found=" + switches.length + " unnamed=" + unnamed.join(","));
                 return;
             }
+            // The usage statistics are opt-in: their switch is there, and off.
+            const usageStats = switches.find(sw => sw.setting === "shareUsageStats");
+            if (!usageStats || usageStats.checked || AppSettings.shareUsageStats) {
+                fail(66, "The usage statistics switch is missing from Settings, or on by default");
+                return;
+            }
             // A dragged slider keeps following the setting (a drag sets `value` from C++, which
             // does not drop the binding).
             const slider = findItem(page, item => item.objectName === "soundVolumeSlider");
@@ -589,6 +595,13 @@ QQC2.ApplicationWindow {
             const focusInstall = findItem(page, item => item.objectName === "welcomeInstallFocusShortcuts");
             if (!focusInstall || focusInstall.enabled || (!DesktopStyle.macos && focusInstall.visible)) {
                 fail(46, "The welcome tour's Focus shortcuts row is missing, or shown outside macOS");
+                return true;
+            }
+            // The usage statistics: asked on the setup step, off until the user turns them on.
+            const usageRow = findItem(page, item => item.objectName === "welcomeUsageStatsRow");
+            const usageSwitch = usageRow ? findItem(usageRow, item => item.setting === "shareUsageStats") : null;
+            if (!usageRow || !usageSwitch || usageSwitch.checked || AppSettings.shareUsageStats || usageSwitch.accessibleName.length === 0) {
+                fail(66, "The welcome tour's usage statistics row is missing, unnamed, or on by default");
                 return true;
             }
             // The step dots are named, move the slides, and keep following them.

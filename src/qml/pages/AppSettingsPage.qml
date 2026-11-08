@@ -2235,6 +2235,18 @@ QQC2.Page {
 
             SettingsCard {
                 category: "advanced"
+                title: i18n("Privacy")
+                iconName: "security-high"
+                SettingRow {
+                    first: true
+                    title: i18n("Share anonymous usage statistics")
+                    description: i18n("Helps us see what to improve. Nothing about you is sent.")
+                    SettingSwitch { setting: "shareUsageStats" }
+                }
+            }
+
+            SettingsCard {
+                category: "advanced"
                 // D-Bus and KRunner on Linux, sugo:// links on macOS.
                 available: AppSettings.externalControlSupported
                 title: DesktopStyle.macos ? i18n("Shortcuts and Automation") : i18n("Global Shortcuts and Automation")

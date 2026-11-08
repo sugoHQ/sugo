@@ -680,6 +680,16 @@ QQC2.Page {
                             onClicked: AppSettings.installFocusShortcuts()
                         }
                     }
+                    // Opt-in: off until the user turns it on (docs/USAGE.md lists what is sent).
+                    FormRow {
+                        id: usageStatsRow
+                        objectName: "welcomeUsageStatsRow"
+                        title: i18n("Share anonymous usage statistics")
+                        description: i18n("Helps us see what to improve. Nothing about you is sent.")
+                        opacity: setupStep.reveal(8)
+                        transform: Translate { y: setupStep.rise(8) }
+                        SettingSwitch { setting: "shareUsageStats"; row: usageStatsRow }
+                    }
                 }
             }
 

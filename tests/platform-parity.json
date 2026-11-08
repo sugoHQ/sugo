@@ -323,7 +323,9 @@
         "row: Diagnostic report",
         "row: Reset settings",
         "row: Session history",
-        "setting: allowExternalControl"
+        "row: Share anonymous usage statistics",
+        "setting: allowExternalControl",
+        "setting: shareUsageStats"
       ]
     },
     "settings/about": {
@@ -360,9 +362,11 @@
         "button: Next",
         "button: Skip Tour",
         "row: Protect weekend streaks",
+        "row: Share anonymous usage statistics",
         "row: Show an icon in the tray",
         "row: Start at login",
         "setting: protectWeekendStreak",
+        "setting: shareUsageStats",
         "setting: showTrayIcon",
         "setting: startAtLogin"
       ],
