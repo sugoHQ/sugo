@@ -323,6 +323,48 @@ detach_dmg() {
     [ ! -d "$mount" ]
 }
 
+# Whether hdiutil lists an image of this file name (not through a pipe into grep -q: that would
+# close it early and fail the script under pipefail).
+dmg_attached() {
+    local info
+    info=$(hdiutil info) || return 1
+    case $info in *"$1"*) return 0 ;; esac
+    return 1
+}
+
+# Detaches whatever is still attached from the writable image, then waits until hdiutil no longer
+# lists it. Unmounting /Volumes/Sugo is not enough: with an APFS image the image itself can stay
+# attached (and held by diskimages-helper) with no mount point at all, and converting it then
+# fails with "Resource temporarily unavailable". Non-zero if the image is still listed.
+release_dmg() {
+    local rw=$1 name attempt dev
+    name=$(basename "$rw")
+    for attempt in 1 2 3 4 5 6; do
+        # The whole disks (/dev/diskN) of the image's entry in `hdiutil info`.
+        for dev in $(hdiutil info | awk -v n="$name" '
+                /^image-path/ { inimg = index($0, n) > 0 }
+                inimg && /^\/dev\/disk[0-9]+[ \t]/ { print $1 }'); do
+            if [ "$attempt" -lt 3 ]; then
+                hdiutil detach "$dev" >/dev/null 2>&1 || true
+            else
+                hdiutil detach -force "$dev" >/dev/null 2>&1 || true
+            fi
+        done
+        dmg_attached "$name" || return 0
+        sleep $((attempt * 2))
+    done
+    ! dmg_attached "$name"
+}
+
+# What holds the image, for the log of a failed conversion.
+dmg_diagnostics() {
+    echo "--- hdiutil info" >&2
+    hdiutil info >&2 || true
+    echo "--- open files of the image" >&2
+    lsof "$1" >&2 2>&1 || true
+    echo "--- end" >&2
+}
+
 # hdiutil sometimes fails with "Resource busy" on the CI runners: try again a few times.
 RW=$(mktemp -u "${TMPDIR:-/tmp}/sugo-rw.XXXXXX").dmg
 size_mb=$(( $(du -sm dmg | cut -f1) + 64 ))
@@ -336,18 +378,28 @@ for attempt in 1 2 3 4 5; do
     sleep $((attempt * 5))
 done
 style_dmg "$RW" || echo "warning: could not set the disk image's window; it opens with Finder's default size" >&2
-# The volume must be gone before the conversion, and a failed attempt may leave a half-written
-# output behind: clear both, and wait longer between the attempts.
+# The image must be detached before the conversion (the volume, then the image itself), and a
+# failed attempt may leave a half-written output behind: clear both, and wait longer between the
+# attempts. The conversion reads a copy of the image: if diskimages-helper still holds a lock on
+# the original, the copy is free of it.
+detach_dmg /Volumes/Sugo || echo "warning: /Volumes/Sugo is still mounted" >&2
+release_dmg "$RW" || echo "warning: the writable image is still attached" >&2
+sync
+RWC="${RW%.dmg}-copy.dmg"
 for attempt in 1 2 3 4 5 6; do
-    detach_dmg /Volumes/Sugo || echo "warning: /Volumes/Sugo is still mounted" >&2
-    rm -f "$OUTPUT"
-    if hdiutil convert "$RW" -format ULFO -o "$OUTPUT" >/dev/null; then
+    rm -f "$OUTPUT" "$RWC"
+    cp "$RW" "$RWC"
+    if hdiutil convert "$RWC" -format ULFO -o "$OUTPUT" >/dev/null; then
         break
     fi
-    [ "$attempt" = 6 ] && fail "hdiutil could not convert the disk image"
+    if [ "$attempt" = 6 ]; then
+        dmg_diagnostics "$RW"
+        fail "hdiutil could not convert the disk image"
+    fi
     echo "hdiutil convert failed (attempt $attempt), trying again" >&2
+    release_dmg "$RW" || true
     sleep $((attempt * 10))
 done
-rm -f "$RW"
+rm -f "$RW" "$RWC"
 hdiutil verify "$OUTPUT" >/dev/null
 echo "Built $OUTPUT ($VERSION, $(shasum -a 256 "$OUTPUT" | cut -d' ' -f1))"
