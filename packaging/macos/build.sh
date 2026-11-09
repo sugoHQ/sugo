@@ -262,14 +262,67 @@ ditto "$APP" dmg/Sugo.app
 ln -s /Applications dmg/Applications
 OUTPUT="$OUT/$DMG_NAME"
 rm -f "$OUTPUT"
+
+# Window of the disk image (points): large, with big icons, the app on the left and the link to
+# /Applications on the right. Finder keeps this in the volume's .DS_Store.
+DMG_WIN_W=800
+DMG_WIN_H=500
+DMG_ICON_SIZE=160
+
+# Opens the writable image in Finder and sets the window. Returns non-zero on any failure (Finder
+# can be unavailable on a runner without a login session): the caller then ships the plain image.
+style_dmg() {
+    local rw=$1 mount=/Volumes/Sugo
+    hdiutil detach "$mount" >/dev/null 2>&1 || true
+    hdiutil attach "$rw" -noverify -noautoopen -mountpoint "$mount" >/dev/null || return 1
+    local ok=0
+    osascript <<EOF >/dev/null 2>&1 || ok=1
+tell application "Finder"
+    tell disk "Sugo"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 120, $((200 + DMG_WIN_W)), $((120 + DMG_WIN_H))}
+        set opts to the icon view options of container window
+        set arrangement of opts to not arranged
+        set icon size of opts to $DMG_ICON_SIZE
+        set text size of opts to 14
+        set position of item "Sugo.app" of container window to {$((DMG_WIN_W / 4)), $((DMG_WIN_H / 2 - 20))}
+        set position of item "Applications" of container window to {$((DMG_WIN_W * 3 / 4)), $((DMG_WIN_H / 2 - 20))}
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+EOF
+    sync
+    [ -f "$mount/.DS_Store" ] || ok=1
+    hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null || ok=1
+    return $ok
+}
+
 # hdiutil sometimes fails with "Resource busy" on the CI runners: try again a few times.
+RW=$(mktemp -u "${TMPDIR:-/tmp}/sugo-rw.XXXXXX").dmg
+size_mb=$(( $(du -sm dmg | cut -f1) + 64 ))
 for attempt in 1 2 3 4 5; do
-    if hdiutil create -volname Sugo -srcfolder dmg -fs APFS -format ULFO -ov "$OUTPUT" >/dev/null; then
+    rm -f "$RW"
+    if hdiutil create -volname Sugo -srcfolder dmg -fs APFS -format UDRW -size "${size_mb}m" -ov "$RW" >/dev/null; then
         break
     fi
     [ "$attempt" = 5 ] && fail "hdiutil could not create the disk image"
     echo "hdiutil failed (attempt $attempt), trying again" >&2
     sleep $((attempt * 5))
 done
+style_dmg "$RW" || echo "warning: could not set the disk image's window; it opens with Finder's default size" >&2
+for attempt in 1 2 3 4 5; do
+    if hdiutil convert "$RW" -format ULFO -o "$OUTPUT" >/dev/null; then
+        break
+    fi
+    [ "$attempt" = 5 ] && fail "hdiutil could not convert the disk image"
+    echo "hdiutil convert failed (attempt $attempt), trying again" >&2
+    sleep $((attempt * 5))
+done
+rm -f "$RW"
 hdiutil verify "$OUTPUT" >/dev/null
 echo "Built $OUTPUT ($VERSION, $(shasum -a 256 "$OUTPUT" | cut -d' ' -f1))"
