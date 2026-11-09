@@ -105,6 +105,8 @@ There are two AppImages, `Sugo-x86_64.AppImage` and `Sugo-aarch64.AppImage` (64-
 - **x86_64**: Ubuntu 22.04 (glibc 2.35).
 - **aarch64**: Ubuntu 24.04 (glibc 2.39). qt.io builds its arm64 Qt on Ubuntu 24.04, and that Qt needs glibc 2.38 and the libstdc++ of GCC 13, which Ubuntu 22.04 does not have. Building Qt from source on an older system would lower that, at the cost of hours per Qt update; a distribution's Qt 6.8+ (Debian 13) would raise it.
 
+The two container images are pinned by digest in the matrix of `appimage.yml`, where Dependabot cannot update them (it only follows the actions): look at the `ubuntu:22.04` and `ubuntu:24.04` digests by hand when you move to a newer Qt or linuxdeploy, and at each release. Use the digest of the multi-architecture index, which is valid on both x86_64 and arm64 runners.
+
 ```sh
 podman run --rm -v "$PWD:/src:ro,z" -v "$PWD/out:/out:z" docker.io/library/ubuntu:22.04 \
     bash /src/packaging/appimage/build.sh 1.0.1-dev /out
