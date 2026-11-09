@@ -122,6 +122,13 @@ public:
         static const QStringList greens{QStringLiteral("lime"), QStringLiteral("green"), QStringLiteral("teal")};
         return greens.contains(accentId) ? QColor(0x60, 0xa5, 0xfa) : TrayIconColors::rest();
     }
+    /// The badge colour while the timer is paused, in work and in breaks alike: yellow, so a
+    /// paused timer is told apart from a running one at a glance; on a yellow accent (where work
+    /// is yellow already) it is grey instead.
+    static QColor pausedBadgeColor(const QString &accentId)
+    {
+        return accentId == QLatin1String("yellow") ? QColor(0x9c, 0xa3, 0xaf) : accentShades(QStringLiteral("yellow")).dark;
+    }
 
     /// The accent the badge is painted with, kept in step with the setting (main.cpp).
     void setAccentColor(const QString &id)

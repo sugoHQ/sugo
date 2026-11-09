@@ -720,6 +720,14 @@ private Q_SLOTS:
         QCOMPARE(TrayIconStyle::breakBadgeColor(QStringLiteral("teal")), QColor(0x60, 0xa5, 0xfa)); // blue on a green accent
         QCOMPARE(TrayIconStyle::workBadgeColor(QStringLiteral("nonsense")),
                  TrayIconStyle::workBadgeColor(QStringLiteral("red"))); // red for an unknown id
+        // Paused is yellow, unlike work and breaks whatever the accent (grey on a yellow accent).
+        QCOMPARE(TrayIconStyle::pausedBadgeColor(QStringLiteral("red")), QColor(0xfa, 0xcc, 0x15));
+        for (const QString &id : {QStringLiteral("red"), QStringLiteral("orange"), QStringLiteral("yellow"), QStringLiteral("lime"),
+                                  QStringLiteral("green"), QStringLiteral("teal"), QStringLiteral("cyan"), QStringLiteral("blue"),
+                                  QStringLiteral("violet"), QStringLiteral("pink")}) {
+            QVERIFY2(TrayIconStyle::pausedBadgeColor(id) != TrayIconStyle::workBadgeColor(id), qPrintable(id));
+            QVERIFY2(TrayIconStyle::pausedBadgeColor(id) != TrayIconStyle::breakBadgeColor(id), qPrintable(id));
+        }
 
         TrayIconStyle style;
         QSignalSpy spy(&style, &TrayIconStyle::accentColorChanged);

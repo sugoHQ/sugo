@@ -74,7 +74,7 @@ void strokeProgress(QPainter &p, const QPainterPath &path, const QColor &color, 
 /// The application icon at several sizes:
 /// - When idle (minutes < 0): the application icon.
 /// - When active (minutes >= 0): the icon's dark tile in the phase colour `primary` (the accent
-///   colour setting for work, the break colour for breaks), with
+///   colour setting for work, the break colour for breaks, yellow while paused), with
 ///   * style 0: a border that fills clockwise as the phase runs and the remaining minutes,
 ///   * style 1: a fill rising from the bottom and the remaining minutes,
 ///   * style 2: the icon's spiral filling from its centre, without numbers.
@@ -343,9 +343,11 @@ void TrayController::refresh()
     if (iconKey != m_iconKey) {
         m_iconKey = iconKey;
         m_badgeMinutes = status.badgeMinutes;
-        // The phase colour, from the same shades the interface (TrayBadge.qml) reads.
-        const QColor primary = isWork ? TrayIconStyle::workBadgeColor(accent)
-                                      : TrayIconStyle::breakBadgeColor(accent);
+        // The phase colour, from the same shades the interface (TrayBadge.qml) reads; yellow
+        // while paused, so a paused timer does not look like a running one.
+        const QColor primary = isPaused ? TrayIconStyle::pausedBadgeColor(accent)
+                               : isWork ? TrayIconStyle::workBadgeColor(accent)
+                                        : TrayIconStyle::breakBadgeColor(accent);
         const QIcon icon = trayIcon(m_badgeMinutes, badgeStyle, progressStep / 200.0, isPaused,
                                     primary);
         m_item->setIcon(icon);
