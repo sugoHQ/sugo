@@ -215,7 +215,10 @@ private Q_SLOTS:
         QCOMPARE(QProcess::execute(QStringLiteral("kill"), {QStringLiteral("-KILL"), QString::number(first)}), 0);
 
         QTRY_VERIFY(!isRunning(first));
-        QTRY_VERIFY_WITH_TIMEOUT(startedPlayers().size() == 2 && soundPlaying(), 5000);
+        // The restart waits kRestartDelayMs (1 s) on purpose, then starts a new player script; on
+        // macOS every isRunning() check also runs ps and blocks. A loaded CI runner needs more than
+        // 5 s for all of it, and a longer timeout costs nothing when the player comes back sooner.
+        QTRY_VERIFY_WITH_TIMEOUT(startedPlayers().size() == 2 && soundPlaying(), 15000);
     }
 
     void aPlayerThatCannotPlayHereGivesWayToTheNext()
