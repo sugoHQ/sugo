@@ -460,12 +460,23 @@ QQC2.ApplicationWindow {
                 serverField.text = "https://cloud.example.org";
                 page.commitCalendarFields();
                 const stored = CalendarSync.serverUrl;
+                // Signed out, Log in is alone: the field takes the room of the second icon, so
+                // no gap is left between them.
+                const loginButtons = findItem(page, item => item.objectName === "calendarLoginButtons");
+                const gapless = loginButtons && !page.calConnected && !page.calWaiting
+                    && loginButtons.implicitWidth === Theme.controlHeight
+                    && serverField.Layout.preferredWidth
+                       === Theme.space4xl * 5 + Theme.controlHeight + Theme.spaceSm;
                 CalendarSync.serverUrl = "";
                 CalendarSync.enabled = false;
                 page.category = "general";
                 if (!focused || stored !== "https://cloud.example.org") {
                     fail(53, "The typed calendar address was not stored before the action: focused=" + focused
                          + " stored=" + stored);
+                    return;
+                }
+                if (!gapless) {
+                    fail(67, "The calendar address field leaves a gap before Log in");
                     return;
                 }
             }
