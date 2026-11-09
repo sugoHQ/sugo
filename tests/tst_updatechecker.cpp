@@ -96,6 +96,7 @@ struct LocalRelease {
             checker.setAppImagePathForTesting(appImage);
         }
         checker.setFeedUrlForTesting(QUrl::fromLocalFile(feed));
+        checker.setUpdatePublicKeyForTesting({}); // these feeds are not signed
         checker.setDownloadPrefixForTesting(downloadPrefix());
     }
 
@@ -272,6 +273,7 @@ struct LocalMacRelease {
     {
         checker.setInstallerForTesting(std::make_unique<MacBundleInstaller>(bundle, standIns(waitPid)));
         checker.setFeedUrlForTesting(QUrl::fromLocalFile(feed));
+        checker.setUpdatePublicKeyForTesting({}); // these feeds are not signed
         checker.setDownloadPrefixForTesting(QUrl::fromLocalFile(dir.filePath(QStringLiteral("download"))).toString() + QLatin1Char('/'));
     }
 
@@ -859,6 +861,7 @@ private Q_SLOTS:
             UpdateChecker checker;
             checker.setAppImagePathForTesting(release.appImage);
             checker.setFeedUrlForTesting(QUrl::fromLocalFile(release.feed)); // the real download prefix
+            checker.setUpdatePublicKeyForTesting({}); // these feeds are not signed
             checker.checkForUpdates();
             QTRY_VERIFY(checker.status() != UpdateChecker::Status::Checking);
             QCOMPARE(checker.status(), url == genuine || url == before ? UpdateChecker::Status::UpdateAvailable : UpdateChecker::Status::Error);
@@ -1257,6 +1260,7 @@ private Q_SLOTS:
         UpdateChecker checker;
         checker.setInstallerForTesting(std::make_unique<MacBundleInstaller>(release.bundle, tools));
         checker.setFeedUrlForTesting(QUrl::fromLocalFile(release.feed));
+        checker.setUpdatePublicKeyForTesting({}); // these feeds are not signed
         checker.setDownloadPrefixForTesting(QUrl::fromLocalFile(release.dir.filePath(QStringLiteral("download"))).toString() + QLatin1Char('/'));
         checker.checkForUpdates();
         QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
@@ -1281,6 +1285,7 @@ private Q_SLOTS:
         UpdateChecker refused;
         refused.setInstallerForTesting(std::make_unique<MacBundleInstaller>(release.bundle, tools));
         refused.setFeedUrlForTesting(QUrl::fromLocalFile(other.feed));
+        refused.setUpdatePublicKeyForTesting({}); // these feeds are not signed
         refused.setDownloadPrefixForTesting(QUrl::fromLocalFile(other.dir.filePath(QStringLiteral("download"))).toString() + QLatin1Char('/'));
         refused.checkForUpdates();
         QTRY_COMPARE(refused.status(), UpdateChecker::Status::UpdateAvailable);
