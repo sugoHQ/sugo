@@ -223,7 +223,8 @@ void SyncController::attach(PresetModel *presets, PresetPersistence *persistence
     if (m_persistence) {
         connect(m_persistence, &PresetPersistence::saved, this, &SyncController::onSaved);
     }
-    if (m_attached && m_load == Load::NotYet && m_account->phase() == SyncAccount::Phase::SignedOut && m_account->isLinked()) {
+    if (m_attached && m_load == Load::NotYet && m_account->phase() == SyncAccount::Phase::SignedOut
+        && (m_account->isLinked() || m_account->keyringWipePending())) {
         // The keyring may block or ask the user: not while the window first shows.
         m_load = Load::Waiting;
         m_loadTimer.start(kLoadDelay * m_unitMs);
@@ -234,6 +235,9 @@ void SyncController::attach(PresetModel *presets, PresetPersistence *persistence
 void SyncController::loadSecrets()
 {
     m_loadTimer.stop();
+    // Signed out, but the keyring would not delete the keys then: again, now that it is asked
+    // late and not while the window first shows.
+    m_account->retryKeyringWipe();
     if (!m_attached || m_account->phase() != SyncAccount::Phase::SignedOut || !m_account->isLinked()) {
         m_load = Load::NotYet;
         updateState();

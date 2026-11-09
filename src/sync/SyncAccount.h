@@ -174,6 +174,12 @@ public Q_SLOTS:
     /// Forgets everything here: secrets item, Settings group `Sync`, pending requests.
     void signOutLocally();
 
+    /// The keyring refused to delete the secrets item at the last sign-out: the keys are still
+    /// there, though this device is signed out.
+    bool keyringWipePending() const;
+    /// Tries again to delete the item; the mark stays until it works.
+    void retryKeyringWipe();
+
 Q_SIGNALS:
     void phaseChanged(SyncAccount::Phase phase);
     void keyringAvailableChanged(bool available);
