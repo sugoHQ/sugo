@@ -295,13 +295,13 @@ Commit the public key; from the next build the programs only install signed upda
    mv Sugo-macOS-universal.dmg "$dmg"
    gh release upload vX.Y.Z "$dmg" --repo sugoHQ/sugo
    gh release download vX.Y.Z --repo sugoHQ/sugo --pattern stable.json --clobber
-   jq --arg url "https://github.com/MineraleYT/sugo/releases/download/vX.Y.Z/$dmg" \
+   jq --arg url "https://github.com/sugoHQ/sugo/releases/download/vX.Y.Z/$dmg" \
       --arg sha256 "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
       --argjson size "$(wc -c < "$dmg" | tr -d ' ')" \
       '. + {macos: {url: $url, sha256: $sha256, size: $size}}' stable.json > stable.json.new
    mv stable.json.new stable.json
    gh release upload vX.Y.Z stable.json --repo sugoHQ/sugo --clobber
    ```
-   The address keeps the path from before the move to sugoHQ, as `release.yml` writes it: GitHub redirects it, and Sugo 1.0.2 and older download only from there. The disk image goes first: the feed must never announce a file that is not there. On a Mac, open the disk image, drag Sugo to Applications, and check the first launch and `Sugo.app/Contents/MacOS/Sugo --version`.
+   The address is the project's current one, as `release.yml` writes it (from 1.0.4; the feeds of 1.0.3 and older releases keep the path from before the move to sugoHQ, where Sugo 1.0.2 and older download from). The disk image goes first: the feed must never announce a file that is not there. On a Mac, open the disk image, drag Sugo to Applications, and check the first launch and `Sugo.app/Contents/MacOS/Sugo --version`.
 
 The workflow refuses to publish unless the tag, the version in `CMakeLists.txt` and the newest `<release>` in the metainfo all agree. Every `v*` tag is built, tested and published, whatever the tagged commit changed. Pushes that only change Markdown files or `docs/` skip CI. Third-party actions and the build image are pinned to a commit or digest; Dependabot proposes updates.
