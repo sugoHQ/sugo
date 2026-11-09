@@ -40,7 +40,7 @@ public:
 
     /// A sugo:// link, understood.
     struct UrlCommand {
-        enum class Action { Invalid, Start, Pause, Resume, Toggle, Stop, Skip, Show, SelectPreset };
+        enum class Action { Invalid, Start, Pause, Resume, Toggle, Stop, Skip, Extend, Show, SelectPreset };
         Action action = Action::Invalid;
         QString argument; ///< The timer's name or uuid (SelectPreset, or Start with a timer).
     };
@@ -64,6 +64,8 @@ public:
     Result resume();
     Result stop();
     Result skip();
+    /// Five more minutes for the active phase, or for the one that has just ended (TimerEngine::extend()).
+    Result extend();
 
     /// Chooses the timer by exact uuid, else by name (case-insensitive, first match).
     Result selectPreset(const QString &nameOrUuid);
@@ -82,7 +84,7 @@ public:
 
     /**
      * Reads a sugo:// link: `sugo://<command>` with command start, pause, resume, toggle, stop,
-     * skip or show (any case, a trailing slash allowed, `sugo:toggle` too), `sugo://start/<timer>`
+     * skip, extend or show (any case, a trailing slash allowed, `sugo:toggle` too), `sugo://start/<timer>`
      * and `sugo://preset/<timer>`, with the timer's name (percent-encoded) or uuid.
      */
     static UrlCommand parseUrl(const QUrl &url);

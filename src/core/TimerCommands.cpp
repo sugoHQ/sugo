@@ -72,6 +72,11 @@ TimerCommands::Result TimerCommands::skip()
     return simple([](TimerEngine *engine) { engine->skip(); });
 }
 
+TimerCommands::Result TimerCommands::extend()
+{
+    return simple([](TimerEngine *engine) { engine->extend(TimerEngine::kExtendSeconds, TimerEngine::ExtendSource::Command); });
+}
+
 QString TimerCommands::resolvePreset(const QString &nameOrUuid) const
 {
     if (!m_presets) {
@@ -213,7 +218,7 @@ TimerCommands::UrlCommand TimerCommands::parseUrl(const QUrl &url)
         {QLatin1String("start"), Action::Start},   {QLatin1String("pause"), Action::Pause},
         {QLatin1String("resume"), Action::Resume}, {QLatin1String("toggle"), Action::Toggle},
         {QLatin1String("stop"), Action::Stop},     {QLatin1String("skip"), Action::Skip},
-        {QLatin1String("show"), Action::Show},
+        {QLatin1String("extend"), Action::Extend}, {QLatin1String("show"), Action::Show},
     };
     if (name == QLatin1String("preset")) {
         if (!argument.isEmpty()) {
@@ -251,6 +256,8 @@ TimerCommands::Result TimerCommands::run(const UrlCommand &command)
         return stop();
     case Action::Skip:
         return skip();
+    case Action::Extend:
+        return extend();
     case Action::Show:
         return {};
     case Action::SelectPreset:

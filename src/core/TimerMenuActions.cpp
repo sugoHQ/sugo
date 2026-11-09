@@ -19,6 +19,7 @@ TimerMenuActions::TimerMenuActions(TimerEngine *engine, PresetModel *presets, QO
 {
     connect(engine, &TimerEngine::stateChanged, this, &TimerMenuActions::refresh);
     connect(engine, &TimerEngine::phaseChanged, this, &TimerMenuActions::refresh);
+    connect(engine, &TimerEngine::extendableChanged, this, &TimerMenuActions::refresh);
     // Anything that can change the list of timers; rebuildTimerMenu() skips unchanged lists.
     for (auto signal : {&PresetModel::modified, &PresetModel::currentChanged, &PresetModel::countChanged}) {
         connect(presets, signal, this, &TimerMenuActions::rebuildTimerMenu);
@@ -41,6 +42,9 @@ void TimerMenuActions::addControls(QMenu *menu)
     m_skipAction = menu->addAction(QIcon::fromTheme(QStringLiteral("media-skip-forward")), QString(), this, [this]() {
         Q_EMIT endPhaseRequested(true);
     });
+    m_extendAction = menu->addAction(QIcon::fromTheme(QStringLiteral("list-add")), QString(), this, [this]() {
+        m_engine->extend(TimerEngine::kExtendSeconds, TimerEngine::ExtendSource::Menu);
+    });
 }
 
 void TimerMenuActions::addTimerMenu(QMenu *menu)
@@ -60,6 +64,9 @@ void TimerMenuActions::updateTexts()
     }
     if (m_skipAction) {
         m_skipAction->setText(i18n("Skip"));
+    }
+    if (m_extendAction) {
+        m_extendAction->setText(i18n("Add 5 Minutes"));
     }
     m_timerMenuKey.clear();
     m_stateKey.clear();
@@ -88,7 +95,8 @@ void TimerMenuActions::refresh()
     }
 
     // Only a change of state touches the entries: menus shown by the desktop are sent again on each change.
-    const QString key = QStringLiteral("%1/%2").arg(int(m_engine->state())).arg(int(m_engine->phase()));
+    const QString key =
+        QStringLiteral("%1/%2/%3").arg(int(m_engine->state())).arg(int(m_engine->phase())).arg(m_engine->isExtendable());
     if (key == m_stateKey) {
         return;
     }
@@ -99,6 +107,9 @@ void TimerMenuActions::refresh()
     }
     if (m_skipAction) {
         m_skipAction->setVisible(active);
+    }
+    if (m_extendAction) {
+        m_extendAction->setVisible(m_engine->isExtendable());
     }
     if (m_timerMenu) {
         m_timerMenu->setEnabled(!active);

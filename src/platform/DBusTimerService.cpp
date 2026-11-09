@@ -85,6 +85,11 @@ void DBusTimerService::skip()
     answer(m_commands.skip());
 }
 
+void DBusTimerService::extend()
+{
+    answer(m_commands.extend());
+}
+
 QString DBusTimerService::status() const
 {
     return m_commands.status();

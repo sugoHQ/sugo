@@ -98,6 +98,33 @@ bool SessionRepository::updateNote(qint64 sessionId, const QString &note)
     return true;
 }
 
+bool SessionRepository::updateEnd(const SessionRecord &r, QString *note)
+{
+    QSqlDatabase db = QSqlDatabase::database(m_connection, false);
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral("UPDATE session SET ended_at = ?, duration_sec = ?, planned_sec = ?, completed = ? WHERE id = ?"));
+    query.addBindValue(r.endedAtMs);
+    query.addBindValue(r.durationSec);
+    query.addBindValue(r.plannedSec);
+    query.addBindValue(r.completed ? 1 : 0);
+    query.addBindValue(r.id);
+    if (!query.exec()) {
+        qCWarning(lcSessionRepo) << "Cannot update session:" << query.lastError().text();
+        return false;
+    }
+    if (query.numRowsAffected() < 1) {
+        qCWarning(lcSessionRepo) << "Cannot update session: there is no session" << r.id;
+        return false;
+    }
+    if (note) {
+        QSqlQuery read(db);
+        read.prepare(QStringLiteral("SELECT note FROM session WHERE id = ?"));
+        read.addBindValue(r.id);
+        *note = read.exec() && read.next() ? read.value(0).toString() : QString();
+    }
+    return true;
+}
+
 QStringList SessionRepository::recentNotes(int limit) const
 {
     QSqlDatabase db = QSqlDatabase::database(m_connection, false);

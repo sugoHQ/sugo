@@ -161,6 +161,21 @@ Rectangle {
         }
 
         // Stop and Skip, only while a phase runs; their place is kept, so nothing moves.
+        // Five more minutes: for the phase under way, or for the one that has just ended.
+        SButton {
+            objectName: "composerExtend"
+            kind: "ghost"
+            text: i18nc("adds five minutes to the timer", "+5 min")
+            enabled: TimerEngine.extendable
+            opacity: TimerEngine.extendable ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+            toolTipText: !TimerEngine.active && TimerEngine.continuable
+                     ? (TimerEngine.finishedPhase === TimerEngine.Phase.Work ? i18n("Keep working for 5 more minutes")
+                                                                             : i18n("Make the break 5 minutes longer"))
+                     : i18n("Add 5 minutes")
+            Accessible.description: toolTipText
+            onClicked: TimerEngine.extend()
+        }
         SButton {
             objectName: "composerStop"
             kind: "ghost"

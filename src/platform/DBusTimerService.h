@@ -67,6 +67,8 @@ public Q_SLOTS:
     void pause();
     void stop();
     void skip();
+    /// Five more minutes for the active phase, or for the one that has just ended.
+    void extend();
     QString status() const;
 
     /// Names of the timers, in list order.
