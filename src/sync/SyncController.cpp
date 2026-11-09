@@ -386,7 +386,7 @@ void SyncController::timerIdle()
 bool SyncController::readyToSync() const
 {
     return m_attached && m_presets && m_persistence && m_repository && !m_signingOut
-        && m_account->phase() == SyncAccount::Phase::Ready;
+        && !m_persistence->loadFailed() && m_account->phase() == SyncAccount::Phase::Ready;
 }
 
 void SyncController::onSaved()

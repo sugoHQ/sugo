@@ -328,6 +328,24 @@ private Q_SLOTS:
         QVERIFY(reloaded.data(reloaded.index(2), PresetModel::NameRole).toString().contains(QStringLiteral("Study")));
     }
 
+    void nothingIsSavedAfterTheStoredTimersCouldNotBeRead()
+    {
+        TimerPreset custom = makePreset(QStringLiteral("u1"), QStringLiteral("Study"), 50 * 60);
+        QVERIFY(repo->saveAll({builtinDefault(), custom}));
+
+        // The stored timers cannot be read at startup (stands in for a busy or damaged file).
+        QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        PresetModel model;
+        PresetPersistence persistence(&model, repo.get());
+        QVERIFY(persistence.loadFailed());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+
+        // A merge from another computer saves too: it must not delete what was never loaded.
+        QVERIFY(!persistence.save());
+        QVERIFY(uuids(repo->loadAll()).contains(QStringLiteral("u1")));
+    }
+
     void refusedSavesAreReportedAndRetried()
     {
         PresetModel model;
