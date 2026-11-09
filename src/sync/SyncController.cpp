@@ -335,6 +335,7 @@ void SyncController::resetCycle()
     m_pushWanted = false;
     m_remoteUnreadable = false;
     m_formatTooNew = false;
+    m_pushTooLarge = false;
     m_applyingRemote = false;
     m_heldForTimer = false;
     m_conflicts = 0;
@@ -533,6 +534,9 @@ void SyncController::takeRemote(const SyncReply &reply)
     setLastSyncNow();
 
     if (merged.changedRemote) {
+        // A fresh upload with the merged timers is due; the too-large refusal of the
+        // previous blob no longer says anything about it.
+        m_pushTooLarge = false;
         m_pushWanted = true;
     } else {
         // The server holds what this computer has: nothing waits to go out.
@@ -592,6 +596,7 @@ void SyncController::push()
             return;
         }
         if (reply.ok()) {
+            m_pushTooLarge = false; // an upload finally went through
             setEtag(reply.etag);
             setLastSyncNow();
             if (saves == m_saves) {
@@ -621,11 +626,17 @@ void SyncController::push()
 void SyncController::succeeded()
 {
     m_failures = 0;
+    // A refused upload stays the worst news: a later pull, even a 304, must not clear it
+    // while the timers the server has are not what this computer shows.
+    if (m_pushTooLarge) {
+        setError(TooLarge);
+        return;
+    }
     if (m_formatTooNew) {
         setError(FormatTooNew);
-    } else {
-        setError(m_secrets->hasUnsavedRefreshToken() ? KeyringWriteFailed : NoError);
+        return;
     }
+    setError(m_secrets->hasUnsavedRefreshToken() ? KeyringWriteFailed : NoError);
 }
 
 void SyncController::failed(const SyncError &error, Op op)
@@ -641,6 +652,7 @@ void SyncController::failed(const SyncError &error, Op op)
         return;
     case SyncError::Kind::TooLarge:
         m_pushWanted = false; // the next change tries again
+        m_pushTooLarge = true; // pulls and 304 answers must not clear the error meanwhile
         setError(TooLarge);
         return;
     case SyncError::Kind::RateLimited:

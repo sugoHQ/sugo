@@ -475,6 +475,35 @@ private Q_SLOTS:
         QCOMPARE(a.sync->state(), SyncController::Error);
     }
 
+    void tooLargeErrorSurvivesPullsUntilAnUploadSucceeds()
+    {
+        Device a(*server);
+        signInFirst(a);
+
+        // The server refuses the upload: the timers are too large (413).
+        server->maxBlobSize = 1;
+        const int putsBefore = puts();
+        const QString focus = a.model->create({{QStringLiteral("name"), QStringLiteral("Deep focus")}});
+        QTRY_COMPARE(a.sync->state(), SyncController::Error);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QCOMPARE(puts(), putsBefore + 1);
+        QVERIFY(!remoteNames(a).contains(QStringLiteral("Deep focus"))); // still not uploaded
+
+        // A pull that brings nothing (304, as every 5 minutes) must not clear the error.
+        const QDateTime lastSyncBefore = a.sync->lastSync();
+        a.sync->syncNow();
+        QTRY_VERIFY(a.sync->lastSync() > lastSyncBefore); // the 304 was handled
+        QCOMPARE(a.sync->state(), SyncController::Error);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+
+        // An upload the server accepts clears the error again.
+        server->maxBlobSize = 262144;
+        a.model->update(focus, {{QStringLiteral("name"), QStringLiteral("Deeper focus")}});
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::NoError);
+        QTRY_VERIFY(remoteNames(a).contains(QStringLiteral("Deeper focus")));
+    }
+
     void mergeEqualToRemoteIsNotUploaded()
     {
         Device a(*server);

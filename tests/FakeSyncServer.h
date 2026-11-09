@@ -101,6 +101,7 @@ public:
     // --- Settings ---------------------------------------------------------------------------------
     int deviceLimit = 2;
     int interval = 5;          ///< Polling interval of the sign-in, in seconds.
+    int maxBlobSize = 262144;  ///< The PUT /blob/presets body limit: a larger upload is refused with 413.
     int accessExpiresIn = 3600;
     int slowDownNext = 0;      ///< The next n polls of a pending code answer slow_down.
     QByteArray retryAfter = "60"; ///< The Retry-After header of a programmed 429.
@@ -640,7 +641,7 @@ private:
             if (req.method == "PUT") {
                 const QByteArray ifMatch = req.headers.value("if-match");
                 const QByteArray ifNoneMatch = req.headers.value("if-none-match");
-                if (req.body.size() > 262144) {
+                if (req.body.size() > maxBlobSize) {
                     error(s, 413, "too_large");
                     return;
                 }
