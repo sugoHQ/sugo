@@ -164,7 +164,10 @@ JSON in chiaro:
 - Per uuid vince la versione con `updatedAt` più alto (a parità, `updatedBy` più alto in ordine lessicale);
   una cancellazione conta come versione con `deletedAt`.
 - Il preset predefinito non si cancella mai: un tombstone per `"default"` viene ignorato.
-- Tombstone più vecchi di 180 giorni si eliminano.
+- Tombstone più vecchi di 180 giorni si eliminano. Un dispositivo rimasto offline più a lungo, con un
+  preset già cancellato altrove, lo rimanda sul server alla prima unione (nessun tombstone lo ricorda più) e
+  il preset torna su tutti i dispositivi. È accettato: dopo 180 giorni anche il suo refresh token è scaduto,
+  quindi deve comunque ricollegarsi, e un preset ricomparso si cancella di nuovo.
 - Ordine: quello locale; i preset nuovi arrivati da altri dispositivi si aggiungono in fondo per `createdAt`.
 - Il timer selezionato resta locale; se viene cancellato altrove, si torna a quello predefinito (come fa già
   `PresetModel::remove`).
