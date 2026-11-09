@@ -27,6 +27,9 @@ public:
 
     /// True while the latest changes could not be stored.
     bool isSaveFailing() const { return m_saveFailing; }
+    /// True when the stored timers could not be read at startup: nothing is saved this session
+    /// (the model holds only the built-in timer, and saving it would delete the stored ones).
+    bool loadFailed() const { return m_loadFailed; }
     void setRetryIntervalForTesting(int ms) { m_retryTimer.setInterval(ms); }
 
     /**
@@ -51,6 +54,7 @@ private:
     PresetModel *m_model;
     PresetRepository *m_repository;
     bool m_saveFailing = false;
+    bool m_loadFailed = false;
     /// Deletions received with a save that failed, kept until a save stores them.
     QList<PresetTombstone> m_pendingReceived;
     QTimer m_retryTimer;

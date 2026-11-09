@@ -320,6 +320,9 @@ private:
     bool m_formatTooNew = false;
     bool m_signingOut = false;
     bool m_keyRejected = false;
+    /// The last upload was refused as too large (413). Later pulls must not clear the error:
+    /// like m_formatTooNew, it is shown until an upload succeeds.
+    bool m_pushTooLarge = false;
     int m_conflicts = 0;
     int m_failures = 0;
     QTimer m_pushTimer;

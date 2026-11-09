@@ -26,6 +26,9 @@ const QLatin1String kPendingStamp("pending");
 /// The name this computer last signed in with, kept after sign-out (outside the group `Sync`,
 /// which goes) so that signing in again offers it.
 const QLatin1String kLastDeviceName("SyncSignIn/DeviceName");
+/// Set when the keyring would not delete the secrets item at sign-out (outside the group `Sync`
+/// too): the keys stay in the keyring until a later start deletes them.
+const QLatin1String kKeyringWipePending("SyncSignIn/KeyringWipePending");
 
 QString key(const char *name)
 {
@@ -965,12 +968,33 @@ void SyncAccount::signOutLocally()
     m_asked.clear();
     m_ignored.clear();
     m_api->reset();
-    m_secrets->clear();
+    // A keyring that refuses to delete would keep the keys of a device shown as signed out.
+    if (m_secrets->clear()) {
+        m_settings->remove(kKeyringWipePending);
+    } else {
+        m_settings->setValue(kKeyringWipePending, true);
+    }
     m_settings->remove(kGroup);
     Settings::sync(*m_settings);
     m_publicKey.clear();
     setDeviceLimitReached(false);
     setPhase(Phase::SignedOut);
+}
+
+bool SyncAccount::keyringWipePending() const
+{
+    return m_settings->value(kKeyringWipePending, false).toBool();
+}
+
+void SyncAccount::retryKeyringWipe()
+{
+    if (!keyringWipePending() || isLinked() || m_phase != Phase::SignedOut) {
+        return;
+    }
+    if (m_secrets->clear()) {
+        m_settings->remove(kKeyringWipePending);
+        Settings::sync(*m_settings);
+    }
 }
 
 void SyncAccount::onSignedOutRemotely()

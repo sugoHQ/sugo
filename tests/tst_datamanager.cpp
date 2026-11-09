@@ -116,6 +116,24 @@ private Q_SLOTS:
         manager = std::make_unique<DataManager>(database.get(), sessions.get(), presetRepository.get(), presetModel.get(), nullptr);
     }
 
+    void restoreIsRefusedWhileTheDataFileIsUnavailable()
+    {
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup-for-memory.db")));
+        QVERIFY(manager->backupDatabase(backup));
+
+        // Sugo runs on an in-memory database when the data file cannot be opened.
+        Database memory(QStringLiteral(":memory:"));
+        QVERIFY(memory.open());
+        SessionRepository memorySessions(memory.connectionName());
+        PresetRepository memoryPresets(memory.connectionName());
+        PresetModel memoryModel;
+        DataManager inMemory(&memory, &memorySessions, &memoryPresets, &memoryModel, nullptr);
+        QVERIFY(inMemory.usingTemporaryDatabase());
+        QSignalSpy failed(&inMemory, &DataManager::operationFailed);
+        QVERIFY(!inMemory.restoreDatabase(backup));
+        QCOMPARE(failed.count(), 1);
+    }
+
     void cleanup()
     {
         manager.reset();

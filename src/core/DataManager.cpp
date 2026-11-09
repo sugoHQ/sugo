@@ -415,6 +415,11 @@ bool DataManager::restoreDatabase(const QUrl &fileUrl)
         Q_EMIT operationFailed(i18n("Choose a local backup file."));
         return false;
     }
+    if (usingTemporaryDatabase()) {
+        // The data file could not be opened: what is restored would be gone when Sugo quits.
+        Q_EMIT operationFailed(i18n("The data file could not be opened, so a backup cannot be restored now."));
+        return false;
+    }
     if (comparablePath(path) == comparablePath(m_database->path())) {
         Q_EMIT operationFailed(i18n("Choose a backup file other than the active database."));
         return false;

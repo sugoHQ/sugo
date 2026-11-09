@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Every push to the branch testing that passes CI becomes the nightly build: a new pre-release
-# named after its version, with the AppImage, the macOS disk image (when its build succeeded) and
-# nightly.json. The pre-release "nightly" holds
+# named after its version, with the AppImages (x86_64 and aarch64), the
+# macOS disk image (when its build succeeded) and nightly.json. The pre-release "nightly" holds
 # only the latest nightly.json, the feed the program's update check reads on the nightly channel
 # (see src/core/UpdateChecker.h). Daily work goes to dev, which only runs CI; see "Branches" in
 # docs/DEVELOPMENT.md.
@@ -128,10 +128,12 @@ jobs:
           ref: ${{ needs.version.outputs.sha }}
           fetch-depth: 0
 
-      - name: Download the AppImage
+      # Both architectures (a missing one fails the build jobs, so this job would not run).
+      - name: Download the AppImages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sugo-appimage
+          pattern: sugo-appimage-*
+          merge-multiple: true
 
       - name: Download the macOS disk image
         if: needs.macos.result == 'success'
@@ -146,6 +148,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           mv Sugo-x86_64.AppImage "Sugo-$VERSION-x86_64.AppImage"
+          mv Sugo-aarch64.AppImage "Sugo-$VERSION-aarch64.AppImage"
           if [ -f Sugo-macOS-universal.dmg ]; then
             mv Sugo-macOS-universal.dmg "Sugo-$VERSION-macOS-universal.dmg"
           fi
@@ -172,14 +175,7 @@ jobs:
             echo
             echo "The branch testing at $SHA, built automatically. It may have bugs; the stable releases are tested."
             echo
-            echo "Download Sugo-$VERSION-x86_64.AppImage, make it executable and start it. In Settings → Updates, the Nightly channel keeps it up to date by itself."
-            dmg=Sugo-$VERSION-macOS-universal.dmg
-            if [ -f "$dmg" ]; then
-              echo
-              cat <<EOF
-          On macOS 13 or later (Apple Silicon or Intel), open $dmg and drag Sugo to Applications. Sugo is not notarized by Apple, so macOS blocks the first launch: on macOS 15, open System Settings → Privacy & Security and click "Open Anyway" next to the message about Sugo (on macOS 13 and 14, Control-click Sugo in Applications and choose Open), or run \`xattr -dr com.apple.quarantine /Applications/Sugo.app\` in Terminal. Sugo for macOS installs its updates by itself too (the Nightly channel in Settings → Updates) when it is in a folder it can write to (Applications for an administrator).
-          EOF
-            fi
+            echo "Download Sugo-$VERSION-x86_64.AppImage (Sugo-$VERSION-aarch64.AppImage on ARM), make it executable and start it. In Settings → Updates, the Nightly channel keeps it up to date by itself."
             if [ -n "$highlights" ]; then printf '\n## Highlights\n%s\n' "$highlights"; fi
             if [ -n "$fixes" ]; then printf '\n## Fixes\n%s\n' "$fixes"; fi
             if [ -n "$prev" ] && [ "$prev" != "$SHA" ]; then
@@ -197,11 +193,13 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
           SHA: ${{ needs.version.outputs.sha }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           file=Sugo-$VERSION-x86_64.AppImage
+          arm=Sugo-$VERSION-aarch64.AppImage
           dmg=Sugo-$VERSION-macOS-universal.dmg
           tag="v$VERSION"
-          files=("$file")
+          files=("$file" "$arm")
           # The addresses in the feed keep the project's path from before it moved to sugoHQ:
           # GitHub redirects it, and Sugo 1.0.2 and older download only from MineraleYT/sugo.
           FEED_REPO=MineraleYT/sugo
@@ -211,6 +209,14 @@ jobs:
                 --argjson size "$(stat -c %s "$file")" \
                 --arg page "https://github.com/$FEED_REPO/releases/tag/$tag" \
                 '{version: $version, url: $url, sha256: $sha256, size: $size, page: $page}' > nightly.json
+          # The top-level keys are the x86_64 AppImage, as for every installed version. The arm64
+          # AppImage under its own key: the x86_64 ones never read it, and the arm64 ones read
+          # nothing else.
+          jq --arg url "https://github.com/$FEED_REPO/releases/download/$tag/$arm" \
+             --arg sha256 "$(sha256sum "$arm" | cut -d' ' -f1)" \
+             --argjson size "$(stat -c %s "$arm")" \
+             '. + {"linux-aarch64": {url: $url, sha256: $sha256, size: $size}}' nightly.json > nightly.json.new
+          mv nightly.json.new nightly.json
           # The disk image, when it was built, under its own key: the AppImages read only the others.
           if [ -f "$dmg" ]; then
             files+=("$dmg")
@@ -220,6 +226,9 @@ jobs:
                '. + {macos: {url: $url, sha256: $sha256, size: $size}}' nightly.json > nightly.json.new
             mv nightly.json.new nightly.json
           fi
+          # Each entry of the feed signed with the key that is not in the repository (the programs
+          # check it against packaging/update-public-key.txt).
+          "$GITHUB_WORKSPACE/.github/scripts/sign-update-feed.sh" nightly.json
           cat nightly.json
 
           title="Sugo Nightly $VERSION (${SHA:0:12})"

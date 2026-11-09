@@ -171,7 +171,8 @@ private Q_SLOTS:
         QCOMPARE(notifications->shown.size(), 0);
         // ...and sent anyway once the timeout is over.
         QTRY_COMPARE_WITH_TIMEOUT(notifications->shown.size(), 1, 2000);
-        QVERIFY(waited.elapsed() >= 300);
+        // The timeout is 300 ms, but a coarse timer (QTimer's default) may fire up to 5% early.
+        QVERIFY(waited.elapsed() >= 250);
         QCOMPARE(notifications->last().title, QStringLiteral("Work session finished"));
 
         // A release that finally arrives later does not announce it a second time.

@@ -89,6 +89,8 @@ target_sources(sugo_core PRIVATE
     core/TrayIconStyle.h
     core/UpdateChecker.h
     core/UpdateChecker.cpp
+    core/UpdateSignature.h
+    core/UpdateSignature.cpp
     core/Telemetry.h
     core/Telemetry.cpp
     core/TelemetryInfo.h
@@ -168,6 +170,22 @@ target_include_directories(sugo_core PUBLIC core db platform stats sync)
 # Qt's resource and QML cache objects share these include paths but may compile before moc has
 # created them; -Wmissing-include-dirs would warn in a clean parallel build.
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/sugo_core_autogen/include ${CMAKE_CURRENT_BINARY_DIR}/sugo_qml_autogen/include)
+
+# The public key that checks the signature of updates (core/UpdateSignature.h): base64 in one file.
+# Empty (as long as no signing key exists) means that nothing is checked.
+set(SUGO_UPDATE_KEY_FILE "${PROJECT_SOURCE_DIR}/packaging/update-public-key.txt")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SUGO_UPDATE_KEY_FILE}")
+set(SUGO_UPDATE_PUBLIC_KEY "")
+if(EXISTS "${SUGO_UPDATE_KEY_FILE}")
+    file(READ "${SUGO_UPDATE_KEY_FILE}" SUGO_UPDATE_PUBLIC_KEY)
+    string(STRIP "${SUGO_UPDATE_PUBLIC_KEY}" SUGO_UPDATE_PUBLIC_KEY)
+endif()
+if(SUGO_UPDATE_PUBLIC_KEY AND NOT SUGO_UPDATE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]+=*$")
+    message(FATAL_ERROR "packaging/update-public-key.txt must hold only the base64 of the public key")
+endif()
+if(SUGO_UPDATE_PUBLIC_KEY)
+    target_compile_definitions(sugo_core PRIVATE SUGO_UPDATE_PUBLIC_KEY="${SUGO_UPDATE_PUBLIC_KEY}")
+endif()
 
 # Private: what a test may use of Qt is up to the test (see tests/CMakeLists.txt).
 target_link_libraries(sugo_core PRIVATE

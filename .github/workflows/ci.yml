@@ -242,7 +242,7 @@ jobs:
       - name: Read the pinned versions
         id: pins
         run: |
-          for pin in QT_VERSION AQT_VERSION ECM_TAG; do
+          for pin in QT_VERSION AQT_VERSION ECM_TAG ECM_COMMIT; do
             value=$(sed -n "s/^$pin=//p" packaging/macos/build.sh)
             test -n "$value"
             echo "$pin=$value" >> "$GITHUB_OUTPUT"
@@ -269,6 +269,7 @@ jobs:
           QT_VERSION: ${{ steps.pins.outputs.QT_VERSION }}
           AQT_VERSION: ${{ steps.pins.outputs.AQT_VERSION }}
           ECM_TAG: ${{ steps.pins.outputs.ECM_TAG }}
+          ECM_COMMIT: ${{ steps.pins.outputs.ECM_COMMIT }}
         run: |
           command -v ninja >/dev/null || brew install ninja
           command -v pkg-config >/dev/null || brew install pkgconf
@@ -294,6 +295,7 @@ jobs:
           fi
           if [ ! -d "$deps/ecm" ]; then
             git clone -q --depth 1 --branch "$ECM_TAG" https://invent.kde.org/frameworks/extra-cmake-modules.git "$RUNNER_TEMP/ecm-src"
+            test "$(git -C "$RUNNER_TEMP/ecm-src" rev-parse HEAD)" = "$ECM_COMMIT"
             cmake -S "$RUNNER_TEMP/ecm-src" -B "$RUNNER_TEMP/ecm-build" -G Ninja -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF \
               -DBUILD_MAN_DOCS=OFF -DBUILD_QTHELP_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$deps/ecm" >/dev/null
             cmake --install "$RUNNER_TEMP/ecm-build" >/dev/null

@@ -27,6 +27,12 @@ class QSaveFile;
  *     { "version": "1.0.1-nightly.20261031.42", "url": "https://github.com/sugoHQ/sugo/releases/download/v1.0.1-nightly.20261031.42/Sugo-1.0.1-nightly.20261031.42-x86_64.AppImage",
  *       "sha256": "<64 hex digits>", "size": 45939192, "page": "https://github.com/sugoHQ/sugo/releases/tag/v1.0.1-nightly.20261031.42" }
  *
+ * The top-level keys describe the x86_64 AppImage, as they always have (the AppImages of Sugo
+ * 1.0.x read only those). The AppImage of any other architecture reads its own object,
+ * "linux-aarch64" ({ "url", "sha256", "size" }, AppImageInstaller::feedKeyFor()); a feed
+ * without it (its build failed) is only reported, so an AppImage never installs another
+ * architecture's file.
+ *
  * The feed is newer when its version is (compareVersions(); nightly versions are the next
  * release's pre-releases, so they sit between two releases). When asked to install it
  * (installUpdate(); never by itself), an AppImage downloads the file next to itself, checks its
@@ -139,10 +145,14 @@ public:
     // Tests: the AppImage to replace (instead of AppImage::path()), or any installer, the feed to
     // read (instead of the channel's), and where downloads may come from (instead of this
     // project's GitHub releases).
-    void setAppImagePathForTesting(const QString &path);
+    /// The AppImage is taken as one of `architecture` (QSysInfo::buildCpuArchitecture() names),
+    /// x86_64 unless given, whatever the tests run on.
+    void setAppImagePathForTesting(const QString &path, const QString &architecture = QStringLiteral("x86_64"));
     void setInstallerForTesting(std::unique_ptr<UpdateInstaller> installer);
     void setFeedUrlForTesting(const QUrl &url) { m_feedUrlOverride = url; }
     void setDownloadPrefixForTesting(const QString &prefix) { m_downloadPrefix = prefix; }
+    /// Tests: another public key (base64) than the one built in; empty checks nothing.
+    void setUpdatePublicKeyForTesting(const QByteArray &publicKey) { m_updatePublicKey = publicKey; }
     /// Tests: the automatic checks with other delays (as attach() starts them).
     void scheduleChecksForTesting(int firstDelayMs, int intervalMs);
 
@@ -188,6 +198,8 @@ private:
 
     // The update the last check found, and its download.
     QString m_downloadUrl;
+    /// The public key (base64) that must have signed the download's entry; empty: not checked.
+    QByteArray m_updatePublicKey;
     QByteArray m_expectedSha256; ///< Lower-case hex.
     qint64 m_expectedSize = 0;
     std::unique_ptr<QSaveFile> m_saveFile;

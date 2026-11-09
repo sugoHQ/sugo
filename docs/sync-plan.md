@@ -77,10 +77,15 @@ Uguale su Linux e macOS, nessuno schema URL da registrare, funziona anche su un 
    ritirato sparisce dopo un'ora.
 5. `access_token`: JWT firmato dal Worker, 1 ora. `refresh_token`: opaco, conservato in D1 solo come hash,
    dura **180 giorni** ed è ruotato a ogni uso (`{"grant_type":"refresh_token","refresh_token":…}`).
-   **Riusare un refresh token già ruotato blocca il dispositivo** (va scollegato e ricollegato), e succede
-   anche se la risposta di un rinnovo si perde in rete. Quindi il client salva il nuovo token in
-   `SecretStore` prima di qualunque altra cosa e non fa mai due rinnovi in parallelo. Un rinnovo fallito
-   per la rete non blocca l'app: il sync riprova più tardi e lo stato lo dice.
+   **Riusare un refresh token già ruotato blocca il dispositivo** (va scollegato e ricollegato). Fa eccezione
+   una finestra di **60 secondi** (`REFRESH_GRACE_MS` nel Worker): se la risposta di un rinnovo si perde in
+   rete, lo stesso token ripresentato entro 60 secondi riceve una coppia nuova (quella persa è revocata), a
+   patto che la coppia nata dal primo uso non sia stata usata. Dopo i 60 secondi, o dopo l'uso della coppia
+   nuova, il riuso blocca il dispositivo come sopra: un'app chiusa o offline per più di un minuto subito dopo
+   una risposta persa trova `invalid_grant` e perde le chiavi di questo computer (servono un altro
+   dispositivo o il codice di recupero). Quindi il client salva il nuovo token in `SecretStore` prima di
+   qualunque altra cosa e non fa mai due rinnovi in parallelo. Un rinnovo fallito per la rete non blocca
+   l'app: il sync riprova più tardi e lo stato lo dice.
 
 ### Limite di 2 dispositivi
 
@@ -159,7 +164,10 @@ JSON in chiaro:
 - Per uuid vince la versione con `updatedAt` più alto (a parità, `updatedBy` più alto in ordine lessicale);
   una cancellazione conta come versione con `deletedAt`.
 - Il preset predefinito non si cancella mai: un tombstone per `"default"` viene ignorato.
-- Tombstone più vecchi di 180 giorni si eliminano.
+- Tombstone più vecchi di 180 giorni si eliminano. Un dispositivo rimasto offline più a lungo, con un
+  preset già cancellato altrove, lo rimanda sul server alla prima unione (nessun tombstone lo ricorda più) e
+  il preset torna su tutti i dispositivi. È accettato: dopo 180 giorni anche il suo refresh token è scaduto,
+  quindi deve comunque ricollegarsi, e un preset ricomparso si cancella di nuovo.
 - Ordine: quello locale; i preset nuovi arrivati da altri dispositivi si aggiungono in fondo per `createdAt`.
 - Il timer selezionato resta locale; se viene cancellato altrove, si torna a quello predefinito (come fa già
   `PresetModel::remove`).

@@ -6,6 +6,7 @@
 #include "Localization.h"
 #include "MacBundle.h"
 #include "UpdateInstaller.h"
+#include "UpdateSignature.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -137,6 +138,7 @@ UpdateChecker::UpdateChecker(QObject *parent)
     , m_firstCheckDelayMs(kFirstCheckDelayMs)
     , m_checkIntervalMs(kCheckIntervalMs)
 {
+    m_updatePublicKey = UpdateSignature::compiledPublicKey();
     const QString bundle = MacBundle::path();
     if (!bundle.isEmpty()) {
         m_installer = std::make_unique<MacBundleInstaller>(bundle);
@@ -164,9 +166,9 @@ UpdateChecker::~UpdateChecker()
     }
 }
 
-void UpdateChecker::setAppImagePathForTesting(const QString &path)
+void UpdateChecker::setAppImagePathForTesting(const QString &path, const QString &architecture)
 {
-    setInstallerForTesting(std::make_unique<AppImageInstaller>(path));
+    setInstallerForTesting(std::make_unique<AppImageInstaller>(path, AppImageInstaller::SetPermissions(), architecture));
 }
 
 void UpdateChecker::setInstallerForTesting(std::unique_ptr<UpdateInstaller> installer)
@@ -462,8 +464,9 @@ void UpdateChecker::handleFeed(const QByteArray &data)
     }
 
     if (canInstall()) {
-        // The AppImage reads the top-level keys, the macOS app its own object; a feed without
-        // that object (a release whose disk image failed to build) is only reported.
+        // The x86_64 AppImage reads the top-level keys, the AppImage of another architecture and
+        // the macOS app their own object; a feed without that object (a release whose build of
+        // it failed) is only reported.
         QJsonObject download = feed;
         const QString key = m_installer->feedKey();
         if (!key.isEmpty()) {
@@ -480,6 +483,18 @@ void UpdateChecker::handleFeed(const QByteArray &data)
         m_downloadUrl = trustedDownloadUrl(download.value(QStringLiteral("url")).toString());
         if (m_downloadUrl.isEmpty() || !sha256.match(hash).hasMatch() || size <= 0 || size > kMaxDownloadSize) {
             fail(i18n("The update information is incomplete."));
+            return;
+        }
+        if (!m_updatePublicKey.isEmpty()
+            && !UpdateSignature::verify(
+                m_updatePublicKey,
+                UpdateSignature::message(version, download.value(QStringLiteral("url")).toString(), hash, size),
+                download.value(QStringLiteral("signature")).toString())) {
+            // Whoever changed the feed could change the checksum too: not installed, but the
+            // new version is still reported, with the link to its page.
+            qWarning("The update feed's entry has no valid signature: the update is only reported");
+            m_downloadUrl.clear();
+            setStatus(Status::UpdateAvailable);
             return;
         }
         m_expectedSha256 = hash.toLatin1();
