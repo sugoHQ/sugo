@@ -224,6 +224,11 @@ void TimerEngine::startCustomWork(int seconds)
     if (m_state != State::Idle && !finished) {
         emitSessionEnded(false, m_clock->monotonicMs());
     }
+    if (m_phase == Phase::LongBreak) {
+        // The long break it replaces closes the set, as skipping it does: otherwise this work
+        // would count as one more cycle and bring another long break.
+        setCycles(0);
+    }
     startPhase(Phase::Work, std::clamp(seconds, 1, PresetLimits::MaxWorkSeconds) * 1000LL);
 }
 

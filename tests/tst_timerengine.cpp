@@ -538,6 +538,27 @@ private Q_SLOTS:
         QCOMPARE(engine->completedCycles(), 0);
     }
 
+    void customWorkInPlaceOfAPendingLongBreakEndsTheSet()
+    {
+        engine->setCyclesBeforeLong(2);
+        engine->start();
+        elapse(25 * 60);
+        QCOMPARE(engine->phase(), Phase::ShortBreak);
+        engine->skip(); // waiting short break -> work
+        engine->start();
+        elapse(25 * 60);
+        QCOMPARE(engine->phase(), Phase::LongBreak);
+        QCOMPARE(engine->completedCycles(), 2);
+
+        engine->startCustomWork(10 * 60);
+        QCOMPARE(engine->completedCycles(), 0);
+        elapse(10 * 60);
+        // The set ended with the long break it replaced: this work is the first cycle of the
+        // next one, so an ordinary break follows (not a second long break).
+        QCOMPARE(engine->phase(), Phase::ShortBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+    }
+
     void zeroLengthBreakWaitsForWorkInBreaksOnlyMode()
     {
         QSignalSpy finished(engine.get(), &TimerEngine::phaseFinished);
