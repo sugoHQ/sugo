@@ -228,6 +228,16 @@ jobs:
           fi
           cat stable.json
 
+      # Each entry of the feed signed with the key that is not in the repository (the programs
+      # check it against packaging/update-public-key.txt); without the key set there, unsigned.
+      - name: Sign the stable feed
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        working-directory: release-assets
+        run: |
+          "$GITHUB_WORKSPACE/.github/scripts/sign-update-feed.sh" stable.json
+          cat stable.json
+
       # The feed must never announce a file that is not there, nor be missing. A new release gets
       # it with the other assets: gh creates the release as a draft, uploads everything, then
       # publishes it, so the files and the feed appear together. The release is the "latest" one,
