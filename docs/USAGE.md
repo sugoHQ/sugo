@@ -31,31 +31,36 @@ Every [release](https://github.com/sugoHQ/sugo/releases/latest) offers three pac
 
 | Package | For | Updates |
 |:---|:---|:---|
-| [AppImage](#appimage) | any recent x86_64 Linux | installs them itself, when you say so |
-| [Flatpak](#flatpak) | x86_64 Linux with Flatpak | through Flatpak, by installing the new bundle |
+| [AppImage](#appimage) | any recent Linux on x86_64, or on ARM (aarch64) with glibc 2.39 or later | installs them itself, when you say so |
+| [Flatpak](#flatpak) | Linux with Flatpak, on x86_64 or ARM (aarch64) | through Flatpak, by installing the new bundle |
 | [macOS disk image](#macos) | macOS 13 Ventura or later, Apple Silicon and Intel | installs them itself, when you say so |
 
 ### AppImage
 
-One file that runs on any recent x86_64 Linux and keeps itself up to date (the recommended package on Linux):
+One file that runs on any recent Linux and keeps itself up to date (the recommended package on Linux). There is one for each kind of processor:
 
-1. Download `Sugo-<version>-x86_64.AppImage` from the [latest release](https://github.com/sugoHQ/sugo/releases/latest).
-2. Make it executable and start it:
+- `Sugo-<version>-x86_64.AppImage` for Intel and AMD processors (glibc 2.35 or later: Ubuntu 22.04, Debian 12, Fedora 36 or newer);
+- `Sugo-<version>-aarch64.AppImage` for 64-bit ARM, such as a Raspberry Pi 4 or 5 (glibc 2.39 or later: Ubuntu 24.04, Debian 13 and the Raspberry Pi OS based on it, Fedora 40 or newer). `uname -m` prints `aarch64` on such a computer.
+
+1. Download the one for your computer from the [latest release](https://github.com/sugoHQ/sugo/releases/latest).
+2. Make it executable and start it (on ARM, `aarch64` in place of `x86_64`):
    ```sh
    chmod +x Sugo-*-x86_64.AppImage
    ./Sugo-*-x86_64.AppImage
    ```
 
+Each AppImage updates itself only with the AppImage of its own processor.
+
 Keep the file in a folder you can write to (for example `~/Applications`): Sugo puts its updates in place of it. If AppImageLauncher is installed, starting the AppImage makes it offer to move the file there and add Sugo to the application menu. How updates work is described in [Updates and diagnostics](#updates-and-diagnostics).
 
 ### Flatpak
 
-The Flatpak bundle is attached to each release as `Sugo-<version>-x86_64.flatpak`. It is not on Flathub yet, so it is installed from the file:
+The Flatpak bundle is attached to each release as `Sugo-<version>-x86_64.flatpak`, and `Sugo-<version>-aarch64.flatpak` for 64-bit ARM. It is not on Flathub yet, so it is installed from the file:
 
-1. Download `Sugo-<version>-x86_64.flatpak` from the [latest release](https://github.com/sugoHQ/sugo/releases/latest).
+1. Download the bundle for your processor from the [latest release](https://github.com/sugoHQ/sugo/releases/latest).
 2. Install it for your user, then start Sugo from the application menu, or with:
    ```sh
-   flatpak install --user ./Sugo-*-x86_64.flatpak
+   flatpak install --user ./Sugo-*.flatpak
    flatpak run stream.sugo.app
    ```
 

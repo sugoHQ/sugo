@@ -41,8 +41,8 @@
 
 | | Get it | |
 |:---|:---|:---|
-| **Linux** | [AppImage](https://github.com/sugoHQ/sugo/releases/latest) (recommended) | One file for any recent x86_64 Linux, updates itself |
-| | [Flatpak](https://github.com/sugoHQ/sugo/releases/latest) | Bundle attached to each release |
+| **Linux** | [AppImage](https://github.com/sugoHQ/sugo/releases/latest) (recommended) | One file for any recent Linux on x86_64 or ARM (aarch64), updates itself |
+| | [Flatpak](https://github.com/sugoHQ/sugo/releases/latest) | Bundle attached to each release, for x86_64 and ARM (aarch64) |
 | **macOS** | [Disk image](https://github.com/sugoHQ/sugo/releases/latest) | macOS 13 or later, Apple Silicon and Intel, updates itself |
 
 Step-by-step instructions for each package, including the first launch on macOS, are in the [user guide](docs/USAGE.md#installing).
