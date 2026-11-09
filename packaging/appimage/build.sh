@@ -25,6 +25,8 @@ WORK=${WORK:-/tmp/sugo-appimage}
 QT_VERSION=6.10.3
 AQT_VERSION=3.3.0
 ECM_TAG=v6.8.0
+# The commit of that tag (tags can move): the clone is refused when it is another.
+ECM_COMMIT=02e39e9538d3699e470194c989f7047efe44d2cc
 # linuxdeploy publishes no checksums: these are of the files at the pinned tags.
 LINUXDEPLOY_TAG=1-alpha-20251107-1
 LINUXDEPLOY_QT_TAG=1-alpha-20250213-1
@@ -82,6 +84,7 @@ if [ ! -e "$QT/plugins/multimedia/libffmpegmediaplugin.so" ]; then
 fi
 if [ ! -d "$WORK/ecm" ]; then
     git clone -q --depth 1 --branch "$ECM_TAG" https://invent.kde.org/frameworks/extra-cmake-modules.git ecm-src
+    [ "$(git -C ecm-src rev-parse HEAD)" = "$ECM_COMMIT" ] || { echo "error: extra-cmake-modules $ECM_TAG is not commit $ECM_COMMIT" >&2; exit 1; }
     cmake -S ecm-src -B ecm-build -G Ninja -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF \
         -DBUILD_MAN_DOCS=OFF -DBUILD_QTHELP_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$WORK/ecm" >/dev/null
     cmake --install ecm-build >/dev/null
