@@ -61,7 +61,9 @@ apt-get install -y -qq --no-install-recommends \
     libfontconfig1 libfreetype6 libdbus-1-3 "$GLIB" \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
     libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
-    libwayland-client0 libwayland-cursor0 libwayland-egl1 libpulse0 libxrandr2 >/dev/null
+    libwayland-client0 libwayland-cursor0 libwayland-egl1 libpulse0 libxrandr2 \
+    libsm6 libice6 libx11-xcb1 libxcb-glx0 libxcb-xfixes0 libxcb-shm0 libxcb-sync1 libxcb-util1 \
+    libxi6 libxrender1 libxext6 >/dev/null
 
 mkdir -p "$WORK" "$OUT"
 cd "$WORK"
