@@ -13,6 +13,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <sodium.h>
+
 #include <functional>
 #include <memory>
 
@@ -22,6 +24,7 @@
 #include "Settings.h"
 #include "UpdateChecker.h"
 #include "UpdateInstaller.h"
+#include "UpdateSignature.h"
 
 namespace
 {
@@ -104,6 +107,32 @@ struct LocalRelease {
         names.removeAll(QStringLiteral("Sugo-x86_64.AppImage"));
         names.removeAll(QStringLiteral("feed.json"));
         return names;
+    }
+};
+
+/// Signs updates like the release workflow does (another key, made from a fixed seed).
+struct TestSigner {
+    QByteArray publicKey; ///< Base64.
+    unsigned char secretKey[crypto_sign_SECRETKEYBYTES];
+
+    TestSigner()
+    {
+        if (sodium_init() < 0) {
+            qFatal("libsodium cannot start");
+        }
+        unsigned char seed[crypto_sign_SEEDBYTES] = {7};
+        unsigned char pk[crypto_sign_PUBLICKEYBYTES];
+        crypto_sign_seed_keypair(pk, secretKey, seed);
+        publicKey = QByteArray(reinterpret_cast<const char *>(pk), int(sizeof pk)).toBase64();
+    }
+
+    QString sign(const QString &version, const QString &url, const QString &sha256, qint64 size) const
+    {
+        const QByteArray message = UpdateSignature::message(version, url, sha256, size);
+        unsigned char signature[crypto_sign_BYTES];
+        crypto_sign_detached(signature, nullptr, reinterpret_cast<const unsigned char *>(message.constData()),
+                             static_cast<unsigned long long>(message.size()), secretKey);
+        return QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(signature), int(sizeof signature)).toBase64());
     }
 };
 
@@ -647,6 +676,37 @@ private Q_SLOTS:
         checker.installUpdate();
         QTRY_COMPARE_WITH_TIMEOUT(checker.status(), UpdateChecker::Status::ReadyToRestart, 10000);
         QCOMPARE(readFile(release.appImage), arm ? armContent : release.newContent);
+        qunsetenv("SUGO_OVERRIDE_VERSION");
+    }
+
+    void signedUpdatesInstallAndTheOthersOnlyReport()
+    {
+        qputenv("SUGO_OVERRIDE_VERSION", "1.0.0");
+        const TestSigner signer;
+        LocalRelease release;
+        const QString url = QUrl::fromLocalFile(release.build).toString();
+        const QString sha256 = QString::fromLatin1(QCryptographicHash::hash(release.newContent, QCryptographicHash::Sha256).toHex());
+        const qint64 size = release.newContent.size();
+
+        const auto check = [&](const QJsonObject &changes, bool installable) {
+            release.announce(QStringLiteral("2.0.0"), changes);
+            UpdateChecker checker;
+            release.setUp(checker);
+            checker.setUpdatePublicKeyForTesting(signer.publicKey);
+            checker.checkForUpdates();
+            QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
+            QCOMPARE(checker.latestVersion(), QStringLiteral("2.0.0")); // reported either way
+            QCOMPARE(checker.isInstallable(), installable);
+            if (!installable) {
+                checker.installUpdate();
+                QCOMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
+                QCOMPARE(readFile(release.appImage), release.oldContent);
+            }
+        };
+        check({{QStringLiteral("signature"), signer.sign(QStringLiteral("2.0.0"), url, sha256, size)}}, true);
+        check({}, false); // no signature
+        check({{QStringLiteral("signature"), signer.sign(QStringLiteral("2.0.1"), url, sha256, size)}}, false); // another version's
+        check({{QStringLiteral("signature"), signer.sign(QStringLiteral("2.0.0"), url, sha256, size + 1)}}, false); // another file's
         qunsetenv("SUGO_OVERRIDE_VERSION");
     }
 

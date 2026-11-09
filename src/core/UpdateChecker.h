@@ -151,6 +151,8 @@ public:
     void setInstallerForTesting(std::unique_ptr<UpdateInstaller> installer);
     void setFeedUrlForTesting(const QUrl &url) { m_feedUrlOverride = url; }
     void setDownloadPrefixForTesting(const QString &prefix) { m_downloadPrefix = prefix; }
+    /// Tests: another public key (base64) than the one built in; empty checks nothing.
+    void setUpdatePublicKeyForTesting(const QByteArray &publicKey) { m_updatePublicKey = publicKey; }
     /// Tests: the automatic checks with other delays (as attach() starts them).
     void scheduleChecksForTesting(int firstDelayMs, int intervalMs);
 
@@ -196,6 +198,8 @@ private:
 
     // The update the last check found, and its download.
     QString m_downloadUrl;
+    /// The public key (base64) that must have signed the download's entry; empty: not checked.
+    QByteArray m_updatePublicKey;
     QByteArray m_expectedSha256; ///< Lower-case hex.
     qint64 m_expectedSize = 0;
     std::unique_ptr<QSaveFile> m_saveFile;
