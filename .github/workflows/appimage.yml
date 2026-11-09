@@ -3,9 +3,7 @@
 # without a display, and keeps them as the artifacts "sugo-appimage-x86_64" and
 # "sugo-appimage-aarch64". Used by release.yml (stable releases) and nightly.yml.
 #
-# The aarch64 build is not blocking yet: when it fails this workflow still succeeds, and the
-# release or nightly goes out without it (its feed then has no "linux-aarch64" entry, so the arm64
-# AppImages only report the update).
+# Both builds are blocking: when one fails this workflow fails, and no release or nightly goes out.
 name: AppImage
 
 on:
@@ -42,7 +40,6 @@ jobs:
             # ubuntu:24.04
             image: ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ matrix.arch == 'aarch64' }}
     container:
       image: ${{ matrix.image }}
     steps:
