@@ -33,8 +33,8 @@ public:
     /// True when this copy can replace itself (it exists, in a folder the user can write to; an
     /// AppImage must also be writable itself).
     virtual bool canInstall() const = 0;
-    /// The feed object that describes this package's download ("macos"), or empty for the
-    /// feed's top-level keys (the AppImage's).
+    /// The feed object that describes this package's download ("macos", "linux-aarch64"), or
+    /// empty for the feed's top-level keys (the x86_64 AppImage's).
     virtual QString feedKey() const = 0;
     /// What an update replaces, for messages: the AppImage or the .app bundle.
     virtual QString target() const = 0;
@@ -56,10 +56,18 @@ public:
     /// Sets the mode of the new AppImage; tests make it fail. Empty for QFileDevice::setPermissions().
     using SetPermissions = std::function<bool(QFileDevice &file, QFileDevice::Permissions permissions)>;
 
-    explicit AppImageInstaller(const QString &appImage, SetPermissions setPermissions = {});
+    /// `architecture` is that of the AppImage, as QSysInfo::buildCpuArchitecture() names it;
+    /// empty for this program's own.
+    explicit AppImageInstaller(const QString &appImage, SetPermissions setPermissions = {}, const QString &architecture = QString());
+
+    /// The feed object of the AppImage built for `architecture` (QSysInfo::buildCpuArchitecture()):
+    /// the top-level keys (empty) for x86_64, which Sugo 1.0.x AppImages read and which must keep
+    /// meaning x86_64; "linux-aarch64" for arm64; "linux-<architecture>" for any other, which no
+    /// feed has, so such an AppImage only reports updates and never takes another one's file.
+    static QString feedKeyFor(const QString &architecture);
 
     bool canInstall() const override;
-    QString feedKey() const override { return QString(); }
+    QString feedKey() const override { return m_feedKey; }
     QString target() const override { return m_path; }
     QString downloadPath() const override { return m_path; }
     void install(QSaveFile &download, Done done) override;
@@ -70,6 +78,7 @@ private:
 
     QString m_path;
     SetPermissions m_setPermissions;
+    QString m_feedKey;
 };
 
 /// The programs MacBundleInstaller uses; tests put stand-ins in their place.

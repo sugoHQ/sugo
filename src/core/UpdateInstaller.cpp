@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QSaveFile>
+#include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QXmlStreamReader>
@@ -33,10 +34,20 @@ QString firstLine(const QString &output)
 
 // --- AppImage ---------------------------------------------------------------------------------
 
-AppImageInstaller::AppImageInstaller(const QString &appImage, SetPermissions setPermissions)
+AppImageInstaller::AppImageInstaller(const QString &appImage, SetPermissions setPermissions, const QString &architecture)
     : m_path(appImage)
     , m_setPermissions(std::move(setPermissions))
+    , m_feedKey(feedKeyFor(architecture.isEmpty() ? QSysInfo::buildCpuArchitecture() : architecture))
 {
+}
+
+QString AppImageInstaller::feedKeyFor(const QString &architecture)
+{
+    if (architecture == QLatin1String("x86_64")) {
+        return QString();
+    }
+    // The name the AppImage files and linuxdeploy use, not Qt's "arm64".
+    return QStringLiteral("linux-") + (architecture == QLatin1String("arm64") ? QStringLiteral("aarch64") : architecture);
 }
 
 bool AppImageInstaller::setPermissions(QFileDevice &file, QFileDevice::Permissions permissions) const

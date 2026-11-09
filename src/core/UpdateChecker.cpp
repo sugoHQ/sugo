@@ -164,9 +164,9 @@ UpdateChecker::~UpdateChecker()
     }
 }
 
-void UpdateChecker::setAppImagePathForTesting(const QString &path)
+void UpdateChecker::setAppImagePathForTesting(const QString &path, const QString &architecture)
 {
-    setInstallerForTesting(std::make_unique<AppImageInstaller>(path));
+    setInstallerForTesting(std::make_unique<AppImageInstaller>(path, AppImageInstaller::SetPermissions(), architecture));
 }
 
 void UpdateChecker::setInstallerForTesting(std::unique_ptr<UpdateInstaller> installer)
@@ -462,8 +462,9 @@ void UpdateChecker::handleFeed(const QByteArray &data)
     }
 
     if (canInstall()) {
-        // The AppImage reads the top-level keys, the macOS app its own object; a feed without
-        // that object (a release whose disk image failed to build) is only reported.
+        // The x86_64 AppImage reads the top-level keys, the AppImage of another architecture and
+        // the macOS app their own object; a feed without that object (a release whose build of
+        // it failed) is only reported.
         QJsonObject download = feed;
         const QString key = m_installer->feedKey();
         if (!key.isEmpty()) {
