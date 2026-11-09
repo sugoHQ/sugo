@@ -358,6 +358,30 @@ private Q_SLOTS:
         QVERIFY(again->queue().isEmpty());
     }
 
+    void extendEvents()
+    {
+        Telemetry *t = make();
+        t->recordExtend(TimerEngine::Phase::Work, false, TimerEngine::ExtendSource::App); // off
+        t->setEnabled(true);
+        t->recordExtend(TimerEngine::Phase::Work, true, TimerEngine::ExtendSource::Notification);
+        t->recordExtend(TimerEngine::Phase::ShortBreak, false, TimerEngine::ExtendSource::Menu);
+        QCOMPARE(t->queue().size(), 2);
+        const auto at = [t](int i) { return t->queue().at(i).toObject(); };
+        QCOMPARE(at(0).value(QStringLiteral("event")).toString(), QStringLiteral("timer_extended"));
+        QCOMPARE(at(0).value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("phase"), QStringLiteral("work")},
+                              {QStringLiteral("moment"), QStringLiteral("ended")},
+                              {QStringLiteral("source"), QStringLiteral("notification")}}));
+        QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("source")).toString(), QStringLiteral("menu"));
+
+        // The session taken up again was counted when it first ended.
+        t->skipNextSession();
+        t->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 2);
+        t->recordSession(TimerEngine::Phase::ShortBreak, 5 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 3);
+    }
+
     void updateInstallEvents()
     {
         Telemetry *t = make();
