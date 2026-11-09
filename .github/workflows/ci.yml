@@ -43,6 +43,9 @@ jobs:
   # branch that passed, so the changes of a failed or cancelled run are tested by the next one.
   changes:
     name: Changes
+    # A pull request from dev, testing or main (e.g. dev into testing) is the same commit the push
+    # run already tests: skip it, so the same jobs do not run twice. The jobs below need this one.
+    if: github.event_name != 'pull_request' || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # actions: read to find the newest CI run of the branch that passed.
@@ -80,6 +83,7 @@ jobs:
   # i.e. the first time after the Dockerfile changes; otherwise a check of a few seconds.
   image:
     name: CI image
+    if: github.event_name != 'pull_request' || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
