@@ -76,6 +76,10 @@ if [ ! -d "$QT" ]; then
     "$WORK/aqt-venv/bin/pip" install -q "aqtinstall==$AQT_VERSION"
     "$WORK/aqt-venv/bin/python" -m aqt install-qt "$QT_HOST" desktop "$QT_VERSION" "$QT_ARCH" -m qtmultimedia -O "$WORK/qt" >/dev/null
 fi
+if [ ! -e "$QT/plugins/multimedia/libffmpegmediaplugin.so" ]; then
+    echo "error: this Qt has no FFmpeg backend for Qt Multimedia" >&2
+    exit 1
+fi
 if [ ! -d "$WORK/ecm" ]; then
     git clone -q --depth 1 --branch "$ECM_TAG" https://invent.kde.org/frameworks/extra-cmake-modules.git ecm-src
     cmake -S ecm-src -B ecm-build -G Ninja -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF \
@@ -116,7 +120,13 @@ done
 # libraries are missing. Set aside while it runs (Qt's CMake files still refer to them).
 mkdir -p sqldrivers-unused
 find "$QT/plugins/sqldrivers" -name '*.so' ! -name libqsqlite.so -exec mv -t sqldrivers-unused {} +
-trap 'mv -f "$WORK"/sqldrivers-unused/*.so "$QT/plugins/sqldrivers/" 2>/dev/null || true' EXIT
+# Likewise the GStreamer backend of Qt Multimedia, which qt.io's arm64 Qt has next to the FFmpeg one
+# (linuxdeploy would try to bundle GStreamer with it): the AppImage plays sound with FFmpeg, as
+# the x86_64 one.
+mkdir -p multimedia-unused
+mv -f "$QT/plugins/multimedia/libgstreamermediaplugin.so" multimedia-unused/ 2>/dev/null || true
+trap 'mv -f "$WORK"/sqldrivers-unused/*.so "$QT/plugins/sqldrivers/" 2>/dev/null || true
+      mv -f "$WORK"/multimedia-unused/*.so "$QT/plugins/multimedia/" 2>/dev/null || true' EXIT
 
 # Unpacked rather than run: the build container has no FUSE.
 export APPIMAGE_EXTRACT_AND_RUN=1
