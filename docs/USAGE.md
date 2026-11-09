@@ -51,6 +51,8 @@ One file that runs on any recent Linux and keeps itself up to date (the recommen
 
 Each AppImage updates itself only with the AppImage of its own processor.
 
+The ARM AppImage does not start on a system older than glibc 2.39, such as the Raspberry Pi OS based on Debian 12 (Bookworm, glibc 2.36); `ldd --version` shows the version. There, use the [Flatpak](#flatpak) bundle instead, which brings its own runtime and runs on those systems too, or update to the Debian 13 (Trixie) based system.
+
 Keep the file in a folder you can write to (for example `~/Applications`): Sugo puts its updates in place of it. If AppImageLauncher is installed, starting the AppImage makes it offer to move the file there and add Sugo to the application menu. How updates work is described in [Updates and diagnostics](#updates-and-diagnostics).
 
 ### Flatpak
