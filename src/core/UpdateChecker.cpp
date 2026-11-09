@@ -6,6 +6,7 @@
 #include "Localization.h"
 #include "MacBundle.h"
 #include "UpdateInstaller.h"
+#include "UpdateSignature.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -137,6 +138,7 @@ UpdateChecker::UpdateChecker(QObject *parent)
     , m_firstCheckDelayMs(kFirstCheckDelayMs)
     , m_checkIntervalMs(kCheckIntervalMs)
 {
+    m_updatePublicKey = UpdateSignature::compiledPublicKey();
     const QString bundle = MacBundle::path();
     if (!bundle.isEmpty()) {
         m_installer = std::make_unique<MacBundleInstaller>(bundle);
@@ -481,6 +483,18 @@ void UpdateChecker::handleFeed(const QByteArray &data)
         m_downloadUrl = trustedDownloadUrl(download.value(QStringLiteral("url")).toString());
         if (m_downloadUrl.isEmpty() || !sha256.match(hash).hasMatch() || size <= 0 || size > kMaxDownloadSize) {
             fail(i18n("The update information is incomplete."));
+            return;
+        }
+        if (!m_updatePublicKey.isEmpty()
+            && !UpdateSignature::verify(
+                m_updatePublicKey,
+                UpdateSignature::message(version, download.value(QStringLiteral("url")).toString(), hash, size),
+                download.value(QStringLiteral("signature")).toString())) {
+            // Whoever changed the feed could change the checksum too: not installed, but the
+            // new version is still reported, with the link to its page.
+            qWarning("The update feed's entry has no valid signature: the update is only reported");
+            m_downloadUrl.clear();
+            setStatus(Status::UpdateAvailable);
             return;
         }
         m_expectedSha256 = hash.toLatin1();

@@ -30,6 +30,19 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the next check needs to know whether main contains the tagged commit.
+          fetch-depth: 0
+
+      - name: Check that the tagged commit is on main
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Releases are tagged on main (docs/DEVELOPMENT.md): a tag on dev, testing or a stray
+          # branch would otherwise be built and published as the latest stable release.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on main"
+            exit 1
+          fi
 
       - name: Read the project version
         id: version
@@ -213,6 +226,16 @@ jobs:
                '. + {macos: {url: $url, sha256: $sha256, size: $size}}' stable.json > stable.json.new
             mv stable.json.new stable.json
           fi
+          cat stable.json
+
+      # Each entry of the feed signed with the key that is not in the repository (the programs
+      # check it against packaging/update-public-key.txt); without the key set there, unsigned.
+      - name: Sign the stable feed
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        working-directory: release-assets
+        run: |
+          "$GITHUB_WORKSPACE/.github/scripts/sign-update-feed.sh" stable.json
           cat stable.json
 
       # The feed must never announce a file that is not there, nor be missing. A new release gets

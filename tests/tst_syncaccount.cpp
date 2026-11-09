@@ -703,6 +703,32 @@ private Q_SLOTS:
         QVERIFY(SyncCrypto::openWithRecovery(copy, *SyncCrypto::parseRecoveryCode(newCode)));
     }
 
+    void keysLeftByAKeyringThatRefusedToDeleteAreDeletedLater()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QVERIFY(c.store.secrets->contains(SyncSecrets::itemKey()));
+
+        // The keyring refuses the deletion at sign-out: the keys stay, and this is remembered.
+        *c.store.failWrites = true;
+        c.account->signOutLocally();
+        QVERIFY(!c.account->isLinked());
+        QVERIFY(c.account->keyringWipePending());
+        QVERIFY(c.store.secrets->contains(SyncSecrets::itemKey()));
+
+        // Nothing changes while it still refuses (and the mark survives a restart)...
+        c.build(*server);
+        QVERIFY(c.account->keyringWipePending());
+        c.account->retryKeyringWipe();
+        QVERIFY(c.account->keyringWipePending());
+
+        // ...and the next start that finds it working deletes them.
+        *c.store.failWrites = false;
+        c.account->retryKeyringWipe();
+        QVERIFY(!c.account->keyringWipePending());
+        QVERIFY(!c.store.secrets->contains(SyncSecrets::itemKey()));
+    }
+
     void regenerationNotStoredIsNotShowable()
     {
         Client c(*server);

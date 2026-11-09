@@ -1148,21 +1148,20 @@ QQC2.Page {
                 category: "general"
                 title: DesktopStyle.macos ? i18n("Menu bar") : i18n("System tray")
                 iconName: "notifications"
-                Banner {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spaceMd
-                    Layout.bottomMargin: Theme.spaceXs
-                    visible: !AppSettings.trayAvailable
-                    tone: "info"
-                    text: DesktopStyle.macos ? i18n("The menu bar icon is not available, so its options are turned off.")
-                                             : i18n("No system tray was found on this desktop, so the tray options are not available and closing the window quits Sugo.")
-                }
                 SettingRow {
-                    first: AppSettings.trayAvailable
+                    id: trayRow
+                    // The tray can appear or go while the page is open: the explanation is a
+                    // variant of this row's description, not a banner that moves the card.
+                    readonly property string availableText: DesktopStyle.macos
+                        ? i18n("While a timer runs, the menu bar icon shows its progress. Click it to show the window, or to start, pause, stop or quit.")
+                        : i18n("While a timer runs, the tray icon shows its progress. Click it to show or hide the window; use its menu to start, pause, stop or quit.")
+                    readonly property string unavailableText: DesktopStyle.macos
+                        ? i18n("The menu bar icon is not available, so its options are turned off.")
+                        : i18n("No system tray was found on this desktop, so the tray options are not available and closing the window quits Sugo.")
+                    first: true
                     title: DesktopStyle.macos ? i18n("Show an icon in the menu bar") : i18n("Show an icon in the system tray")
-                    description: !AppSettings.trayAvailable ? ""
-                                 : DesktopStyle.macos ? i18n("While a timer runs, the menu bar icon shows its progress. Click it to show the window, or to start, pause, stop or quit.")
-                                 : i18n("While a timer runs, the tray icon shows its progress. Click it to show or hide the window; use its menu to start, pause, stop or quit.")
+                    description: AppSettings.trayAvailable ? availableText : unavailableText
+                    descriptionVariants: [availableText, unavailableText]
                     enabled: AppSettings.trayAvailable
                     SettingSwitch { setting: "showTrayIcon" }
                 }

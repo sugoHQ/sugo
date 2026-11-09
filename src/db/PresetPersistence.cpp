@@ -29,6 +29,7 @@ PresetPersistence::PresetPersistence(PresetModel *model, PresetRepository *repos
         // Saving now would replace the stored presets (which we could not read) with the
         // built-in one, deleting the user's timers. Run with the built-in preset, unsaved.
         qCWarning(lcPresetPersistence) << "Cannot load the stored timers; changes will not be saved this session";
+        m_loadFailed = true;
         return;
     }
 
@@ -44,6 +45,11 @@ void PresetPersistence::savePresets()
 
 bool PresetPersistence::save(const QList<PresetTombstone> &received)
 {
+    if (m_loadFailed) {
+        // The model does not hold the stored timers: saveAll() would delete them (and stamp
+        // each as deleted here, for the other computers too).
+        return false;
+    }
     // Deletions received with a save that failed are kept, a newer one for the same timer replacing it;
     // saveAll() drops those of timers the model has again.
     QList<PresetTombstone> tombstones = m_pendingReceived;

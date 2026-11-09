@@ -29,6 +29,8 @@ SIGN_IDENTITY=${SIGN_IDENTITY:--}
 QT_VERSION=6.10.3
 AQT_VERSION=3.3.0
 ECM_TAG=v6.8.0
+# The commit of that tag (tags can move): the clone is refused when it is another.
+ECM_COMMIT=02e39e9538d3699e470194c989f7047efe44d2cc
 DEPLOYMENT_TARGET=13.0
 ARCHS="arm64;x86_64"
 DMG_NAME=Sugo-macOS-universal.dmg
@@ -67,6 +69,7 @@ fi
 if [ ! -d "$WORK/ecm" ]; then
     rm -rf ecm-src ecm-build
     git clone -q --depth 1 --branch "$ECM_TAG" https://invent.kde.org/frameworks/extra-cmake-modules.git ecm-src
+    [ "$(git -C ecm-src rev-parse HEAD)" = "$ECM_COMMIT" ] || { echo "error: extra-cmake-modules $ECM_TAG is not commit $ECM_COMMIT" >&2; exit 1; }
     cmake -S ecm-src -B ecm-build -G Ninja -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF \
         -DBUILD_MAN_DOCS=OFF -DBUILD_QTHELP_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$WORK/ecm" >/dev/null
     cmake --install ecm-build >/dev/null

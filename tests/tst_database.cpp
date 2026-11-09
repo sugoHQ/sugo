@@ -210,6 +210,33 @@ private Q_SLOTS:
         }
     }
 
+    void databaseFilesAreForTheOwnerOnly()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("test.db"));
+        // Qt reports the owner's bits twice (Owner and User): what matters is that the group and
+        // others have nothing and the owner reads and writes.
+        const QFile::Permissions others = QFile::ReadGroup | QFile::WriteGroup | QFile::ExeGroup
+            | QFile::ReadOther | QFile::WriteOther | QFile::ExeOther;
+        const auto ownerOnly = [&](const QString &file) {
+            const QFile::Permissions p = QFileInfo(file).permissions();
+            return (p & others) == QFile::Permissions() && (p & QFile::ReadOwner) && (p & QFile::WriteOwner);
+        };
+
+        Database db(path);
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QSqlQuery query(QSqlDatabase::database(db.connectionName(), false));
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO meta (key, value) VALUES ('k', 'v')")));
+        QVERIFY(ownerOnly(path));
+        // The journal files exist while the database is open (WAL); they follow the file.
+        for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            if (QFile::exists(path + suffix)) {
+                QVERIFY2(ownerOnly(path + suffix), qPrintable(suffix));
+            }
+        }
+    }
+
     void version1TimersAreMigratedForSync()
     {
         // A file as Sugo 1.0 left it: schema 1, created_at in seconds.

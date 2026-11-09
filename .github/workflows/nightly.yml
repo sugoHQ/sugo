@@ -193,6 +193,7 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
           SHA: ${{ needs.version.outputs.sha }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           file=Sugo-$VERSION-x86_64.AppImage
           arm=Sugo-$VERSION-aarch64.AppImage
@@ -225,6 +226,9 @@ jobs:
                '. + {macos: {url: $url, sha256: $sha256, size: $size}}' nightly.json > nightly.json.new
             mv nightly.json.new nightly.json
           fi
+          # Each entry of the feed signed with the key that is not in the repository (the programs
+          # check it against packaging/update-public-key.txt).
+          "$GITHUB_WORKSPACE/.github/scripts/sign-update-feed.sh" nightly.json
           cat nightly.json
 
           title="Sugo Nightly $VERSION (${SHA:0:12})"
