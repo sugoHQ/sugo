@@ -301,8 +301,26 @@ end tell
 EOF
     sync
     [ -f "$mount/.DS_Store" ] || ok=1
-    hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null || ok=1
+    detach_dmg "$mount" || ok=1
     return $ok
+}
+
+# Detaches the image and waits until the volume is really gone: Finder and diskimages-help can hold
+# it for a moment, and converting an image that is still attached fails with "Resource temporarily
+# unavailable". Plain detach a few times, then forced; non-zero if the volume is still there.
+detach_dmg() {
+    local mount=$1 attempt
+    for attempt in 1 2 3 4 5; do
+        [ -d "$mount" ] || return 0
+        if [ "$attempt" -lt 4 ]; then
+            hdiutil detach "$mount" >/dev/null 2>&1 || true
+        else
+            hdiutil detach -force "$mount" >/dev/null 2>&1 || true
+        fi
+        [ -d "$mount" ] || return 0
+        sleep $((attempt * 2))
+    done
+    [ ! -d "$mount" ]
 }
 
 # hdiutil sometimes fails with "Resource busy" on the CI runners: try again a few times.
@@ -318,13 +336,17 @@ for attempt in 1 2 3 4 5; do
     sleep $((attempt * 5))
 done
 style_dmg "$RW" || echo "warning: could not set the disk image's window; it opens with Finder's default size" >&2
-for attempt in 1 2 3 4 5; do
+# The volume must be gone before the conversion, and a failed attempt may leave a half-written
+# output behind: clear both, and wait longer between the attempts.
+for attempt in 1 2 3 4 5 6; do
+    detach_dmg /Volumes/Sugo || echo "warning: /Volumes/Sugo is still mounted" >&2
+    rm -f "$OUTPUT"
     if hdiutil convert "$RW" -format ULFO -o "$OUTPUT" >/dev/null; then
         break
     fi
-    [ "$attempt" = 5 ] && fail "hdiutil could not convert the disk image"
+    [ "$attempt" = 6 ] && fail "hdiutil could not convert the disk image"
     echo "hdiutil convert failed (attempt $attempt), trying again" >&2
-    sleep $((attempt * 5))
+    sleep $((attempt * 10))
 done
 rm -f "$RW"
 hdiutil verify "$OUTPUT" >/dev/null
