@@ -110,6 +110,17 @@ const QStringList &journalSuffixes()
     return suffixes;
 }
 
+/// The history and the notes of sessions are private, like the settings file: the database and
+/// its journal files are for the owner only (SQLite gives -wal and -shm the mode of the file).
+void restrictToOwner(const QString &path)
+{
+    for (const QString &suffix : journalSuffixes()) {
+        if (QFile::exists(path + suffix)) {
+            QFile::setPermissions(path + suffix, QFile::ReadOwner | QFile::WriteOwner);
+        }
+    }
+}
+
 /// What the user made in a database of the current schema: sessions, timers of their own (the
 /// built-in one is there from the start) and deleted timers. -1 if it cannot be read.
 int userRows(QSqlDatabase &db)
@@ -320,6 +331,7 @@ bool Database::finishOpen()
             || !run(db, QStringLiteral("PRAGMA synchronous = NORMAL"), &m_error)) {
             return false;
         }
+        restrictToOwner(m_path);
     }
     return migrate(db);
 }
@@ -426,6 +438,7 @@ bool Database::moveFiles(const QString &from, const QString &to)
         }
         moved.append(suffix);
     }
+    restrictToOwner(to);
     return true;
 }
 

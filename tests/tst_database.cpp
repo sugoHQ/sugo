@@ -210,6 +210,26 @@ private Q_SLOTS:
         }
     }
 
+    void databaseFilesAreForTheOwnerOnly()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("test.db"));
+        const QFile::Permissions ownerOnly = QFile::ReadOwner | QFile::WriteOwner;
+
+        Database db(path);
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QSqlQuery query(QSqlDatabase::database(db.connectionName(), false));
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO meta (key, value) VALUES ('k', 'v')")));
+        QCOMPARE(QFileInfo(path).permissions(), ownerOnly);
+        // The journal files exist while the database is open (WAL); they follow the file.
+        for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            if (QFile::exists(path + suffix)) {
+                QCOMPARE(QFileInfo(path + suffix).permissions(), ownerOnly);
+            }
+        }
+    }
+
     void version1TimersAreMigratedForSync()
     {
         // A file as Sugo 1.0 left it: schema 1, created_at in seconds.
