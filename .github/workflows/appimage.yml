@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Builds the AppImage, starts it without a display, and keeps it as the artifact "sugo-appimage".
-# Used by release.yml (stable releases) and nightly.yml.
+# Builds the AppImages (x86_64 and aarch64, each on a runner of its architecture), starts each
+# without a display, and keeps them as the artifacts "sugo-appimage-x86_64" and
+# "sugo-appimage-aarch64". Used by release.yml (stable releases) and nightly.yml.
+#
+# Both builds are blocking: when one fails this workflow fails, and no release or nightly goes out.
 name: AppImage
 
 on:
@@ -20,12 +23,25 @@ permissions:
 
 jobs:
   build:
-    name: Build AppImage (x86_64)
-    runs-on: ubuntu-24.04
-    # The oldest system the AppImage is meant for (glibc 2.35), pinned like the actions.
+    name: Build AppImage (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest system the AppImage is meant for (glibc 2.35), pinned like the actions.
+          - arch: x86_64
+            runner: ubuntu-24.04
+            # ubuntu:22.04
+            image: ubuntu@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+          # qt.io builds its arm64 Qt on Ubuntu 24.04 (it needs glibc 2.38 and GCC 13's
+          # libstdc++), so that is the oldest system this one runs on (glibc 2.39).
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            # ubuntu:24.04
+            image: ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+    runs-on: ${{ matrix.runner }}
     container:
-      # ubuntu:22.04
-      image: ubuntu@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+      image: ${{ matrix.image }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,19 +66,22 @@ jobs:
             ~/sugo-appimage/qt
             ~/sugo-appimage/ecm
             ~/sugo-appimage/linuxdeploy*.AppImage
-          key: appimage-deps-qt${{ steps.pins.outputs.QT_VERSION }}-aqt${{ steps.pins.outputs.AQT_VERSION }}-ecm${{ steps.pins.outputs.ECM_TAG }}-ld${{ steps.pins.outputs.LINUXDEPLOY_TAG }}-ldqt${{ steps.pins.outputs.LINUXDEPLOY_QT_TAG }}
+          key: appimage-deps-${{ matrix.arch }}-qt${{ steps.pins.outputs.QT_VERSION }}-aqt${{ steps.pins.outputs.AQT_VERSION }}-ecm${{ steps.pins.outputs.ECM_TAG }}-ld${{ steps.pins.outputs.LINUXDEPLOY_TAG }}-ldqt${{ steps.pins.outputs.LINUXDEPLOY_QT_TAG }}
 
       - name: Build
         env:
           VERSION: ${{ inputs.version }}
-        run: WORK="$HOME/sugo-appimage" bash packaging/appimage/build.sh "$VERSION" "$GITHUB_WORKSPACE/out"
+        run: |
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          WORK="$HOME/sugo-appimage" bash packaging/appimage/build.sh "$VERSION" "$GITHUB_WORKSPACE/out"
 
       - name: Start it without a display
         working-directory: out
         env:
           VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          ./Sugo-x86_64.AppImage --appimage-extract >/dev/null
+          "./Sugo-$ARCH.AppImage" --appimage-extract >/dev/null
           test "$(QT_QPA_PLATFORM=offscreen squashfs-root/AppRun --version 2>/dev/null)" = "sugo $VERSION"
           for page in "" timer settings about; do
             bash ../tests/smoke_app.sh squashfs-root/AppRun $page
@@ -72,6 +91,6 @@ jobs:
       - name: Keep the AppImage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sugo-appimage
-          path: out/Sugo-x86_64.AppImage
+          name: sugo-appimage-${{ matrix.arch }}
+          path: out/Sugo-${{ matrix.arch }}.AppImage
           if-no-files-found: error

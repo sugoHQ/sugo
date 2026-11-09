@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSignalSpy>
+#include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -54,6 +55,19 @@ struct LocalRelease {
                                             | QFileDevice::ExeGroup);
         writeFile(build, newContent);
         announce(QStringLiteral("2.0.0"));
+    }
+
+    /// A feed object ({ "url", "sha256", "size" }) for `content`, written as the file `name` in
+    /// the download folder: another architecture's build.
+    QJsonObject entry(const QString &name, const QByteArray &content) const
+    {
+        const QString path = dir.filePath(QStringLiteral("download/") + name);
+        writeFile(path, content);
+        return QJsonObject{
+            {QStringLiteral("url"), QUrl::fromLocalFile(path).toString()},
+            {QStringLiteral("sha256"), QString::fromLatin1(QCryptographicHash::hash(content, QCryptographicHash::Sha256).toHex())},
+            {QStringLiteral("size"), qint64(content.size())},
+        };
     }
 
     QString downloadPrefix() const { return QUrl::fromLocalFile(dir.filePath(QStringLiteral("download"))).toString() + QLatin1Char('/'); }
@@ -531,7 +545,7 @@ private Q_SLOTS:
             set.append(permissions);
             oldStillInPlace = readFile(release.appImage) == release.oldContent && qobject_cast<QSaveFile *>(&file);
             return file.setPermissions(permissions);
-        }));
+        }, QStringLiteral("x86_64")));
         checker.checkForUpdates();
         QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
         checker.installUpdate();
@@ -556,7 +570,7 @@ private Q_SLOTS:
         release.setUp(checker);
         checker.setInstallerForTesting(std::make_unique<AppImageInstaller>(release.appImage, [](QFileDevice &, QFileDevice::Permissions) {
             return false;
-        }));
+        }, QStringLiteral("x86_64")));
         checker.checkForUpdates();
         QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
         checker.installUpdate();
@@ -590,6 +604,88 @@ private Q_SLOTS:
         checker.installUpdate();
         QTRY_COMPARE_WITH_TIMEOUT(checker.status(), UpdateChecker::Status::ReadyToRestart, 10000);
         QCOMPARE(readFile(release.appImage), release.newContent);
+        qunsetenv("SUGO_OVERRIDE_VERSION");
+    }
+
+    void appImageFeedKeyFollowsTheArchitecture()
+    {
+        // x86_64 keeps the top-level keys, which the AppImages of Sugo 1.0.x read.
+        QCOMPARE(AppImageInstaller::feedKeyFor(QStringLiteral("x86_64")), QString());
+        QCOMPARE(AppImageInstaller::feedKeyFor(QStringLiteral("arm64")), QStringLiteral("linux-aarch64"));
+        QCOMPARE(AppImageInstaller::feedKeyFor(QStringLiteral("riscv64")), QStringLiteral("linux-riscv64"));
+        QCOMPARE(AppImageInstaller::feedKeyFor(QStringLiteral("i386")), QStringLiteral("linux-i386"));
+        // Without an architecture, the program's own.
+        QCOMPARE(AppImageInstaller(QStringLiteral("/nowhere/Sugo.AppImage")).feedKey(),
+                 AppImageInstaller::feedKeyFor(QSysInfo::buildCpuArchitecture()));
+        QCOMPARE(AppImageInstaller(QStringLiteral("/nowhere/Sugo.AppImage"), {}, QStringLiteral("arm64")).feedKey(), QStringLiteral("linux-aarch64"));
+    }
+
+    void eachAppImageInstallsItsOwnArchitecture_data()
+    {
+        QTest::addColumn<QString>("architecture");
+        QTest::addColumn<bool>("arm");
+        QTest::newRow("x86_64") << QStringLiteral("x86_64") << false;
+        QTest::newRow("arm64") << QStringLiteral("arm64") << true;
+    }
+
+    void eachAppImageInstallsItsOwnArchitecture()
+    {
+        // The top-level keys are the x86_64 AppImage, "linux-aarch64" the arm64 one: each takes
+        // its own file, never the other's.
+        QFETCH(QString, architecture);
+        QFETCH(bool, arm);
+        qputenv("SUGO_OVERRIDE_VERSION", "1.0.0");
+        LocalRelease release;
+        const QByteArray armContent(150000, 'a');
+        release.announce(QStringLiteral("2.0.0"), {{QStringLiteral("linux-aarch64"), release.entry(QStringLiteral("Sugo-aarch64.AppImage"), armContent)}});
+        UpdateChecker checker;
+        release.setUp(checker);
+        checker.setAppImagePathForTesting(release.appImage, architecture);
+        checker.checkForUpdates();
+        QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
+        QVERIFY(checker.isInstallable());
+        checker.installUpdate();
+        QTRY_COMPARE_WITH_TIMEOUT(checker.status(), UpdateChecker::Status::ReadyToRestart, 10000);
+        QCOMPARE(readFile(release.appImage), arm ? armContent : release.newContent);
+        qunsetenv("SUGO_OVERRIDE_VERSION");
+    }
+
+    void armAppImageWithoutItsEntryOnlyReports()
+    {
+        // A feed of the x86_64 AppImage alone (one written before the arm64 builds, or whose
+        // arm64 build failed): the arm64 AppImage sees the update but never installs that file.
+        qputenv("SUGO_OVERRIDE_VERSION", "1.0.0");
+        LocalRelease release;
+        UpdateChecker checker;
+        release.setUp(checker);
+        checker.setAppImagePathForTesting(release.appImage, QStringLiteral("arm64"));
+        checker.checkForUpdates();
+        QTRY_COMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
+        QCOMPARE(checker.latestVersion(), QStringLiteral("2.0.0"));
+        QVERIFY(checker.canInstall());
+        QVERIFY(!checker.isInstallable());
+        QCOMPARE(checker.releaseUrl(), QStringLiteral("https://github.com/MineraleYT/sugo/releases/tag/v2.0.0"));
+        checker.installUpdate();
+        QCOMPARE(checker.status(), UpdateChecker::Status::UpdateAvailable);
+        QCOMPARE(readFile(release.appImage), release.oldContent);
+        QVERIFY2(release.leftovers().isEmpty(), qPrintable(release.leftovers().join(QLatin1Char(' '))));
+        qunsetenv("SUGO_OVERRIDE_VERSION");
+    }
+
+    void armAppImageRefusesAnIncompleteEntry()
+    {
+        qputenv("SUGO_OVERRIDE_VERSION", "1.0.0");
+        LocalRelease release;
+        QJsonObject arm = release.entry(QStringLiteral("Sugo-aarch64.AppImage"), QByteArray(1000, 'a'));
+        arm.remove(QStringLiteral("sha256"));
+        release.announce(QStringLiteral("2.0.0"), {{QStringLiteral("linux-aarch64"), arm}});
+        UpdateChecker checker;
+        release.setUp(checker);
+        checker.setAppImagePathForTesting(release.appImage, QStringLiteral("arm64"));
+        checker.checkForUpdates();
+        QTRY_COMPARE(checker.status(), UpdateChecker::Status::Error);
+        QCOMPARE(checker.errorMessage(), QStringLiteral("The update information is incomplete."));
+        QCOMPARE(readFile(release.appImage), release.oldContent);
         qunsetenv("SUGO_OVERRIDE_VERSION");
     }
 
