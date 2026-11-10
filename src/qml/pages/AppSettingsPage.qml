@@ -458,7 +458,7 @@ QQC2.Page {
 
     ConfirmDialog {
         id: disconnectDialog
-        title: i18n("Disconnect the Calendar?")
+        title: i18n("Disconnect the calendar?")
         text: i18n("Sugo forgets the password for this calendar service and stops sending events. You can sign in again at any time.")
         confirmText: i18n("Disconnect")
         confirmKind: "danger"
