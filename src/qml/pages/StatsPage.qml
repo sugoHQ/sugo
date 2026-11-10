@@ -730,8 +730,15 @@ QQC2.Page {
     /// The session the dialog asks about.
     property var sessionToDelete: null
 
+    /// A focus session that was finished went to the calendar, if one is set up: the dialog asks
+    /// whether its event goes too.
+    readonly property bool sessionInCalendar: sessionToDelete !== null && sessionToDelete.kind === "work"
+                                              && sessionToDelete.completed && !!CalendarSync
+                                              && CalendarSync.enabled && CalendarSync.calendarUrl.length > 0
+
     function askDeleteSession(session: var): void {
         sessionToDelete = session;
+        alsoFromCalendar.checked = true;
         deleteSessionDialog.open();
     }
 
@@ -760,9 +767,31 @@ QQC2.Page {
         onConfirmed: {
             deleteSessionDialog.close();
             if (page.sessionToDelete) {
-                DataManager.deleteSession(page.sessionToDelete.sessionId);
+                DataManager.deleteSession(page.sessionToDelete.sessionId, page.sessionInCalendar && alsoFromCalendar.checked);
             }
             page.sessionToDelete = null;
+        }
+
+        RowLayout {
+            visible: page.sessionInCalendar
+            Layout.fillWidth: true
+            spacing: Theme.spaceMd
+
+            Text {
+                id: alsoFromCalendarLabel
+                text: CalendarSync && CalendarSync.calendarName.length > 0
+                      ? i18nc("@option:check %1 calendar name", "Also delete its event from the calendar “%1”", CalendarSync.calendarName)
+                      : i18n("Also delete its event from the calendar")
+                color: Theme.foreground
+                font.pixelSize: Theme.fontBody
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            SSwitch {
+                id: alsoFromCalendar
+                checked: true
+                Accessible.name: alsoFromCalendarLabel.text
+            }
         }
     }
 }

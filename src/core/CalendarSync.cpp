@@ -1358,6 +1358,42 @@ void CalendarSync::onNoteChanged(qint64 sessionId, const QString &note)
     }
 }
 
+void CalendarSync::onSessionDeleted(const SessionRecord &record, bool fromCalendar)
+{
+    if (record.kind != SessionKind::Work || !record.completed) {
+        return; // never sent
+    }
+    const QString uid = uidFor(record);
+    const auto sameUid = [&uid](const Pending &item) {
+        return item.uid == uid;
+    };
+    // Waiting: it never goes. On its way: onSendFinished() finds it gone from the queue.
+    const bool inFlight = m_inFlight && m_inFlightUid == uid;
+    QString account;
+    if (const auto it = std::find_if(m_sent.cbegin(), m_sent.cend(), sameUid); it != m_sent.cend()) {
+        account = it->account;
+    }
+    const bool wasQueued = m_queue.removeIf(sameUid) > 0;
+    m_sent.removeIf(sameUid);
+    // Sent (as far as Sugo remembers, or too long ago to remember) or being sent: the user may
+    // want it off the calendar. A session only queued never reached it.
+    if (fromCalendar && m_enabled && configured() && (inFlight || !account.isEmpty() || !wasQueued)) {
+        if (account.isEmpty()) {
+            account = currentAccount();
+        }
+        m_leftoverTests.removeIf([&uid](const LeftoverTest &leftover) {
+            return leftover.uid == uid;
+        });
+        m_leftoverTests.append({uid, account, eventUrl(uid).toString()});
+        // An event still on its way is deleted once its upload has finished.
+        if (!inFlight) {
+            removeLeftoverTestEvents();
+        }
+    }
+    queueChanged();
+    refreshIdleStatus();
+}
+
 void CalendarSync::trySend()
 {
     rereadPassword();
@@ -1425,7 +1461,12 @@ void CalendarSync::onSendFinished(const Result &r, bool credentialsChangedMeanwh
     m_inFlight = false;
     m_inFlightUid.clear();
     if (index < 0) {
-        // Removed meanwhile (disabled, disconnected, another account): nothing to account for.
+        // Removed meanwhile (disabled, disconnected, another account, its session deleted):
+        // nothing to account for. The event of a deleted session may have just been put on the
+        // server: it goes now, with the other events waiting to be removed.
+        if (isSuccess(r.http) && !credentialsChangedMeanwhile) {
+            removeLeftoverTestEvents();
+        }
         trySend();
         return;
     }

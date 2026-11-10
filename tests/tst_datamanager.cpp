@@ -684,8 +684,32 @@ private Q_SLOTS:
 
         QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
         QSignalSpy changed(manager.get(), &DataManager::dataChanged);
-        QVERIFY(manager->deleteSession(mistake));
+        QSignalSpy deletedSpy(manager.get(), &DataManager::sessionDeleted);
+        QString mistakeUuid;
+        for (const SessionRecord &r : sessions->between(0, std::numeric_limits<qint64>::max())) {
+            if (r.id == mistake) {
+                mistakeUuid = r.uuid;
+            }
+        }
+        QVERIFY(!mistakeUuid.isEmpty());
+        QVERIFY(manager->deleteSession(mistake, true));
         QCOMPARE(manager->sessionCount(), 1);
+        // The calendar hears of it, with what it needs to find the event.
+        QCOMPARE(deletedSpy.count(), 1);
+        const auto deleted = deletedSpy.first().at(0).value<SessionRecord>();
+        QCOMPARE(deleted.id, mistake);
+        QCOMPARE(deleted.uuid, mistakeUuid);
+        QCOMPARE(deleted.completed, false);
+        QCOMPARE(deletedSpy.first().at(1).toBool(), true);
+        // Sugo Sync will tell the other devices: the deletion leaves a tombstone.
+        {
+            QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+            QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at FROM session_tombstone")));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toString(), mistakeUuid);
+            QVERIFY(query.value(1).toLongLong() > 0);
+            QVERIFY(!query.next());
+        }
         QCOMPARE(sessions->between(0, std::numeric_limits<qint64>::max()).first().id, kept);
         QCOMPARE(changed.count(), 1);
         QCOMPARE(succeeded.count(), 1);

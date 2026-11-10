@@ -455,6 +455,7 @@ int main(int argc, char *argv[])
     if (calendarSync) {
         QObject::connect(recorder, &SessionRecorder::workSessionRecorded, calendarSync, &CalendarSync::enqueueWorkSession);
         QObject::connect(dataManager, &DataManager::sessionNoteChanged, calendarSync, &CalendarSync::onNoteChanged);
+        QObject::connect(dataManager, &DataManager::sessionDeleted, calendarSync, &CalendarSync::onSessionDeleted);
         // The calendar login and server never appear in a diagnostics report.
         const auto updateRedactions = [calendarSync]() {
             Diagnostics::setAccountRedactions({calendarSync->username(), QUrl(calendarSync->serverUrl()).host(),

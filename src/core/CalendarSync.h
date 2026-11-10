@@ -149,6 +149,10 @@ public:
 public Q_SLOTS:
     void enqueueWorkSession(const SessionRecord &record);
     void onNoteChanged(qint64 sessionId, const QString &note);
+    /// A session was deleted: its event is not sent any more, and with `fromCalendar` the event
+    /// already sent is deleted from the calendar (tried again after the next event that goes
+    /// through, if the server cannot be reached now).
+    void onSessionDeleted(const SessionRecord &record, bool fromCalendar);
 
 Q_SIGNALS:
     void enabledChanged();
@@ -184,6 +188,7 @@ private:
         QString uid;
         QString account; ///< currentAccount() when it was queued.
     };
+    /// An event Sugo put on the server that must go: a connection test's, or a deleted session's.
     struct LeftoverTest {
         QString uid;
         QString account;
