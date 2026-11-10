@@ -38,7 +38,9 @@
   "screens": {
     "timer": {
       "common": [
-        "button: Add time",
+        "button: +10 min",
+        "button: +2 min",
+        "button: +5 min",
         "button: Pomodoro",
         "button: Silence notifications while working",
         "button: Skip",
@@ -383,7 +385,6 @@
     },
     "welcome/3": {
       "common": [
-        "button: Add time",
         "button: Back",
         "button: Done",
         "button: Pomodoro",

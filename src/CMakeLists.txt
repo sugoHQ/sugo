@@ -40,7 +40,6 @@ qt6_add_qml_module(sugo_core
         qml/components/AutoStartMenu.qml
         qml/components/CommandPalette.qml
         qml/components/Composer.qml
-        qml/components/ExtendMenu.qml
         qml/components/SSlider.qml
         qml/components/Segmented.qml
         qml/components/NumberField.qml

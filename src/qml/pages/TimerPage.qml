@@ -378,6 +378,38 @@ QQC2.Page {
         }
     }
 
+    // More time, under the cycle: 2, 5 or 10 minutes for the phase under way, or for the one that
+    // has just ended. Out of the clock's column, so nothing moves when they come or go.
+    Row {
+        id: extendRow
+        objectName: "extendRow"
+        anchors.top: clockColumn.bottom
+        anchors.topMargin: Theme.spaceLg
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        spacing: Theme.spaceXs
+        opacity: TimerEngine.extendable ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+        readonly property string hint: !TimerEngine.active && TimerEngine.continuable
+                                       ? (TimerEngine.finishedPhase === TimerEngine.Phase.Work ? i18n("Keep working a few more minutes")
+                                                                                               : i18n("Make the break a few minutes longer"))
+                                       : ""
+
+        Repeater {
+            model: [2, 5, 10]
+            SButton {
+                required property int modelData
+                objectName: "extend-" + modelData
+                kind: "ghost"
+                text: i18nc("adds minutes to the timer", "+%1 min", modelData)
+                enabled: TimerEngine.extendable
+                toolTipText: extendRow.hint
+                Accessible.description: extendRow.hint.length > 0 ? extendRow.hint
+                                                                   : i18np("Add %1 minute", "Add %1 minutes", modelData)
+                onClicked: TimerEngine.extend(modelData * 60)
+            }
+        }
+    }
+
     // Paused by the screen lock or by sleep: say so, and offer to go on.
     // Over the clock and out of its column, so the clock does not move when it comes or goes.
     MessageSlot {

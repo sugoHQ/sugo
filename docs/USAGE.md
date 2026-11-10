@@ -114,7 +114,7 @@ A *timer* (preset) bundles the durations of a work phase, a short break and a lo
 - **Silence notifications while working**, **play a sound** and **show a notification** when a phase ends can be set per timer.
 - The timer you pick stays selected the next time you start Sugo. You cannot switch timers while one is running.
 
-**More time**: the **+ min** button next to Stop and Skip offers 2, 5 or 10 more minutes (so do **Add Time** in the tray and Dock menus, and in the Timer menu of the macOS menu bar); the notification at the end of a phase offers **5 More Minutes**.
+**More time**: **+2 min**, **+5 min** and **+10 min**, under the cycle on the Focus tab, add that many minutes (so do **Add Time** in the tray and Dock menus, and in the Timer menu of the macOS menu bar); the notification at the end of a phase offers **5 More Minutes**.
 
 - While a phase runs or is paused, it makes that phase longer.
 - For ten minutes after a phase ends, as long as you have not done anything else with the timer, it takes the phase that just ended up again, even if the next one has already started by itself. It stays one session: a 25-minute work session continued for five minutes is recorded as one of 30 minutes (the minutes in between count as a pause), the calendar event is updated, and the break comes after it as before.

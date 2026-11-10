@@ -26,7 +26,6 @@ Rectangle {
     /// The start mode button and its menu.
     readonly property alias autoStartButton: autoStartButton
     readonly property alias autoStartMenu: autoStartMenu
-    readonly property alias extendMenu: extendMenu
 
     readonly property bool isIdle: TimerEngine.state === TimerEngine.State.Idle
     readonly property bool isWorkPhase: TimerEngine.phase === TimerEngine.Phase.Work
@@ -72,19 +71,6 @@ Rectangle {
             function onStateChanged() {
                 if (TimerEngine.active) {
                     timerMenu.close();
-                }
-            }
-        }
-    }
-
-    ExtendMenu {
-        id: extendMenu
-        anchorItem: extendButton
-        Connections {
-            target: TimerEngine
-            function onExtendableChanged() {
-                if (!TimerEngine.extendable) {
-                    extendMenu.close();
                 }
             }
         }
@@ -175,24 +161,6 @@ Rectangle {
         }
 
         // Stop and Skip, only while a phase runs; their place is kept, so nothing moves.
-        // More time (2, 5 or 10 minutes): for the phase under way, or for the one that has just ended.
-        SButton {
-            id: extendButton
-            objectName: "composerExtend"
-            kind: "ghost"
-            iconOnly: true
-            iconName: "plus"
-            text: i18n("Add time")
-            enabled: TimerEngine.extendable
-            opacity: TimerEngine.extendable ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
-            toolTipText: !TimerEngine.active && TimerEngine.continuable
-                         ? (TimerEngine.finishedPhase === TimerEngine.Phase.Work ? i18n("Keep working for a few more minutes")
-                                                                                 : i18n("Make the break a few minutes longer"))
-                         : i18n("Add time")
-            Accessible.description: toolTipText
-            onClicked: extendMenu.toggle()
-        }
         SButton {
             objectName: "composerStop"
             kind: "ghost"
