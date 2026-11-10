@@ -28,6 +28,12 @@ TimerEngine::TimerEngine(Clock *clock, QObject *parent)
     m_ticker.setInterval(kTickIntervalMs);
     m_ticker.setTimerType(Qt::PreciseTimer);
     connect(&m_ticker, &QTimer::timeout, this, &TimerEngine::refresh);
+
+    m_reopenExpiry.setSingleShot(true);
+    connect(&m_reopenExpiry, &QTimer::timeout, this, [this]() {
+        dropReopen();
+        updateExtendable();
+    });
 }
 
 // --- Queries ---------------------------------------------------------------
@@ -126,10 +132,12 @@ void TimerEngine::pause()
     if (!isRunning()) {
         return;
     }
+    dropReopen(); // the phase that started by itself is the one the user wants now
     m_remainingAtPauseMs = remainingMs();
     m_ticker.stop();
     setState(State::Paused);
     notifyTime(false);
+    updateExtendable();
 }
 
 void TimerEngine::resume()
@@ -232,6 +240,134 @@ void TimerEngine::startCustomWork(int seconds)
     startPhase(Phase::Work, std::clamp(seconds, 1, PresetLimits::MaxWorkSeconds) * 1000LL);
 }
 
+qint64 TimerEngine::maxDurationMs(Phase phase) const
+{
+    return (phase == Phase::Work ? PresetLimits::MaxWorkSeconds : PresetLimits::MaxBreakSeconds) * 1000LL;
+}
+
+bool TimerEngine::isContinuable() const
+{
+    return m_reopen.valid && m_clock->monotonicMs() - m_reopen.endMonoMs < kReopenWindowMs
+        && m_reopen.plannedMs < maxDurationMs(m_reopen.phase);
+}
+
+bool TimerEngine::extend(int seconds, ExtendSource source)
+{
+    if (m_completing || seconds <= 0) {
+        return false;
+    }
+    // The time ran out before the ticker noticed: the phase has ended, so it is taken up again.
+    if (finishIfDue() || m_state == State::Idle) {
+        return continueFinished(seconds, source);
+    }
+    const qint64 added = std::min<qint64>(seconds * 1000LL, maxDurationMs(m_phase) - m_plannedMs);
+    if (added <= 0) {
+        return false;
+    }
+    dropReopen(); // what runs now is what gets longer
+    m_plannedMs += added;
+    if (m_state == State::Paused) {
+        m_remainingAtPauseMs += added;
+    } else {
+        m_deadlineMs += added;
+    }
+    if (remainingMs() > 60 * 1000) {
+        m_warnedOneMinute = false;
+    }
+    notifyTime(true);
+    updateExtendable();
+    Q_EMIT phaseExtended(m_phase, false, source, int(added / 1000));
+    return true;
+}
+
+bool TimerEngine::continueFinished(int seconds, ExtendSource source)
+{
+    if (m_completing || seconds <= 0) {
+        return false;
+    }
+    finishIfDue();
+    if (!isContinuable()) {
+        return false;
+    }
+    const Reopen reopen = m_reopen;
+    const qint64 added = std::min<qint64>(seconds * 1000LL, maxDurationMs(reopen.phase) - reopen.plannedMs);
+
+    // A phase that started by itself meanwhile gives way unrecorded: its time is a pause of this one.
+    Q_EMIT phaseReopened(reopen.phase);
+    m_ticker.stop();
+    dropReopen();
+    setCycles(reopen.cycles);
+    m_plannedMs = reopen.plannedMs + added;
+    m_startWall = reopen.startWall;
+    m_startMonoMs = reopen.startMonoMs;
+    m_deadlineMs = m_clock->monotonicMs() + added;
+    m_warnedOneMinute = added <= 60 * 1000;
+    setReopened(true);
+    const State previous = m_state;
+    m_state = stateFor(reopen.phase);
+    setPhase(reopen.phase);
+    if (m_state != previous) {
+        Q_EMIT stateChanged();
+    }
+    m_ticker.start();
+    notifyTime(true);
+    updateExtendable();
+    Q_EMIT phaseExtended(reopen.phase, true, source, int(added / 1000));
+    return true;
+}
+
+void TimerEngine::dropReopen()
+{
+    m_reopen.valid = false;
+    m_reopenExpiry.stop();
+}
+
+void TimerEngine::setReopened(bool reopened)
+{
+    if (m_reopened != reopened) {
+        m_reopened = reopened;
+        Q_EMIT continuesEndedSessionChanged();
+    }
+}
+
+void TimerEngine::updateExtendable()
+{
+    if (m_holdExtendable) {
+        return; // completePhase() announces once, when the phase that ended can be taken up again
+    }
+    // extendable, continuable and finishedPhase share one signal.
+    const int key = (isExtendable() ? 1 : 0) | (isContinuable() ? 2 : 0) | (int(m_reopen.phase) << 2);
+    if (key != m_extendableKey) {
+        m_extendableKey = key;
+        Q_EMIT extendableChanged();
+    }
+}
+
+bool TimerEngine::restorePaused(Phase phase, qint64 plannedMs, qint64 remainingMs, const QDateTime &startedAt, int cycles)
+{
+    if (m_state != State::Idle || m_completing || plannedMs <= 0 || remainingMs <= 0 || remainingMs > plannedMs
+        || plannedMs > maxDurationMs(phase) || !startedAt.isValid()) {
+        return false;
+    }
+    m_ticker.stop();
+    dropReopen();
+    setReopened(false);
+    setCycles(std::clamp(cycles, 0, std::max(0, m_cyclesBeforeLong)));
+    m_plannedMs = plannedMs;
+    m_remainingAtPauseMs = remainingMs;
+    m_startWall = startedAt;
+    // Only the end-time guard of emitSessionEnded() reads it: as if the phase began that long ago.
+    m_startMonoMs = m_clock->monotonicMs() - std::max<qint64>(0, startedAt.msecsTo(m_clock->wallTime()));
+    m_warnedOneMinute = remainingMs <= 60 * 1000;
+    m_state = State::Paused;
+    setPhase(phase);
+    Q_EMIT stateChanged();
+    notifyTime(true);
+    updateExtendable();
+    Q_EMIT phaseRestored(phase);
+    return true;
+}
+
 void TimerEngine::refresh()
 {
     if (!isRunning() || m_completing) {
@@ -265,6 +401,8 @@ TimerEngine::Phase TimerEngine::phaseToRun(Phase phase)
 void TimerEngine::startPhase(Phase phase, qint64 plannedMs)
 {
     phase = phaseToRun(phase);
+    dropReopen();
+    setReopened(false);
 
     // The new timing is in place before phaseChanged/stateChanged go out, so a listener never
     // sees the new phase with the old (passed) deadline.
@@ -281,21 +419,26 @@ void TimerEngine::startPhase(Phase phase, qint64 plannedMs)
     }
     m_ticker.start();
     notifyTime(true);
+    updateExtendable();
     Q_EMIT phaseStarted(phase);
 }
 
 void TimerEngine::setIdle(Phase next)
 {
     m_ticker.stop();
+    dropReopen();
+    setReopened(false);
     setPhase(next);
     setState(State::Idle);
     m_warnedOneMinute = false;
     notifyTime(true);
+    updateExtendable();
 }
 
 void TimerEngine::completePhase()
 {
     const Phase finished = m_phase;
+    Reopen reopen{true, finished, m_plannedMs, m_startWall, m_startMonoMs, m_deadlineMs, m_completedCycles};
 
     m_ticker.stop();
     // The phase is still in its expired running state here: a listener's stop(), pause() or
@@ -306,6 +449,7 @@ void TimerEngine::completePhase()
     m_completing = false;
 
     const Phase next = nextPhaseAfter(finished);
+    m_holdExtendable = true; // no extendableChanged() in passing: the button would blink
     // Start the next phase before announcing the end, so listeners see the real state. Going
     // straight from one running state to the next also avoids a passing Idle state, which would
     // make the power/notification inhibitors and the focus sound let go and grab again.
@@ -314,6 +458,13 @@ void TimerEngine::completePhase()
     } else {
         setIdle(next);
     }
+    m_holdExtendable = false;
+    m_reopen = reopen;
+    const qint64 left = kReopenWindowMs - (m_clock->monotonicMs() - reopen.endMonoMs);
+    if (left > 0) {
+        m_reopenExpiry.start(int(left));
+    }
+    updateExtendable();
     Q_EMIT phaseFinished(finished, next);
 }
 
@@ -337,6 +488,12 @@ void TimerEngine::emitSessionEnded(bool completed, qint64 endMonoMs)
     // plus the time it took, pauses included; one set forward is believed (it may be a suspend).
     const QDateTime endedAt = std::max(wallEnd, m_startWall.addMSecs(endMonoMs - m_startMonoMs));
     const qint64 activeMs = completed ? m_plannedMs : m_plannedMs - remainingMs();
+    if (m_reopened && !completed) {
+        // The phase had run its whole time before it was taken up again: cut short now, it is
+        // still a completed session, as long as it ran.
+        Q_EMIT sessionEnded(m_phase, m_startWall, endedAt, activeMs, activeMs, true);
+        return;
+    }
     Q_EMIT sessionEnded(m_phase, m_startWall, endedAt, activeMs, m_plannedMs, completed);
 }
 

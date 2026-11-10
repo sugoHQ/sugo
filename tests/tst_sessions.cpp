@@ -561,6 +561,97 @@ private Q_SLOTS:
         QCOMPARE(all().size(), 2);
         QCOMPARE(recorder->lastWorkSessionId(), -1);
     }
+    void workTakenUpAgainUpdatesItsSession()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        QCOMPARE(all().size(), 1);
+        const qint64 id = all().at(0).id;
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Report")));
+
+        elapse(60); // a minute later: five more minutes
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).id, id);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(r.at(0).plannedSec, 30 * 60);
+        QCOMPARE(r.at(0).startedAtMs, clock.base().toMSecsSinceEpoch());
+        QCOMPARE(r.at(0).endedAtMs, clock.base().addSecs(31 * 60).toMSecsSinceEpoch());
+        QCOMPARE(r.at(0).note, QStringLiteral("Report"));
+        QCOMPARE(recorder->lastWorkSessionId(), id);
+        // Sent again with the same id, so the calendar replaces its event, note included.
+        QCOMPARE(recorded.size(), 2);
+        const auto again = recorded.at(1).at(0).value<SessionRecord>();
+        QCOMPARE(again.id, id);
+        QCOMPARE(again.durationSec, 30 * 60);
+        QCOMPARE(again.note, QStringLiteral("Report"));
+    }
+
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain_data()
+    {
+        QTest::addColumn<bool>("retryBeforeReopening");
+        QTest::newRow("stored before it is taken up again") << true;
+        QTest::newRow("stored while it goes on") << false;
+    }
+
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain()
+    {
+        QFETCH(bool, retryBeforeReopening);
+        recorder->setRetryIntervalForTesting(30);
+        failSessionInserts(true);
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(recorder->isSaveFailing());
+        if (retryBeforeReopening) {
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+            QVERIFY(engine->continueFinished());
+        } else {
+            QVERIFY(engine->continueFinished());
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+        }
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1); // one session, not the first end and the longer one
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+    }
+
+    void breakThatStartedByItselfGivesWayUnrecorded()
+    {
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All);
+        engine->start();
+        elapse(25 * 60);
+        elapse(90); // the short break has run a while
+        QVERIFY(engine->continueFinished());
+        engine->stop(); // cut short at once: still the completed session, as long as it ran
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).kind, SessionKind::Work);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 25 * 60);
+    }
+
+    void extendingTheRunningPhaseRecordsOneLongerSession()
+    {
+        engine->start();
+        elapse(20 * 60);
+        QVERIFY(engine->extend());
+        elapse(10 * 60);
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).plannedSec, 30 * 60);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+    }
+
     // A page that cannot be read ends the query partway: the cursor must not move past the rows
     // that were never read, or the statistics would never count them.
     void completedWorkStartsAfterKeepsItsPlaceWhenAPageCannotBeRead()

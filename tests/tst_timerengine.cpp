@@ -920,6 +920,236 @@ private Q_SLOTS:
         QCOMPARE(engine->state(), State::Idle);
         QCOMPARE(ended.count(), 0);
     }
+
+    // --- More time ------------------------------------------------------------
+
+    void extendAddsToTheRunningPhase()
+    {
+        QSignalSpy extended(engine.get(), &TimerEngine::phaseExtended);
+        QVERIFY(!engine->isExtendable());
+        QVERIFY(!engine->extend());
+        engine->start();
+        QVERIFY(engine->isExtendable());
+        QVERIFY(!engine->isContinuable());
+        elapse(60);
+        QVERIFY(engine->extend());
+        QCOMPARE(engine->remainingSeconds(), 29 * 60);
+        QCOMPARE(engine->totalSeconds(), 30 * 60);
+        QCOMPARE(engine->state(), State::Working);
+        QCOMPARE(extended.size(), 1);
+        QCOMPARE(extended.at(0).at(0).value<Phase>(), Phase::Work);
+        QCOMPARE(extended.at(0).at(1).toBool(), false);
+        QCOMPARE(extended.at(0).at(2).value<TimerEngine::ExtendSource>(), TimerEngine::ExtendSource::App);
+        QCOMPARE(extended.at(0).at(3).toInt(), 5 * 60);
+    }
+
+    void extendWorksWhilePaused()
+    {
+        engine->start();
+        elapse(60);
+        engine->pause();
+        QVERIFY(engine->extend(120));
+        QCOMPARE(engine->state(), State::Paused);
+        QCOMPARE(engine->remainingSeconds(), 26 * 60);
+        engine->resume();
+        elapse(26 * 60);
+        QCOMPARE(engine->state(), State::Idle);
+        QCOMPARE(engine->phase(), Phase::ShortBreak);
+    }
+
+    void extendStopsAtTheLongestPhase()
+    {
+        engine->setWorkSeconds(PresetLimits::MaxWorkSeconds - 60);
+        engine->start();
+        QVERIFY(engine->extend());
+        QCOMPARE(engine->totalSeconds(), PresetLimits::MaxWorkSeconds);
+        QVERIFY(!engine->extend());
+    }
+
+    void extendBringsTheOneMinuteWarningBack()
+    {
+        QSignalSpy warned(engine.get(), &TimerEngine::oneMinuteRemaining);
+        engine->start();
+        elapse(24 * 60 + 30);
+        QCOMPARE(warned.size(), 1);
+        QVERIFY(engine->extend());
+        elapse(5 * 60);
+        QCOMPARE(warned.size(), 2);
+    }
+
+    void workThatEndedCanGoOn()
+    {
+        QSignalSpy reopened(engine.get(), &TimerEngine::phaseReopened);
+        QSignalSpy extended(engine.get(), &TimerEngine::phaseExtended);
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->start();
+        elapse(25 * 60);
+        QCOMPARE(engine->state(), State::Idle);
+        QCOMPARE(engine->phase(), Phase::ShortBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+        QVERIFY(engine->isExtendable());
+        QVERIFY(engine->isContinuable());
+        QCOMPARE(engine->finishedPhase(), Phase::Work);
+
+        elapse(30);
+        QVERIFY(engine->extend()); // while Idle, extend() takes the ended phase up again
+        QCOMPARE(reopened.size(), 1);
+        QCOMPARE(extended.at(0).at(1).toBool(), true);
+        QCOMPARE(engine->state(), State::Working);
+        QCOMPARE(engine->completedCycles(), 0);
+        QCOMPARE(engine->remainingSeconds(), 5 * 60);
+        QCOMPARE(engine->totalSeconds(), 30 * 60);
+        QVERIFY(!engine->isContinuable());
+
+        elapse(5 * 60);
+        QCOMPARE(ended.size(), 2);
+        const QList<QVariant> last = ended.at(1);
+        QCOMPARE(last.at(1).toDateTime(), clock.base());
+        QCOMPARE(last.at(3).toLongLong(), 30 * 60 * 1000LL);
+        QCOMPARE(last.at(4).toLongLong(), 30 * 60 * 1000LL);
+        QVERIFY(last.at(5).toBool());
+        QCOMPARE(engine->phase(), Phase::ShortBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+        QVERIFY(engine->isContinuable()); // and once more
+    }
+
+    void phaseThatStartedByItselfGivesWay()
+    {
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All);
+        engine->start();
+        elapse(25 * 60);
+        QCOMPARE(engine->state(), State::ShortBreak);
+        QVERIFY(engine->isContinuable());
+        elapse(60);
+        // extend() lengthens the break that runs; continueFinished() takes the work up again.
+        QVERIFY(engine->continueFinished());
+        QCOMPARE(engine->state(), State::Working);
+        QCOMPARE(ended.size(), 1); // the break is not recorded
+        elapse(5 * 60);
+        QCOMPARE(ended.size(), 2);
+        QCOMPARE(engine->state(), State::ShortBreak);
+    }
+
+    void breakThatEndedCanGoOn()
+    {
+        engine->start();
+        elapse(25 * 60);
+        engine->start(); // the short break
+        elapse(5 * 60);
+        QCOMPARE(engine->phase(), Phase::Work);
+        QCOMPARE(engine->finishedPhase(), Phase::ShortBreak);
+        QVERIFY(engine->extend());
+        QCOMPARE(engine->state(), State::ShortBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+        elapse(5 * 60);
+        QCOMPARE(engine->state(), State::Idle);
+        QCOMPARE(engine->phase(), Phase::Work);
+    }
+
+    void longBreakThatEndedKeepsTheSetEnded()
+    {
+        engine->setCyclesBeforeLong(1);
+        engine->start();
+        elapse(25 * 60);
+        QCOMPARE(engine->phase(), Phase::LongBreak);
+        engine->start();
+        elapse(15 * 60);
+        QCOMPARE(engine->completedCycles(), 0);
+        QVERIFY(engine->continueFinished());
+        QCOMPARE(engine->state(), State::LongBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+        elapse(5 * 60);
+        QCOMPARE(engine->completedCycles(), 0);
+        QCOMPARE(engine->phase(), Phase::Work);
+    }
+
+    void onlyRightAfterTheEnd()
+    {
+        engine->start();
+        elapse(25 * 60);
+        clock.advanceMs(TimerEngine::kReopenWindowMs);
+        QVERIFY(!engine->isContinuable());
+        QVERIFY(!engine->isExtendable());
+        QVERIFY(!engine->extend());
+        QCOMPARE(engine->state(), State::Idle);
+    }
+
+    void anyOtherCommandEndsTheChance()
+    {
+        engine->start();
+        elapse(25 * 60);
+        engine->skip(); // the pending break is passed over
+        QVERIFY(!engine->isContinuable());
+
+        engine->stop();
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::BreaksOnly);
+        engine->start();
+        elapse(25 * 60);
+        engine->pause(); // the break that started by itself is the one wanted
+        QVERIFY(!engine->isContinuable());
+        QVERIFY(!engine->continueFinished());
+    }
+
+    void stoppedEarlyAfterGoingOnIsStillCompleted()
+    {
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(engine->continueFinished());
+        elapse(60);
+        engine->stop();
+        QCOMPARE(ended.size(), 2);
+        QCOMPARE(ended.at(1).at(3).toLongLong(), 26 * 60 * 1000LL);
+        QCOMPARE(ended.at(1).at(4).toLongLong(), 26 * 60 * 1000LL);
+        QVERIFY(ended.at(1).at(5).toBool());
+        QCOMPARE(engine->completedCycles(), 0);
+    }
+
+    void skippingAfterGoingOnCountsTheCycleOnce()
+    {
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(engine->continueFinished());
+        elapse(60);
+        engine->skip();
+        QCOMPARE(engine->state(), State::ShortBreak);
+        QCOMPARE(engine->completedCycles(), 1);
+    }
+
+    void extendableIsAnnounced()
+    {
+        QSignalSpy changed(engine.get(), &TimerEngine::extendableChanged);
+        engine->start();
+        QCOMPARE(changed.size(), 1);
+        elapse(25 * 60); // still extendable, but now by taking the work up again
+        QCOMPARE(changed.size(), 2);
+        engine->reset();
+        QCOMPARE(changed.size(), 3);
+        QVERIFY(!engine->isExtendable());
+    }
+
+    void aPhaseOfAnEarlierRunComesBackPaused()
+    {
+        QSignalSpy restored(engine.get(), &TimerEngine::phaseRestored);
+        const QDateTime started = clock.wallTime().addSecs(-3600);
+        QVERIFY(!engine->restorePaused(Phase::Work, 0, 0, started, 0));
+        QVERIFY(engine->restorePaused(Phase::LongBreak, 15 * 60 * 1000, 6 * 60 * 1000, started, 4));
+        QCOMPARE(engine->state(), State::Paused);
+        QCOMPARE(engine->phase(), Phase::LongBreak);
+        QCOMPARE(engine->remainingSeconds(), 6 * 60);
+        QCOMPARE(engine->completedCycles(), 4);
+        QCOMPARE(engine->phaseStartedAt(), started);
+        QCOMPARE(restored.size(), 1);
+        // Only while idle.
+        QVERIFY(!engine->restorePaused(Phase::Work, 60 * 1000, 30 * 1000, started, 0));
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->resume();
+        elapse(6 * 60);
+        QCOMPARE(ended.size(), 1);
+        QCOMPARE(ended.at(0).at(1).toDateTime(), started);
+        QCOMPARE(engine->completedCycles(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(TimerEngineTest)

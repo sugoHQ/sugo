@@ -176,8 +176,8 @@ Rectangle {
             implicitHeight: Theme.iconButton
             Layout.alignment: Qt.AlignVCenter
             iconName: installed ? "refresh" : "download"
-            text: installed ? (DesktopStyle.macos ? i18n("Sugo %1 is ready; it replaces this version when Sugo restarts.", UpdateChecker.latestVersion)
-                                                  : i18n("Sugo %1 is installed; it starts after the restart.", UpdateChecker.latestVersion))
+            text: installed ? (DesktopStyle.macos ? i18n("Sugo %1 is ready. It replaces this version when Sugo restarts.", UpdateChecker.latestVersion)
+                                                  : i18n("Sugo %1 is installed. It starts after a restart.", UpdateChecker.latestVersion))
                   : downloading ? i18n("Downloading Sugo %1… %2%", UpdateChecker.latestVersion, Math.round(UpdateChecker.progress * 100))
                   : i18n("Sugo %1 is available.", UpdateChecker.latestVersion)
             onClicked: bar.tabRequested("about")

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "Telemetry.h"
 
+#include <utility>
+
 #include "TelemetryInfo.h"
 #include "UrlPolicy.h"
 
@@ -182,14 +184,52 @@ void Telemetry::setEnabled(bool enabled, const QString &source)
 
 void Telemetry::recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed)
 {
-    if (!m_enabled) {
+    if (std::exchange(m_skipNextSession, false) || !m_enabled) {
+        m_lastSessionRecorded = false;
         return;
     }
+    m_lastSessionRecorded = true;
     const qint64 minutes = std::clamp<qint64>((plannedMs + 30 * 1000) / (60 * 1000), 1, 240);
     record(QStringLiteral("session_ended"),
            {{QStringLiteral("phase"), phaseName(phase)},
             {QStringLiteral("planned_min"), static_cast<int>(minutes)},
             {QStringLiteral("completed"), completed}});
+}
+
+void Telemetry::recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds)
+{
+    if (!m_enabled) {
+        return;
+    }
+    QString from;
+    switch (source) {
+    case TimerEngine::ExtendSource::App:
+        from = QStringLiteral("app");
+        break;
+    case TimerEngine::ExtendSource::Notification:
+        from = QStringLiteral("notification");
+        break;
+    case TimerEngine::ExtendSource::Menu:
+        from = QStringLiteral("menu");
+        break;
+    case TimerEngine::ExtendSource::Command:
+        from = QStringLiteral("command");
+        break;
+    }
+    record(QStringLiteral("timer_extended"),
+           {{QStringLiteral("phase"), phaseName(phase)},
+            {QStringLiteral("moment"), afterEnd ? QStringLiteral("ended") : QStringLiteral("running")},
+            {QStringLiteral("source"), from},
+            {QStringLiteral("minutes"), std::clamp((seconds + 30) / 60, 1, 60)}});
+}
+
+void Telemetry::recordRestore(TimerEngine::Phase phase, const QString &result)
+{
+    static const QStringList results = {QStringLiteral("resumed"), QStringLiteral("stopped"), QStringLiteral("expired")};
+    if (!m_enabled || !results.contains(result)) {
+        return;
+    }
+    record(QStringLiteral("session_restored"), {{QStringLiteral("phase"), phaseName(phase)}, {QStringLiteral("result"), result}});
 }
 
 void Telemetry::tourEnded(int step, bool skipped)

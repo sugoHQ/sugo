@@ -215,7 +215,7 @@ QQC2.Page {
     ConfirmDialog {
         id: discardDialog
         property var then: null
-        title: i18n("Discard Changes?")
+        title: i18n("Discard changes?")
         text: i18n("The changes you made to this timer have not been saved.")
         confirmText: i18n("Discard")
         confirmKind: "danger"
@@ -228,7 +228,7 @@ QQC2.Page {
 
     ConfirmDialog {
         id: resetDialog
-        title: i18n("Reset to Defaults?")
+        title: i18n("Reset to defaults?")
         text: i18n("“%1” goes back to its original durations and options. Your changes to it are lost.", page.storedName)
         confirmText: i18n("Reset")
         onConfirmed: {
@@ -241,7 +241,7 @@ QQC2.Page {
 
     ConfirmDialog {
         id: deleteDialog
-        title: i18n("Delete Timer")
+        title: i18n("Delete this timer?")
         text: i18n("Delete “%1”? Statistics already recorded with it are kept.", page.storedName)
         confirmText: i18n("Delete")
         confirmKind: "danger"

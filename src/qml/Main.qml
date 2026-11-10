@@ -139,6 +139,18 @@ QQC2.ApplicationWindow {
 
     property bool restarting: false
 
+    /// Which suggestion the focus page shows during a break: one more for each break, so two in a
+    /// row always differ; kept here, where it outlives the page. It starts anywhere in the list.
+    property int breakTipNumber: Math.floor(Math.random() * 1000)
+    Connections {
+        target: TimerEngine
+        function onPhaseChanged() {
+            if (TimerEngine.phase !== TimerEngine.Phase.Work) {
+                ++root.breakTipNumber;
+            }
+        }
+    }
+
     function quitNow(): void {
         UpdateChecker.setRestartOnQuit(root.restarting);
         Qt.quit();
@@ -150,13 +162,19 @@ QQC2.ApplicationWindow {
     ConfirmDialog {
         id: quitDialog
         title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
-        text: root.restarting
+        text: TimerEngine.continuesEndedSession
               ? (TimerEngine.phase === TimerEngine.Phase.Work
-                 ? i18n("A work session is in progress. Restarting ends it now, and it is saved as interrupted.")
-                 : i18n("A break is in progress. Restarting ends it now."))
+                 ? (root.restarting ? i18n("A work session is in progress. Restarting ends it now, as a finished session.")
+                                    : i18n("A work session is in progress. Quitting ends it now, as a finished session."))
+                 : (root.restarting ? i18n("A break is in progress. Restarting ends it now.")
+                                    : i18n("A break is in progress. Quitting ends it now.")))
+              : root.restarting
+              ? (TimerEngine.phase === TimerEngine.Phase.Work
+                 ? i18n("A work session is in progress. It is paused while Sugo restarts, and waits for you afterwards.")
+                 : i18n("A break is in progress. It is paused while Sugo restarts, and waits for you afterwards."))
               : (TimerEngine.phase === TimerEngine.Phase.Work
-                 ? i18n("A work session is in progress. Quitting ends it now, and it is saved as interrupted.")
-                 : i18n("A break is in progress. Quitting ends it now."))
+                 ? i18n("A work session is in progress. Quitting pauses it, and it waits for you the next time Sugo starts.")
+                 : i18n("A break is in progress. Quitting pauses it, and it waits for you the next time Sugo starts."))
         confirmText: root.restarting ? i18n("Restart") : i18n("Quit")
         confirmKind: "danger"
         cancelText: i18n("Keep Running")
@@ -854,9 +872,28 @@ QQC2.ApplicationWindow {
                      + ", first done " + first.done + ", second current " + second.current);
                 return true;
             }
+            // The break waits: a suggestion for it shows under the clock, and stays the same when
+            // the page is made again (after Statistics, say).
+            const tip = findItem(page, item => item.objectName === "breakTip");
+            if (!tip || tip.text.length === 0 || !tip.fits || tip.y < findItem(page, item => item.objectName === "cycleTrack").mapToItem(page, 0, 0).y) {
+                fail(68, "No suggestion under the clock for the break waiting to start: "
+                     + (tip ? "\"" + tip.text + "\", fits " + tip.fits : "missing"));
+                return true;
+            }
+            const shownTip = tip.text;
+            root.navigate("stats");
+            root.navigate("timer");
+            const timerPage = root.pageStack.get(0);
+            const tipAgain = findItem(timerPage, item => item.objectName === "breakTip");
+            if (!tipAgain || tipAgain.text !== shownTip) {
+                fail(68, "The break suggestion changed when the focus page came back: \"" + shownTip + "\" then \""
+                     + (tipAgain ? tipAgain.text : "missing") + "\"");
+                return true;
+            }
+            const firstAgain = findItem(timerPage, item => item.objectName === "cycleSegment-0");
             TimerEngine.start();
             TimerEngine.stop();
-            if (first.done || !first.current) {
+            if (!firstAgain || firstAgain.done || !firstAgain.current) {
                 fail(49, "The track still shows work done after Stop");
                 return true;
             }
@@ -1381,6 +1418,12 @@ QQC2.ApplicationWindow {
         if (TimerEngine.active) {
             list.push({ text: i18n("Stop the timer"), icon: "stop", run: () => root.requestEndPhase(false) });
             list.push({ text: i18n("Skip to the next phase"), icon: "skip", run: () => root.requestEndPhase(true) });
+        }
+        if (TimerEngine.extendable) {
+            for (const minutes of [2, 5, 10]) {
+                list.push({ text: i18np("Add %1 minute", "Add %1 minutes", minutes), icon: "plus",
+                            run: () => TimerEngine.extend(minutes * 60) });
+            }
         }
         return list.concat(root.timerCommands());
     }
