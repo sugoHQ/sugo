@@ -225,6 +225,23 @@ bool SessionRepository::deleteAll()
     return true;
 }
 
+bool SessionRepository::deleteById(qint64 sessionId)
+{
+    QSqlDatabase db = QSqlDatabase::database(m_connection, false);
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral("DELETE FROM session WHERE id = ?"));
+    query.addBindValue(sessionId);
+    if (!query.exec()) {
+        qCWarning(lcSessionRepo) << "Cannot delete session:" << query.lastError().text();
+        return false;
+    }
+    if (query.numRowsAffected() < 1) {
+        qCWarning(lcSessionRepo) << "Cannot delete session: there is no session" << sessionId;
+        return false;
+    }
+    return true;
+}
+
 int SessionRepository::deleteStartedBefore(qint64 ms)
 {
     QSqlDatabase db = QSqlDatabase::database(m_connection, false);

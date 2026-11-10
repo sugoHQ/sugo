@@ -62,6 +62,9 @@ public:
     /// The number of sessions, or -1 if it cannot be read.
     int count() const;
     bool deleteAll();
+    /// Deletes the session `sessionId`. Returns false (and logs) on failure or when there is no
+    /// session with that id.
+    bool deleteById(qint64 sessionId);
     /// Deletes the sessions that started before `ms` (Unix ms). Returns how many rows were
     /// deleted, or -1 on error.
     int deleteStartedBefore(qint64 ms);

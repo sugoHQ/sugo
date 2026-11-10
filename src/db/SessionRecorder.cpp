@@ -110,6 +110,22 @@ void SessionRecorder::forgetHistory()
     }
 }
 
+void SessionRecorder::forgetSession(qint64 sessionId)
+{
+    if (sessionId <= 0) {
+        return;
+    }
+    if (m_lastWorkSessionId == sessionId) {
+        m_lastWorkSessionId = -1;
+    }
+    if (m_lastSessionId == sessionId) {
+        m_lastSessionId = -1;
+    }
+    if (m_reopenedId == sessionId) {
+        m_reopenedId = 0;
+    }
+}
+
 void SessionRecorder::onPhaseStarted(TimerEngine::Phase)
 {
     m_active = m_presets->currentPreset();

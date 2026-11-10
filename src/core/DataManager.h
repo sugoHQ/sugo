@@ -63,6 +63,8 @@ public:
     Q_INVOKABLE bool clearHistory();
     /// Deletes the sessions that started more than `months` months ago. Removing none is a success.
     Q_INVOKABLE bool clearHistoryOlderThan(int months);
+    /// Deletes one session (a phase started by mistake, say) and updates the statistics.
+    Q_INVOKABLE bool deleteSession(qint64 sessionId);
     /// Writes every session to a .csv or .json file (chosen by the file's extension).
     Q_INVOKABLE bool exportHistory(const QUrl &fileUrl);
     /// Opens the folder holding the database in the file manager.
