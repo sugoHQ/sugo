@@ -114,17 +114,20 @@ QQC2.ApplicationWindow {
         root.requestActivate();
     }
 
-    /// Quits, after asking when that would cut a running or paused phase short.
+    /// Quits, after asking when that would cut a running or paused phase short, or lose sessions
+    /// or timer changes that could not be saved yet (DataManager.saveFailing).
     function requestQuit(): void {
         if (quitDialog.visible) {
             return;
         }
-        if (TimerEngine.active) {
+        const unsaved = DataManager !== null && DataManager.saveFailing === true;
+        if (TimerEngine.active || unsaved) {
             // Asked with the window closed or minimised (on macOS, where closing only hides the
             // window: Cmd+Q, Sugo › Quit Sugo, Quit in the Dock menu): the question must be seen.
             if (!root.visible || root.visibility === Window.Minimized) {
                 root.bringToFront();
             }
+            quitDialog.unsavedData = unsaved;
             quitDialog.open();
         } else {
             root.quitNow();
@@ -161,8 +164,14 @@ QQC2.ApplicationWindow {
 
     ConfirmDialog {
         id: quitDialog
-        title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
-        text: TimerEngine.continuesEndedSession
+        /// Sessions or timer changes were waiting to be saved when the dialog opened (kept as it
+        /// was then, so the text does not change under the user's eyes).
+        property bool unsavedData: false
+        readonly property string unsavedText: root.restarting
+            ? i18n("Some of your latest sessions or timer changes could not be saved yet. Restarting now loses them.")
+            : i18n("Some of your latest sessions or timer changes could not be saved yet. Quitting now loses them.")
+        readonly property string phaseText: !TimerEngine.active ? ""
+              : TimerEngine.continuesEndedSession
               ? (TimerEngine.phase === TimerEngine.Phase.Work
                  ? (root.restarting ? i18n("A work session is in progress. Restarting ends it now, as a finished session.")
                                     : i18n("A work session is in progress. Quitting ends it now, as a finished session."))
@@ -175,6 +184,8 @@ QQC2.ApplicationWindow {
               : (TimerEngine.phase === TimerEngine.Phase.Work
                  ? i18n("A work session is in progress. Quitting pauses it, and it waits for you the next time Sugo starts.")
                  : i18n("A break is in progress. Quitting pauses it, and it waits for you the next time Sugo starts."))
+        title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
+        text: unsavedData ? (phaseText.length > 0 ? unsavedText + "\n\n" + phaseText : unsavedText) : phaseText
         confirmText: root.restarting ? i18n("Restart") : i18n("Quit")
         confirmKind: "danger"
         cancelText: i18n("Keep Running")
