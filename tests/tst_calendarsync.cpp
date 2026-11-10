@@ -1535,7 +1535,7 @@ private Q_SLOTS:
         QCOMPARE(m_sync->pendingCount(), 0);
     }
 
-    void deletedSessionNotSentYetIsNeverSent()
+    void deletedSessionNotSentYetIsNeverSentButStillDeleted()
     {
         configureCustom();
         m_sync->setRetryDelaysForTesting({60'000}); // the event waits for its next try
@@ -1544,9 +1544,32 @@ private Q_SLOTS:
         QTRY_VERIFY(m_sync->retryIntervalForTesting() > 0);
         m_sync->onSessionDeleted(record(3), true);
         QCOMPARE(m_sync->pendingCount(), 0);
+        // It may be on the server all the same (an answer lost): asked to go, and not there (404).
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
         QTest::qWait(100);
         QCOMPARE(m_server->count("PUT"), 1);
-        QCOMPARE(m_server->count("DELETE"), 0);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void deletedSessionWhoseUploadAnswerWasLostIsStillDeleted()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(15));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        // The server took it, but Sugo quit before the answer came: still queued at the restart.
+        const QByteArray path = "/cal/personal/" + CalendarSync::uidFor(record(15)).toUtf8() + ".ics";
+        m_server->stored.insert(path, QByteArray("BEGIN:VCALENDAR"));
+        m_sync.reset();
+        m_server->hold = nullptr;
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(15), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, path);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+        QCOMPARE(m_sync->pendingCount(), 0);
     }
 
     void deletedSessionOnItsWayIsRemovedOnceItArrives()
@@ -1570,7 +1593,7 @@ private Q_SLOTS:
     {
         configureCustom();
         m_sync->enqueueWorkSession(record(11));
-        QTRY_COMPARE(m_server->stored.size(), 1);
+        QTRY_COMPARE(m_sync->pendingCount(), 0); // its answer arrived: Sugo knows where it went
         const QByteArray sentTo = m_server->of("PUT").first().path;
 
         // Another calendar of the same account is chosen afterwards, and Sugo restarts.
@@ -2437,6 +2460,23 @@ private Q_SLOTS:
 
         m_sync->disconnect();
         QVERIFY(keyring.secrets->isEmpty());
+    }
+
+    void deletedSessionReadsAKeyringThatWasNotReadyAtStartup()
+    {
+        FakeSecretStore keyring;
+        m_sync = makeSyncWithKeyring(keyring);
+        configureCustom();
+        m_sync->enqueueWorkSession(record(14));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+
+        // Restarted while the keyring did not answer yet (still locked at login, say).
+        *keyring.available = false;
+        m_sync = makeSyncWithKeyring(keyring);
+        *keyring.available = true;
+        m_sync->onSessionDeleted(record(14), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTRY_COMPARE(m_server->stored.size(), 0);
     }
 
     void passwordInTheFileMovesToTheKeyring()

@@ -1380,11 +1380,17 @@ void CalendarSync::onSessionDeleted(const SessionRecord &record, bool fromCalend
             url = it->url;
         }
     }
-    const bool wasQueued = m_queue.removeIf(sameUid) > 0;
+    m_queue.removeIf(sameUid);
     m_sent.removeIf(sameUid);
-    // Sent (as far as Sugo remembers, or too long ago to remember) or being sent: the user may
-    // want it off the calendar. A session only queued never reached it.
-    if (fromCalendar && m_enabled && configured() && (inFlight || !account.isEmpty() || !wasQueued)) {
+    // The keyring was not ready at startup: asked again now, at the user's request, rather than
+    // taking the account for incomplete and leaving the event behind.
+    if (fromCalendar && m_enabled) {
+        rereadPassword();
+    }
+    // Even an event still waiting may be on the server: an upload the server took but whose answer
+    // never came (Sugo quit, the network dropped) leaves it queued. A DELETE of an event that is
+    // not there is answered 404, which counts as done.
+    if (fromCalendar && m_enabled && configured()) {
         if (account.isEmpty()) {
             account = currentAccount();
         }
