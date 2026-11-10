@@ -1401,7 +1401,7 @@ msgid "Open folder"
 msgstr ""
 
 #: src/qml/Main.qml:1619 src/qml/pages/AppSettingsPage.qml:2436
-#: src/qml/pages/TimerPage.qml:438 src/qml/pages/TimerPage.qml:462
+#: src/qml/pages/TimerPage.qml:438 src/qml/pages/TimerPage.qml:520
 msgid "Dismiss"
 msgstr ""
 
@@ -3350,23 +3350,83 @@ msgstr ""
 msgid "The timer was paused because your screen was locked."
 msgstr ""
 
+#: src/qml/pages/TimerPage.qml:447
+msgctxt "a suggestion for the break"
+msgid "Stand up and stretch your back and shoulders."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:448
+msgctxt "a suggestion for the break"
+msgid "Drink a glass of water."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:449
+msgctxt "a suggestion for the break"
+msgid "Look at something far away for 20 seconds."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:450
+msgctxt "a suggestion for the break"
+msgid "Take a few slow, deep breaths."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:451
+msgctxt "a suggestion for the break"
+msgid "Walk around for a minute or two."
+msgstr ""
+
 #: src/qml/pages/TimerPage.qml:452
+msgctxt "a suggestion for the break"
+msgid "Open a window and let some fresh air in."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:453
+msgctxt "a suggestion for the break"
+msgid "Roll your shoulders and loosen your neck."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:454
+msgctxt "a suggestion for the break"
+msgid "Close your eyes and rest them for a moment."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:455
+msgctxt "a suggestion for the break"
+msgid "Step away from the screen, and leave the phone too."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:458
+msgctxt "a suggestion for the long break"
+msgid "Go for a short walk outside."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:459
+msgctxt "a suggestion for the long break"
+msgid "Have a snack and something to drink."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:460
+msgctxt "a suggestion for the long break"
+msgid "Tidy your desk, then rest a moment."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:510
 msgid "Sugo was closed during this session, so it was paused."
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:496
+#: src/qml/pages/TimerPage.qml:554
 msgctxt "the focus page's line about today: work sessions finished"
 msgid "Today <b>%1 session</b>"
 msgid_plural "Today <b>%1 sessions</b>"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/qml/pages/TimerPage.qml:501
+#: src/qml/pages/TimerPage.qml:559
 msgctxt "the focus page's line about today: time spent working"
 msgid "<b>%1</b> focused"
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:506
+#: src/qml/pages/TimerPage.qml:564
 msgctxt "the focus page's line about today: days in a row with work"
 msgid "Streak <b>%1 day</b>"
 msgid_plural "Streak <b>%1 days</b>"
