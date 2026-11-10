@@ -47,6 +47,7 @@ public:
         QString platform;
         QByteArray publicKey;
         QString createdAt;
+        QString lastSeen;       ///< Set by seen(); empty: last seen when it was created.
         bool collected = false; ///< Sugo took its tokens (last_seen set).
         bool ready = false;     ///< Holds the data key.
     };
@@ -173,6 +174,14 @@ public:
             }
         }
         return nullptr;
+    }
+
+    /// The device synced just now: of all devices it is the one seen last.
+    void seen(const QString &id)
+    {
+        if (Device *d = device(id)) {
+            d->lastSeen = stamp();
+        }
     }
 
     QString userCodeFor(const QString &deviceCode) const { return codes.value(deviceCode).userCode; }
@@ -407,7 +416,8 @@ private:
         o.insert(QStringLiteral("name"), d.name);
         o.insert(QStringLiteral("platform"), d.platform);
         o.insert(QStringLiteral("created_at"), d.createdAt);
-        o.insert(QStringLiteral("last_seen"), d.collected ? QJsonValue(d.createdAt) : QJsonValue(QJsonValue::Null));
+        o.insert(QStringLiteral("last_seen"),
+                 d.collected ? QJsonValue(d.lastSeen.isEmpty() ? d.createdAt : d.lastSeen) : QJsonValue(QJsonValue::Null));
         o.insert(QStringLiteral("pending"), !d.ready);
         o.insert(QStringLiteral("current"), d.id == caller);
         o.insert(QStringLiteral("public_key"), QString::fromLatin1(d.publicKey.toBase64()));

@@ -26,8 +26,10 @@ class SyncSecrets;
  *   the code (recoveryCodeCreated()).
  * - Any later device waits for a linked device to approve it: both show verificationCode() of
  *   the two public keys, and the linked one sends K in an authenticated crypto_box. While
- *   waiting, the device list is read again every minute, so the code and its approver follow
- *   whichever device holds the key now (one that signed out does not leave the wait stuck on
+ *   waiting, the device list is read again every minute: the approver stays the same while it
+ *   is still listed, holds the key and has the public key the code covers (the code does not
+ *   change under the user who compares it); else the code and its approver move to the device
+ *   holding the key that was seen last (one that signed out does not leave the wait stuck on
  *   a code of its own). The new device takes K only from the device the code was computed
  *   with (a server that hands it a key of its own is caught: keyRejected(), and the key is
  *   not confirmed).

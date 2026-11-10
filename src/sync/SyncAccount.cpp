@@ -365,6 +365,7 @@ void SyncAccount::waitForKey()
 {
     if (m_phase == Phase::WaitingForKey) {
         m_keyTimer.stop();
+        m_approver = Device(); // a wait started over chooses its approver afresh
         runKeyStep(KeyStep::List);
     }
 }
@@ -457,11 +458,19 @@ bool SyncAccount::takeDevices(const SyncReply &reply)
 
 void SyncAccount::chooseApprover()
 {
-    // The device that can send K: another one that holds it; the most recently seen if several.
+    // The device that can send K: another one that holds it. The one already chosen stays while it
+    // is still listed as such with the key the shown code covers: the user may be comparing that
+    // code, and the key that device sends must still be taken. Else the most recently seen.
     const Device *approver = nullptr;
     for (const Device &d : std::as_const(m_devices)) {
-        if (!d.current && !d.pending && d.publicKey.size() == SyncCrypto::KeyBytes
-            && (!approver || d.lastSeen > approver->lastSeen)) {
+        if (d.current || d.pending || d.publicKey.size() != SyncCrypto::KeyBytes) {
+            continue;
+        }
+        if (!m_approver.id.isEmpty() && d.id == m_approver.id && d.publicKey == m_approver.publicKey) {
+            approver = &d;
+            break;
+        }
+        if (!approver || d.lastSeen > approver->lastSeen) {
             approver = &d;
         }
     }
@@ -563,7 +572,8 @@ void SyncAccount::pollKey()
         }
         if (reply.error.kind == SyncError::Kind::NotFound) {
             // Not sent yet. The approver may be gone meanwhile (signed out, disconnected): the
-            // devices are listed again after a while, so the code follows whoever can approve now.
+            // devices are listed again after a while, so the code moves to a device that can
+            // approve now if its own no longer can.
             if (m_keyListTaken.elapsed() >= kKeyRelistSeconds * m_unitMs) {
                 runKeyStep(KeyStep::List);
                 return;
