@@ -696,6 +696,32 @@ private Q_SLOTS:
         QCOMPARE(a.sync->state(), SyncController::Error);
     }
 
+    void timersThatCouldNotBeReadAreNeverSynced()
+    {
+        Device a(*server);
+        signInFirst(a);
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Mine")}});
+        QTRY_VERIFY(remoteNames(a).contains(QStringLiteral("Mine")));
+        const int putsBefore = puts();
+        const int getsBefore = gets();
+
+        // Restart: the stored timers cannot be read (a busy or damaged file). The app runs on the
+        // built-in timer alone, which must not replace the synced ones.
+        QSqlQuery query(QSqlDatabase::database(a.db->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        a.build(*server);
+        QVERIFY(a.persistence->loadFailed());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle); // signed in again
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Typed meanwhile")}});
+        a.sync->syncNow();
+        QTest::qWait(20 * kUnitMs); // past the upload delay
+        QCOMPARE(puts(), putsBefore);
+        QCOMPARE(gets(), getsBefore); // nor merged into what was never loaded
+        QVERIFY(remoteNames(a).contains(QStringLiteral("Mine")));
+        QVERIFY(!remoteNames(a).contains(QStringLiteral("Typed meanwhile")));
+    }
+
     void tooLargeErrorSurvivesPullsUntilAnUploadSucceeds()
     {
         Device a(*server);
