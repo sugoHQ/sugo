@@ -150,7 +150,13 @@ QQC2.ApplicationWindow {
     ConfirmDialog {
         id: quitDialog
         title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
-        text: root.restarting
+        text: TimerEngine.continuesEndedSession
+              ? (TimerEngine.phase === TimerEngine.Phase.Work
+                 ? (root.restarting ? i18n("A work session is in progress. Restarting ends it now, as a finished session.")
+                                    : i18n("A work session is in progress. Quitting ends it now, as a finished session."))
+                 : (root.restarting ? i18n("A break is in progress. Restarting ends it now.")
+                                    : i18n("A break is in progress. Quitting ends it now.")))
+              : root.restarting
               ? (TimerEngine.phase === TimerEngine.Phase.Work
                  ? i18n("A work session is in progress. It is paused while Sugo restarts, and waits for you afterwards.")
                  : i18n("A break is in progress. It is paused while Sugo restarts, and waits for you afterwards."))

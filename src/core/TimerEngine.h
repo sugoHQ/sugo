@@ -114,6 +114,8 @@ public:
     Q_PROPERTY(bool extendable READ isExtendable NOTIFY extendableChanged FINAL)
     /// True while the phase that has just elapsed can be taken up again (continueFinished()).
     Q_PROPERTY(bool continuable READ isContinuable NOTIFY extendableChanged FINAL)
+    /// The active phase continues one that had ended (continueFinished()): quitting ends it, it is not kept.
+    Q_PROPERTY(bool continuesEndedSession READ continuesEndedSession NOTIFY continuesEndedSessionChanged FINAL)
     /// The phase continueFinished() would take up again (valid while `continuable`).
     Q_PROPERTY(Phase finishedPhase READ finishedPhase NOTIFY extendableChanged FINAL)
 
@@ -209,6 +211,7 @@ Q_SIGNALS:
     void longBreakSecondsChanged();
     void cyclesBeforeLongChanged();
     void extendableChanged();
+    void continuesEndedSessionChanged();
     void oneMinuteRemaining(TimerEngine::Phase phase);
 
     /// A phase ended, either elapsed (completed) or cut short by stop/skip.
@@ -265,6 +268,7 @@ private:
     /// Forgets the phase that could be taken up again.
     void dropReopen();
     void updateExtendable();
+    void setReopened(bool reopened);
 
     std::unique_ptr<Clock> m_ownedClock;
     Clock *m_clock = nullptr;
