@@ -41,7 +41,6 @@ QtObject {
 
     /// The main action: the text colour as a fill.
     readonly property color primary: dark ? "#ececee" : "#18181b"
-    readonly property color primaryText: dark ? "#0e0e10" : "#fbfbfb"
     readonly property color focusRing: dark ? Qt.rgba(1, 1, 1, 0.5) : Qt.rgba(0, 0, 0, 0.45)
 
     // --- Brand and states --------------------------------------------------------------------
@@ -50,7 +49,6 @@ QtObject {
     readonly property color brandMagenta: "#c2185b"
     /// Text and knobs on the brand colour.
     readonly property color brandText: "#ffffff"
-    readonly property color breakLight: "#7ee0a1"
     readonly property color breakColor: "#22c55e"
     readonly property color breakDeep: "#0f9d6b"
     readonly property color positive: dark ? "#4ade80" : "#16a34a"
@@ -100,8 +98,6 @@ QtObject {
 
     readonly property int radiusSm: 6
     readonly property int radius: 8
-    /// Larger surfaces: popups, segmented controls, cards inside cards.
-    readonly property int radiusMd: 10
     readonly property int radiusLg: 12
 
     readonly property int iconSm: 14
@@ -114,7 +110,6 @@ QtObject {
 
     readonly property int controlHeight: 30
     readonly property int controlHeightLg: 40
-    readonly property int navHeight: 34
     readonly property int contentMaxWidth: 760
     readonly property int windowWidth: 980
     readonly property int windowHeight: 680
@@ -135,9 +130,7 @@ QtObject {
     readonly property int sliderTrack: 4
     readonly property int sliderKnob: 14
     readonly property int selectMinWidth: 120
-    readonly property int selectMinWidthWide: 150
     readonly property int fieldWidthWide: 220
-    readonly property int numberFieldWidth: 76
     readonly property int swatchSize: 14
     readonly property int phaseDot: 6
     /// The dot on the title bar's update icon: something is waiting in Settings › About.
@@ -236,23 +229,17 @@ QtObject {
     // --- Type --------------------------------------------------------------------------------
     /// The system's fixed-width font ("monospace" is a fontconfig alias, unknown to macOS).
     readonly property string monoFamily: DesktopStyle.monoFamily
-    readonly property int fontMicro: 10
     readonly property int fontSmall: 11
     readonly property int fontCaption: 12
     readonly property int fontBody: 13
     readonly property int fontTitle: 14
-    /// A title a step above the body's.
-    readonly property int fontTitleLg: 16
     /// The title of a section inside a page.
     readonly property int fontSection: 17
     readonly property int fontHeading: 20
-    /// The figures of the statistics.
-    readonly property int fontFigure: 22
     readonly property int fontDisplay: 26
     /// The name of the application in the welcome tour.
     readonly property int fontHero: 36
     readonly property real letterSpacingCaps: 1.2
-    readonly property real letterSpacingTight: -0.8
 
     // --- Motion ------------------------------------------------------------------------------
     readonly property int durationShort: 120
