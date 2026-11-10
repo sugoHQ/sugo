@@ -262,8 +262,10 @@ A release is a version bump, a commit, an annotated tag on `main` and a push. Th
 ```sh
 openssl genpkey -algorithm ed25519 -out update-key.pem          # keep it out of the repository
 openssl pkey -in update-key.pem -pubout -outform DER | tail -c 32 | base64 -w0 > packaging/update-public-key.txt
-gh secret set UPDATE_SIGNING_KEY --repo sugoHQ/sugo < update-key.pem   # then store the file somewhere safe and delete it here
+gh secret set UPDATE_SIGNING_KEY --repo sugoHQ/sugo --env update-signing < update-key.pem   # then store the file somewhere safe and delete it here
 ```
+
+The secret belongs to the environment `update-signing`, not to the repository: only the jobs that sign (`publish-release`, `publish`) name it, and the environment lets only `main`, `testing` and `v*` tags use it (a nightly started by `workflow_run` runs on `main`), so a workflow pushed to any other branch cannot read the key.
 
 Commit the public key; from the next build the programs only install signed updates, and the workflows refuse to publish a feed they cannot sign (the secret missing, or not the key of that file). Programs built before the key was committed keep installing unsigned updates as before. Do not lose the private key: without it no program that carries the public key can be updated again, and the only way out is a release installed by hand with a new key. To rotate it, publish a release signed with the old key that carries the new public key, then change the secret.
 
