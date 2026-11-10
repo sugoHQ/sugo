@@ -40,6 +40,7 @@ QQC2.Page {
     readonly property string calProvider: CalendarSync ? CalendarSync.provider : "nextcloud"
     readonly property bool calCustom: calProvider === "caldav"
     readonly property bool calHasPassword: CalendarSync ? CalendarSync.hasPassword : false
+    readonly property bool calPasswordOutsideKeyring: CalendarSync ? CalendarSync.passwordOutsideKeyring : false
     readonly property bool calConnected: calHasPassword && !calCustom
     readonly property int calStatus: CalendarSync ? CalendarSync.status : 0
     readonly property bool calWaiting: CalendarSync ? calStatus === CalendarSync.WaitingForBrowser : false
@@ -1998,6 +1999,29 @@ QQC2.Page {
                             iconName: "close"
                             onClicked: page.requestDisconnect()
                         }
+                    }
+                    // No keyring answered when the password was saved: it is in the settings file.
+                    // Shown with the other rows of a signed-in account, so it comes with them; once
+                    // shown it stays while the account does (the password saved again into the
+                    // keyring changes its text, not the layout).
+                    SettingRow {
+                        id: calKeyringRow
+                        objectName: "calendarPasswordOutsideKeyring"
+                        readonly property bool outside: page.calPasswordOutsideKeyring
+                        readonly property bool configured: page.calConfigured
+                        property bool seen: outside
+                        onOutsideChanged: if (outside) seen = true
+                        onConfiguredChanged: if (!configured) seen = outside
+                        visible: configured && seen
+                        readonly property string outsideText: DesktopStyle.macos
+                            ? i18n("The Keychain could not be used, so the password is kept in Sugo's settings file, readable only by your account. Sugo moves it to the Keychain the next time it starts with one available.")
+                            : i18n("No system keyring was available, so the password is kept in Sugo's settings file, readable only by your account. Install or unlock one (for example KWallet or GNOME Keyring) and Sugo moves it there at its next start.")
+                        readonly property string insideText: DesktopStyle.macos
+                            ? i18n("The password is now kept in the Keychain.")
+                            : i18n("The password is now kept in the system keyring.")
+                        title: outside ? i18n("Password not in the keyring") : i18n("Password in the keyring")
+                        description: outside ? outsideText : insideText
+                        descriptionVariants: [outsideText, insideText]
                     }
                     // Calendar choice, with a refresh button to reload the list from the server.
                     SettingRow {

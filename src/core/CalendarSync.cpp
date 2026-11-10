@@ -497,6 +497,9 @@ CalendarSync::CalendarSync(Settings::Ptr config, std::unique_ptr<SecretStore> se
     m_retryTimer.setSingleShot(true);
     connect(&m_retryTimer, &QTimer::timeout, this, &CalendarSync::trySend);
     connect(&m_pollTimer, &QTimer::timeout, this, &CalendarSync::pollLogin);
+    // Every change of the password, or of where it is kept, goes through hasPasswordChanged() or
+    // storePassword(); the property is cheap to read again.
+    connect(this, &CalendarSync::hasPasswordChanged, this, &CalendarSync::passwordStorageChanged);
     m_openUrl = [](const QUrl &url) { return QDesktopServices::openUrl(url); };
     load();
     refreshIdleStatus();
@@ -601,11 +604,12 @@ void CalendarSync::storePassword(const QString &password)
     if (m_secrets && m_secrets->write(secretKey(), password)) {
         m_passwordInKeyring = !password.isEmpty();
         save(kPassword, QString());
-        return;
+    } else {
+        // No keyring: the user's private settings file it is (the settings say so).
+        m_passwordInKeyring = false;
+        save(kPassword, password);
     }
-    // No keyring: the user's private settings file it is.
-    m_passwordInKeyring = false;
-    save(kPassword, password);
+    Q_EMIT passwordStorageChanged();
 }
 
 void CalendarSync::rereadPassword()
@@ -844,6 +848,7 @@ void CalendarSync::switchProvider(const QString &provider)
     loadProviderFields();
 
     Q_EMIT providerChanged();
+    Q_EMIT passwordStorageChanged();
     Q_EMIT calendarsChanged();
     if (m_serverUrl != oldServer) {
         Q_EMIT serverUrlChanged();
