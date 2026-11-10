@@ -133,6 +133,7 @@ Rectangle {
             text: i18n("Quiet")
             iconOnly: composer.compact
             off: !on
+            lit: on
             // A switch for screen readers; not checkable for the button itself, which would
             // replace the binding of `checked` with its own toggling.
             Accessible.checkable: setUp
@@ -141,7 +142,8 @@ Rectangle {
             toolTipText: !setUp ? (DesktopStyle.macos ? i18n("Needs the two Focus shortcuts: install them in Settings → Focus.")
                                                       : i18n("Not available: this desktop's notification service cannot be silenced by applications."))
                        : SilenceController.active ? i18n("Notifications silenced until the break")
-                       : iconOnly ? i18n("Silence notifications while working") : ""
+                       : on ? i18n("Quiet is on: notifications are silenced while working")
+                       : i18n("Quiet is off: notifications are shown while working")
             Accessible.name: i18n("Silence notifications while working")
             Accessible.description: SilenceController.active ? i18n("Notifications silenced until the break")
                                                               : !setUp ? toolTipText : ""
@@ -240,6 +242,9 @@ Rectangle {
         property bool strong: false
         /// Switched off (Quiet): in the faint colour.
         property bool off: false
+        /// Switched on (Quiet): the icon in the accent colour on a tint of it, so on and off
+        /// differ at a glance.
+        property bool lit: false
         property bool iconOnly: false
         /// Its menu is open: lit as when pressed.
         property bool open: false
@@ -255,7 +260,7 @@ Rectangle {
         }
         // Off: faint; disabled (the timer while it runs): muted and, as a whole, half transparent.
         readonly property color labelColor: off ? Theme.subtle : !enabled ? Theme.muted
-                                           : strong || open || hovered ? Theme.foreground : Theme.dim
+                                           : strong || lit || open || hovered ? Theme.foreground : Theme.dim
 
         implicitHeight: Theme.controlHeight
         implicitWidth: contentRow.implicitWidth + leftPadding + rightPadding
@@ -278,7 +283,8 @@ Rectangle {
 
         background: Rectangle {
             radius: Theme.radius
-            color: button.open || button.down ? Theme.selected : button.hovered && button.enabled ? Theme.hover : "transparent"
+            color: button.lit ? Theme.alpha(Theme.accent, button.down ? 0.24 : button.hovered ? 0.2 : 0.14)
+                 : button.open || button.down ? Theme.selected : button.hovered && button.enabled ? Theme.hover : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
             Rectangle {
                 anchors.fill: parent
@@ -296,7 +302,8 @@ Rectangle {
             LineIcon {
                 name: button.iconName
                 size: Theme.iconSm
-                color: button.off || !button.enabled ? Theme.subtle : Theme.muted
+                color: button.lit ? Theme.accent : button.off || !button.enabled ? Theme.subtle : Theme.muted
+                Behavior on color { ColorAnimation { duration: Theme.durationShort } }
             }
             Text {
                 visible: !button.iconOnly
