@@ -25,6 +25,7 @@ private Q_SLOTS:
     void testCustomMinutesDoNotChangeThePreset();
     void testPresetByName();
     void testStartingTheCurrentPresetResumesIt();
+    void testStartResumesAPausedTimer();
     void testNothingIsOfferedBeforeTheTimerIsAttached();
     void testControlCanBeTurnedOff();
     void testAnotherPresetDoesNotThrowAwayTheActivePhase();
@@ -304,6 +305,44 @@ void TestKRunnerService::testStartingTheCurrentPresetResumesIt()
     QCOMPARE(presets.currentUuid(), uuid);
     QVERIFY(timer.isRunning());
     QVERIFY(!timer.isPaused());
+}
+
+void TestKRunnerService::testStartResumesAPausedTimer()
+{
+    FakeClock clock;
+    TimerEngine timer(&clock, nullptr);
+    timer.setWorkSeconds(1500);
+    PresetModel presets;
+    KRunnerService service(&timer, &presets);
+
+    timer.start();
+    clock.advanceSeconds(60);
+    timer.pause();
+    QVERIFY(timer.isPaused());
+
+    // "pomodoro start" is offered while the timer is paused too, and means what start means
+    // over D-Bus and in a sugo:// link (TimerCommands::start()): start, or resume.
+    const auto matches = service.Match(QStringLiteral("pomodoro start"));
+    QCOMPARE(matches.size(), 1);
+    service.Run(matches.first().id, QString());
+    QVERIFY(timer.isRunning());
+    QVERIFY(!timer.isPaused());
+    QCOMPARE(timer.phase(), TimerEngine::Phase::Work);
+    QCOMPARE(timer.remainingSeconds(), 1440); // resumed, not started again
+
+    // The same for the "Start" button on another result.
+    timer.pause();
+    QVERIFY(timer.isPaused());
+    service.Run(QStringLiteral("stop"), QStringLiteral("start"));
+    QVERIFY(timer.isRunning());
+    QVERIFY(!timer.isPaused());
+    QCOMPARE(timer.remainingSeconds(), 1440);
+
+    // A running timer is left alone.
+    service.Run(QStringLiteral("start"), QString());
+    QVERIFY(timer.isRunning());
+    QVERIFY(!timer.isPaused());
+    QCOMPARE(timer.remainingSeconds(), 1440);
 }
 
 void TestKRunnerService::testNothingIsOfferedBeforeTheTimerIsAttached()
