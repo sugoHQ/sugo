@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-09 23:53+0000\n"
+"POT-Creation-Date: 2026-11-10 00:30+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -446,7 +446,7 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
-#: src/core/PhaseNotifier.cpp:131 src/core/TimerMenuActions.cpp:66
+#: src/core/PhaseNotifier.cpp:131 src/core/TimerMenuActions.cpp:77
 #: src/platform/KRunnerService.cpp:67
 msgid "Skip"
 msgstr ""
@@ -578,48 +578,54 @@ msgstr ""
 msgid "A focus session is in progress"
 msgstr ""
 
-#: src/core/TimerCommands.cpp:25
+#: src/core/TimerCommands.cpp:27
 msgid "Control by other programs is turned off in Sugo's settings."
 msgstr ""
 
-#: src/core/TimerCommands.cpp:107 src/platform/KRunnerService.cpp:147
+#: src/core/TimerCommands.cpp:110 src/platform/KRunnerService.cpp:147
 #: src/platform/KRunnerService.cpp:174
 msgid "A timer is running. Stop it before choosing another timer."
 msgstr ""
 
-#: src/core/TimerCommands.cpp:121
+#: src/core/TimerCommands.cpp:124
 msgid "There is no timer named \"%1\"."
 msgstr ""
 
-#: src/core/TimerCommands.cpp:266
+#: src/core/TimerCommands.cpp:271
 msgid "Sugo does not know this link."
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:60
+#: src/core/TimerMenuActions.cpp:71
 msgid "Timer"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:63 src/platform/KRunnerService.cpp:68
+#: src/core/TimerMenuActions.cpp:74 src/platform/KRunnerService.cpp:68
 msgid "Stop"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:69
-msgid "Add 5 Minutes"
+#: src/core/TimerMenuActions.cpp:80
+msgid "Add Time"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:84 src/platform/KRunnerService.cpp:66
+#: src/core/TimerMenuActions.cpp:84
+msgid "%1 Minute"
+msgid_plural "%1 Minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/core/TimerMenuActions.cpp:100 src/platform/KRunnerService.cpp:66
 msgid "Resume"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:86 src/platform/KRunnerService.cpp:64
+#: src/core/TimerMenuActions.cpp:102 src/platform/KRunnerService.cpp:64
 msgid "Start"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:86
+#: src/core/TimerMenuActions.cpp:102
 msgid "Start break"
 msgstr ""
 
-#: src/core/TimerMenuActions.cpp:88 src/platform/KRunnerService.cpp:65
+#: src/core/TimerMenuActions.cpp:104 src/platform/KRunnerService.cpp:65
 msgid "Pause"
 msgstr ""
 
@@ -1225,7 +1231,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: src/qml/Main.qml:757 src/qml/components/AutoStartMenu.qml:41
-#: src/qml/components/Composer.qml:39 src/qml/pages/PresetEditPage.qml:825
+#: src/qml/components/Composer.qml:40 src/qml/pages/PresetEditPage.qml:825
 msgid "All phases"
 msgstr ""
 
@@ -1265,7 +1271,7 @@ msgstr ""
 msgid "About"
 msgstr ""
 
-#: src/qml/Main.qml:1302 src/qml/components/Composer.qml:104
+#: src/qml/Main.qml:1302 src/qml/components/Composer.qml:118
 msgid "Stop the timer to switch to a different timer."
 msgstr ""
 
@@ -1315,89 +1321,91 @@ msgstr ""
 msgid "Skip to the next phase"
 msgstr ""
 
-#: src/qml/Main.qml:1386 src/qml/components/Composer.qml:175
-msgid "Add 5 minutes"
-msgstr ""
+#: src/qml/Main.qml:1387
+msgid "Add %1 minute"
+msgid_plural "Add %1 minutes"
+msgstr[0] ""
+msgstr[1] ""
 
-#: src/qml/Main.qml:1591
+#: src/qml/Main.qml:1594
 msgid ""
 "Your data cannot be saved: the database could not be opened. Sugo is using a "
 "temporary database."
 msgstr ""
 
-#: src/qml/Main.qml:1594
+#: src/qml/Main.qml:1597
 msgid ""
 "Your latest sessions or timer changes could not be saved yet. Sugo keeps "
 "them and tries again; do not quit until this message is gone."
 msgstr ""
 
-#: src/qml/Main.qml:1597
+#: src/qml/Main.qml:1600
 msgid ""
 "Your database was damaged, so Sugo started a new one. The old file is kept "
 "as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1598
+#: src/qml/Main.qml:1601
 msgid ""
 "The database file did not belong to Sugo, so Sugo started a new one. That "
 "file is kept as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1602
+#: src/qml/Main.qml:1605
 msgid "Show in Finder"
 msgstr ""
 
-#: src/qml/Main.qml:1602
+#: src/qml/Main.qml:1605
 msgid "Open folder"
 msgstr ""
 
-#: src/qml/Main.qml:1610 src/qml/pages/AppSettingsPage.qml:2436
+#: src/qml/Main.qml:1613 src/qml/pages/AppSettingsPage.qml:2436
 #: src/qml/pages/TimerPage.qml:406
 msgid "Dismiss"
 msgstr ""
 
-#: src/qml/Main.qml:1688
+#: src/qml/Main.qml:1691
 msgid ""
 "Your timers and history from Sugo 1.0.0 are back. The empty database that "
 "had replaced them is kept as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1709
+#: src/qml/Main.qml:1712
 msgid "Work Session Finished"
 msgstr ""
 
-#: src/qml/Main.qml:1711
+#: src/qml/Main.qml:1714
 msgid "What did you accomplish during “%1”?"
 msgstr ""
 
-#: src/qml/Main.qml:1712
+#: src/qml/Main.qml:1715
 msgid "What did you accomplish during this session?"
 msgstr ""
 
-#: src/qml/Main.qml:1713
+#: src/qml/Main.qml:1716
 msgid "Save Note"
 msgstr ""
 
-#: src/qml/Main.qml:1721
+#: src/qml/Main.qml:1724
 msgid "e.g. Refactored auth module, wrote tests…"
 msgstr ""
 
-#: src/qml/Main.qml:1745
+#: src/qml/Main.qml:1748
 msgctxt "@action:button use a recent note"
 msgid "Use “%1”"
 msgstr ""
 
-#: src/qml/Main.qml:1840
+#: src/qml/Main.qml:1843
 msgid ""
 "Signed out on this computer, but Sugo Sync could not be reached. Disconnect "
 "this device on sugo.stream to free its place."
 msgstr ""
 
-#: src/qml/Main.qml:1878
+#: src/qml/Main.qml:1881
 msgid "Keep your recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1879
+#: src/qml/Main.qml:1882
 msgid ""
 "With this code a new device opens your synced timers when none of your other "
 "devices is at hand. If you lose all your devices and this code, the synced "
@@ -1405,85 +1413,85 @@ msgid ""
 "manager."
 msgstr ""
 
-#: src/qml/Main.qml:1880 src/qml/pages/WelcomePage.qml:939
+#: src/qml/Main.qml:1883 src/qml/pages/WelcomePage.qml:939
 msgid "Done"
 msgstr ""
 
-#: src/qml/Main.qml:1881
+#: src/qml/Main.qml:1884
 msgid "Later"
 msgstr ""
 
-#: src/qml/Main.qml:1885
+#: src/qml/Main.qml:1888
 msgid "Recovery code checked. Keep it somewhere safe."
 msgstr ""
 
-#: src/qml/Main.qml:1917 src/qml/pages/AppSettingsPage.qml:376
+#: src/qml/Main.qml:1920 src/qml/pages/AppSettingsPage.qml:376
 #: src/qml/pages/AppSettingsPage.qml:411 src/qml/pages/AppSettingsPage.qml:2000
 #: src/qml/pages/AppSettingsPage.qml:2098
 msgid "Recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1927
+#: src/qml/Main.qml:1930
 msgid "Copy recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1932 src/qml/pages/AppSettingsPage.qml:385
+#: src/qml/Main.qml:1935 src/qml/pages/AppSettingsPage.qml:385
 msgid "Recovery code copied to the clipboard."
 msgstr ""
 
-#: src/qml/Main.qml:1938
+#: src/qml/Main.qml:1941
 msgid "To check that you have kept it, type group %1 of %2."
 msgstr ""
 
-#: src/qml/Main.qml:1949
+#: src/qml/Main.qml:1952
 msgid "Group %1"
 msgstr ""
 
-#: src/qml/Main.qml:1951
+#: src/qml/Main.qml:1954
 msgid "Group %1 of the recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1983
+#: src/qml/Main.qml:1986
 msgid "Approve “%1”?"
 msgstr ""
 
-#: src/qml/Main.qml:1984
+#: src/qml/Main.qml:1987
 msgid ""
 "A new device wants to sync your timers. Approve it only if it is yours and "
 "shows the same code as here."
 msgstr ""
 
-#: src/qml/Main.qml:1985
+#: src/qml/Main.qml:1988
 msgid "Approve"
 msgstr ""
 
-#: src/qml/Main.qml:1986
+#: src/qml/Main.qml:1989
 msgid "Not Now"
 msgstr ""
 
-#: src/qml/Main.qml:2020 src/qml/Main.qml:2038
+#: src/qml/Main.qml:2023 src/qml/Main.qml:2041
 msgid "Verification code"
 msgstr ""
 
-#: src/qml/Main.qml:2046
+#: src/qml/Main.qml:2049
 msgid "Welcome Back"
 msgstr ""
 
-#: src/qml/Main.qml:2046
+#: src/qml/Main.qml:2049
 msgid "Screen Unlocked"
 msgstr ""
 
-#: src/qml/Main.qml:2048
+#: src/qml/Main.qml:2051
 msgid ""
 "The timer was paused while the computer was asleep. Would you like to resume?"
 msgstr ""
 
-#: src/qml/Main.qml:2049
+#: src/qml/Main.qml:2052
 msgid ""
 "The timer was paused while your screen was locked. Would you like to resume?"
 msgstr ""
 
-#: src/qml/Main.qml:2051
+#: src/qml/Main.qml:2054
 msgid "Keep Paused"
 msgstr ""
 
@@ -1492,13 +1500,13 @@ msgstr ""
 msgid "Accent color"
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:23 src/qml/components/Composer.qml:118
-#: src/qml/components/Composer.qml:119 src/qml/pages/PresetEditPage.qml:820
+#: src/qml/components/AutoStartMenu.qml:23 src/qml/components/Composer.qml:132
+#: src/qml/components/Composer.qml:133 src/qml/pages/PresetEditPage.qml:820
 #: src/qml/pages/PresetEditPage.qml:824
 msgid "Start automatically"
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:27 src/qml/components/Composer.qml:39
+#: src/qml/components/AutoStartMenu.qml:27 src/qml/components/Composer.qml:40
 #: src/qml/pages/PresetEditPage.qml:825
 msgid "Manual"
 msgstr ""
@@ -1508,7 +1516,7 @@ msgctxt "the start mode Manual"
 msgid "You start every phase."
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:34 src/qml/components/Composer.qml:39
+#: src/qml/components/AutoStartMenu.qml:34 src/qml/components/Composer.qml:40
 #: src/qml/pages/PresetEditPage.qml:825
 msgid "Breaks only"
 msgstr ""
@@ -1536,35 +1544,35 @@ msgstr ""
 msgid "Nothing found"
 msgstr ""
 
-#: src/qml/components/Composer.qml:133
+#: src/qml/components/Composer.qml:147
 msgid "Quiet"
 msgstr ""
 
-#: src/qml/components/Composer.qml:141 src/qml/pages/PresetEditPage.qml:835
+#: src/qml/components/Composer.qml:155 src/qml/pages/PresetEditPage.qml:835
 msgid "Needs the two Focus shortcuts: install them in Settings → Focus."
 msgstr ""
 
-#: src/qml/components/Composer.qml:142 src/qml/pages/PresetEditPage.qml:837
+#: src/qml/components/Composer.qml:156 src/qml/pages/PresetEditPage.qml:837
 msgid ""
 "Not available: this desktop's notification service cannot be silenced by "
 "applications."
 msgstr ""
 
-#: src/qml/components/Composer.qml:143 src/qml/components/Composer.qml:146
+#: src/qml/components/Composer.qml:157 src/qml/components/Composer.qml:160
 msgid "Notifications silenced until the break"
 msgstr ""
 
-#: src/qml/components/Composer.qml:168
-msgctxt "adds five minutes to the timer"
-msgid "+5 min"
+#: src/qml/components/Composer.qml:185 src/qml/components/Composer.qml:192
+#: src/qml/components/ExtendMenu.qml:15
+msgid "Add time"
 msgstr ""
 
-#: src/qml/components/Composer.qml:173
-msgid "Keep working for 5 more minutes"
+#: src/qml/components/Composer.qml:190
+msgid "Keep working for a few more minutes"
 msgstr ""
 
-#: src/qml/components/Composer.qml:174
-msgid "Make the break 5 minutes longer"
+#: src/qml/components/Composer.qml:191
+msgid "Make the break a few minutes longer"
 msgstr ""
 
 #: src/qml/components/ConfirmDialog.qml:15
@@ -1575,6 +1583,14 @@ msgstr ""
 #: src/qml/pages/AppSettingsPage.qml:1603
 #: src/qml/pages/AppSettingsPage.qml:1968 src/qml/pages/PresetEditPage.qml:412
 msgid "Cancel"
+msgstr ""
+
+#: src/qml/components/ExtendMenu.qml:16
+msgid "Keep working"
+msgstr ""
+
+#: src/qml/components/ExtendMenu.qml:17
+msgid "Make the break longer"
 msgstr ""
 
 #: src/qml/components/FocusShortcutsStatus.qml:20
@@ -1656,62 +1672,75 @@ msgctxt "@action:inmenu"
 msgid "Stop"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:70
+#: src/qml/components/MacMenuBar.qml:69
+msgctxt "@title:menu"
+msgid "Add Time"
+msgstr ""
+
+#: src/qml/components/MacMenuBar.qml:72 src/qml/components/MacMenuBar.qml:77
+#: src/qml/components/MacMenuBar.qml:82
+msgctxt "@action:inmenu"
+msgid "%1 Minute"
+msgid_plural "%1 Minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/qml/components/MacMenuBar.qml:89
 msgctxt "@action:inmenu"
 msgid "New Timer"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:79
+#: src/qml/components/MacMenuBar.qml:98
 msgctxt "@title:menu"
 msgid "View"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:82
+#: src/qml/components/MacMenuBar.qml:101
 msgctxt "@action:inmenu"
 msgid "Focus"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:89
+#: src/qml/components/MacMenuBar.qml:108
 msgctxt "@action:inmenu"
 msgid "Statistics"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:96
+#: src/qml/components/MacMenuBar.qml:115
 msgctxt "@action:inmenu"
 msgid "Settings"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:103
+#: src/qml/components/MacMenuBar.qml:122
 msgctxt "@action:inmenu"
 msgid "About"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:111
+#: src/qml/components/MacMenuBar.qml:130
 msgctxt "@action:inmenu"
 msgid "Search…"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:120
+#: src/qml/components/MacMenuBar.qml:139
 msgctxt "@title:menu"
 msgid "Window"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:123
+#: src/qml/components/MacMenuBar.qml:142
 msgctxt "@action:inmenu"
 msgid "Minimize"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:130
+#: src/qml/components/MacMenuBar.qml:149
 msgctxt "@action:inmenu"
 msgid "Zoom"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:138
+#: src/qml/components/MacMenuBar.qml:157
 msgctxt "@action:inmenu"
 msgid "Close Window"
 msgstr ""
 
-#: src/qml/components/MacMenuBar.qml:145
+#: src/qml/components/MacMenuBar.qml:164
 msgctxt "@action:inmenu"
 msgid "Sugo"
 msgstr ""
