@@ -273,9 +273,11 @@ QString Diagnostics::redact(const QString &text)
     }
     // The user in a CalDAV path, which can differ from the login (Nextcloud signed in with an
     // e-mail address, a server that names principals by id): /calendars/<user>/,
-    // /principals/<user>/, /principals/users/<user>/. In URLs Sugo or Qt log.
-    static const QRegularExpression &davUserRegex = *new QRegularExpression(
-        QStringLiteral(R"((/(?:calendars|principals/users|principals)/)[^/\s?#'"<>]+)"));
+    // /principals/<user>/, /principals/users/<user>/. In URLs Sugo or Qt log. The whole segment
+    // goes, also when the login was only part of it ("<account>.smith"); a segment that is the
+    // login alone keeps its "<account>".
+    static const QRegularExpression &davUserRegex = *new QRegularExpression(QStringLiteral(
+        R"((/(?:calendars|principals/users|principals)/)(?!<account>(?:[/\s?#'"]|$))[^/\s?#'"]+)"));
     result.replace(davUserRegex, QStringLiteral("\\1<user>"));
 
     // 1. Redact the home directory path (and its resolved form, if it is a symlink), only where

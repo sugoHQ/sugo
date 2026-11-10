@@ -220,6 +220,11 @@ private Q_SLOTS:
         // An account word already put in stays as it is.
         Diagnostics::setAccountRedactions({QStringLiteral("nc-login-42")});
         QCOMPARE(Diagnostics::redact(QStringLiteral("/dav/calendars/nc-login-42/work/")), QStringLiteral("/dav/calendars/<account>/work/"));
+        // The login only part of the path's user: none of it is left.
+        Diagnostics::setAccountRedactions({QStringLiteral("alice")});
+        QCOMPARE(Diagnostics::redact(QStringLiteral("GET /remote.php/dav/calendars/alice.smith/personal/")),
+                 QStringLiteral("GET /remote.php/dav/calendars/<user>/personal/"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("/principals/users/smith-alice")), QStringLiteral("/principals/users/<user>"));
         Diagnostics::setAccountRedactions({});
     }
 
