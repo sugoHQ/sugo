@@ -51,6 +51,9 @@ class CalendarSync : public QObject
     Q_PROPERTY(QString serverUrl READ serverUrl WRITE setServerUrl NOTIFY serverUrlChanged)
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(bool hasPassword READ hasPassword NOTIFY hasPasswordChanged)
+    /// A password is stored, but in the settings file rather than the keyring (no keyring
+    /// answered when it was saved). It moves to the keyring at a start that finds one.
+    Q_PROPERTY(bool passwordOutsideKeyring READ passwordOutsideKeyring NOTIFY passwordStorageChanged)
     Q_PROPERTY(QString calendarUrl READ calendarUrl WRITE setCalendarUrl NOTIFY calendarUrlChanged)
     Q_PROPERTY(QString calendarName READ calendarName NOTIFY calendarNameChanged)
     Q_PROPERTY(bool includeNote READ includeNote WRITE setIncludeNote NOTIFY includeNoteChanged)
@@ -145,6 +148,7 @@ public:
     void setOpenUrlHandler(std::function<void(const QUrl &)> handler) { m_openUrl = std::move(handler); }
     bool isSendingPaused() const { return m_paused; }
     bool isPasswordInKeyring() const { return m_passwordInKeyring; }
+    bool passwordOutsideKeyring() const { return hasPassword() && !m_passwordInKeyring; }
 
 public Q_SLOTS:
     void enqueueWorkSession(const SessionRecord &record);
@@ -160,6 +164,8 @@ Q_SIGNALS:
     void serverUrlChanged();
     void usernameChanged();
     void hasPasswordChanged();
+    /// passwordOutsideKeyring() may have changed.
+    void passwordStorageChanged();
     void calendarUrlChanged();
     void calendarNameChanged();
     void includeNoteChanged();

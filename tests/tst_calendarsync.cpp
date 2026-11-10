@@ -2588,8 +2588,13 @@ private Q_SLOTS:
         FakeSecretStore keyring;
         *keyring.available = false;
         m_sync = makeSyncWithKeyring(keyring);
+        QVERIFY(!m_sync->passwordOutsideKeyring());
+        QSignalSpy storage(m_sync.get(), &CalendarSync::passwordStorageChanged);
         configureCustom();
         QVERIFY(!m_sync->isPasswordInKeyring());
+        // The settings tell the user, from the property this sets.
+        QVERIFY(m_sync->passwordOutsideKeyring());
+        QVERIFY(storage.count() >= 1);
         QVERIFY(configFileContents().contains(kPassword.toUtf8()));
         const QFileInfo info(configPath());
         QVERIFY(!(info.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther)));
@@ -2598,6 +2603,7 @@ private Q_SLOTS:
         *keyring.available = true;
         m_sync = makeSyncWithKeyring(keyring);
         QVERIFY(m_sync->isPasswordInKeyring());
+        QVERIFY(!m_sync->passwordOutsideKeyring());
         QVERIFY(!configFileContents().contains(kPassword.toUtf8()));
     }
 
