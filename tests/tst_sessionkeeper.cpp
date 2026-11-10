@@ -184,6 +184,21 @@ private Q_SLOTS:
         QCOMPARE(all().at(0).presetName, QStringLiteral("Deep work"));
     }
 
+    void aCrashRightAfterSwitchingTimersBringsBackTheNewOne()
+    {
+        const QString deep = presets->create({{QStringLiteral("name"), QStringLiteral("Deep work")},
+                                              {QStringLiteral("workSeconds"), 50 * 60}});
+        presets->setCurrentUuid(deep);
+        engine->start();
+        elapse(20); // then the crash, before any heartbeat: no keepForQuit()
+
+        startRun();
+        presets->setCurrentUuid(PresetModel::DefaultUuid);
+        QVERIFY(keeper->restore());
+        QCOMPARE(presets->currentUuid(), deep);
+        QCOMPARE(engine->totalSeconds(), 50 * 60);
+    }
+
     void stoppingItIsReported()
     {
         engine->start();
