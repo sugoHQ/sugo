@@ -1031,6 +1031,23 @@ private Q_SLOTS:
         QCOMPARE(engine->state(), State::ShortBreak);
     }
 
+    void theWorkIsNotTakenUpAgainOnceTheBreakAfterItHasEnded()
+    {
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All);
+        engine->start();
+        elapse(25 * 60); // the break starts by itself
+        QVERIFY(engine->isContinuable());
+        // Its time runs out before the next tick, as "5 More Minutes" for the work is clicked:
+        // the click meant the work, which is no longer the phase that has just ended.
+        clock.advanceSeconds(5 * 60);
+        QVERIFY(!engine->continueFinished());
+        QCOMPARE(ended.size(), 2);
+        QCOMPARE(engine->finishedPhase(), Phase::ShortBreak);
+        QCOMPARE(engine->state(), State::Working);
+        QCOMPARE(engine->totalSeconds(), 25 * 60);
+    }
+
     void breakThatEndedCanGoOn()
     {
         engine->start();
