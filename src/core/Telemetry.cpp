@@ -185,8 +185,10 @@ void Telemetry::setEnabled(bool enabled, const QString &source)
 void Telemetry::recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed)
 {
     if (std::exchange(m_skipNextSession, false) || !m_enabled) {
+        m_lastSessionRecorded = false;
         return;
     }
+    m_lastSessionRecorded = true;
     const qint64 minutes = std::clamp<qint64>((plannedMs + 30 * 1000) / (60 * 1000), 1, 240);
     record(QStringLiteral("session_ended"),
            {{QStringLiteral("phase"), phaseName(phase)},

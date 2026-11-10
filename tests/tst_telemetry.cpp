@@ -377,11 +377,23 @@ private Q_SLOTS:
         QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("minutes")).toInt(), 10);
 
         // The session taken up again was counted when it first ended.
+        t->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 3);
         t->skipNextSession();
         t->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
-        QCOMPARE(t->queue().size(), 2);
-        t->recordSession(TimerEngine::Phase::ShortBreak, 5 * 60 * 1000, true);
         QCOMPARE(t->queue().size(), 3);
+        t->recordSession(TimerEngine::Phase::ShortBreak, 5 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 4);
+
+        // Ended while the statistics were off, taken up again, turned on before its new end:
+        // that end is the only one sent.
+        Telemetry *off = make();
+        off->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
+        off->skipNextSession();
+        off->setEnabled(true);
+        const qsizetype before = off->queue().size();
+        off->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
+        QCOMPARE(off->queue().size(), before + 1);
     }
 
     void updateInstallEvents()

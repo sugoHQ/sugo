@@ -95,9 +95,9 @@ public:
     void recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed);
     /// `seconds` were added to a phase (TimerEngine::phaseExtended); `afterEnd` when it had ended already.
     void recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds);
-    /// The phase that ended was taken up again (TimerEngine::phaseReopened): its session_ended went
-    /// out already, so the next one (the same session, longer) is not recorded.
-    void skipNextSession() { m_skipNextSession = true; }
+    /// The phase that ended was taken up again (TimerEngine::phaseReopened): if its session_ended was
+    /// recorded, the next one (the same session, longer) is not.
+    void skipNextSession() { m_skipNextSession = m_lastSessionRecorded; }
     /// The welcome tour ended on `step`, finished or skipped (from WelcomePage).
     Q_INVOKABLE void tourEnded(int step, bool skipped);
     /// An update was installed (`ok`, stage "install") or failed at `stage` ("write", "download", "verify", "install").
@@ -129,6 +129,7 @@ private:
     bool m_startedRecorded = false;
     bool m_sending = false;
     bool m_skipNextSession = false;
+    bool m_lastSessionRecorded = false; ///< the last session_ended was recorded (statistics were on)
     /// Events of the batch on its way that the queue's cap pushed out meanwhile.
     int m_droppedWhileSending = 0;
     /// Bumped when turned off: the answer to a batch sent before is ignored.
