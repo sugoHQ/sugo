@@ -382,7 +382,7 @@ QQC2.Page {
                 return list;
             }
             function minutes(seconds: int): string {
-                return i18nc("a duration in minutes", "%1 min", Math.max(1, Math.round(seconds / 60)));
+                return i18nc("minutes", "%1 min", Math.max(1, Math.round(seconds / 60)));
             }
 
             StepHeader {

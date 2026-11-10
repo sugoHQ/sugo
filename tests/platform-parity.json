@@ -275,11 +275,11 @@
         "button: Timers",
         "choice: Calendar service",
         "field: Server address",
-        "row: Add an event to your calendar each time you finish a work session.",
+        "row: Add an event to your calendar each time you finish a work session",
         "row: Calendar service",
         "row: Include the task note in the event description",
         "row: Server address",
-        "switch: Add an event to your calendar each time you finish a work session.",
+        "switch: Add an event to your calendar each time you finish a work session",
         "switch: Include the task note in the event description"
       ]
     },
