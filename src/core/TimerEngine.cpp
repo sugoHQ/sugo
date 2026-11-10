@@ -285,8 +285,9 @@ bool TimerEngine::continueFinished(int seconds, ExtendSource source)
     if (m_completing || seconds <= 0) {
         return false;
     }
-    finishIfDue();
-    if (!isContinuable()) {
+    // A phase that started by itself and whose time ran out before the next tick ends now, and
+    // becomes the one that has just ended: the caller meant the phase before it, so nothing is done.
+    if (finishIfDue() || !isContinuable()) {
         return false;
     }
     const Reopen reopen = m_reopen;

@@ -592,6 +592,30 @@ private Q_SLOTS:
         QCOMPARE(again.note, QStringLiteral("Report"));
     }
 
+    void workTakenUpAgainKeepsTheTimerNameItBeganWith()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        const QString custom = presets->create({{QStringLiteral("name"), QStringLiteral("Before")},
+                                                {QStringLiteral("category"), QStringLiteral("A")}});
+        presets->setCurrentUuid(custom);
+        engine->start();
+        elapse(60);
+        presets->update(custom, {{QStringLiteral("name"), QStringLiteral("After")},
+                                 {QStringLiteral("category"), QStringLiteral("B")}});
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All); // after the timer's own setting
+        elapse(24 * 60); // the break starts by itself, with the timer as it is now
+        QCOMPARE(engine->state(), TimerEngine::State::ShortBreak);
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        QCOMPARE(all().size(), 1);
+        QCOMPARE(all().at(0).presetName, QStringLiteral("Before"));
+        QCOMPARE(recorded.size(), 2);
+        const auto again = recorded.at(1).at(0).value<SessionRecord>();
+        QCOMPARE(again.presetName, QStringLiteral("Before")); // what the calendar is sent
+        QCOMPARE(again.category, QStringLiteral("A"));
+    }
+
     void workStoredByARetryIsUpdatedWhenTakenUpAgain_data()
     {
         QTest::addColumn<bool>("retryBeforeReopening");

@@ -382,6 +382,9 @@ private Q_SLOTS:
         t->skipNextSession();
         t->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
         QCOMPARE(t->queue().size(), 3);
+        t->skipNextSession(); // and taken up once more: still the session counted at first
+        t->recordSession(TimerEngine::Phase::Work, 35 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 3);
         t->recordSession(TimerEngine::Phase::ShortBreak, 5 * 60 * 1000, true);
         QCOMPARE(t->queue().size(), 4);
 

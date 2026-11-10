@@ -184,7 +184,10 @@ void Telemetry::setEnabled(bool enabled, const QString &source)
 
 void Telemetry::recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed)
 {
-    if (std::exchange(m_skipNextSession, false) || !m_enabled) {
+    if (std::exchange(m_skipNextSession, false)) {
+        return; // counted when it first ended, and still counted if it is taken up once more
+    }
+    if (!m_enabled) {
         m_lastSessionRecorded = false;
         return;
     }
