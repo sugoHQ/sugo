@@ -1007,7 +1007,10 @@ QQC2.Page {
         Keys.onPressed: event => {
             const choosing = (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.ShiftModifier)) !== 0;
             if (choosing && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
-                page.timerRowClicked(timer, event.modifiers);
+                // A held key chooses once: its repeats would undo and redo the choice.
+                if (!event.isAutoRepeat) {
+                    page.timerRowClicked(timer, event.modifiers);
+                }
                 event.accepted = true;
             }
         }
