@@ -103,6 +103,7 @@ private Q_SLOTS:
         QTest::newRow("412") << 412 << QByteArray(R"({"error":"precondition_failed","etag":"x"})") << int(K::PreconditionFailed);
         QTest::newRow("428") << 428 << QByteArray(R"({"error":"precondition_required"})") << int(K::PreconditionRequired);
         QTest::newRow("413") << 413 << QByteArray(R"({"error":"too_large"})") << int(K::TooLarge);
+        QTest::newRow("plus_required") << 403 << QByteArray(R"({"error":"plus_required"})") << int(K::PlusRequired);
         QTest::newRow("invalid_blob") << 400 << QByteArray(R"({"error":"invalid_blob"})") << int(K::InvalidBlob);
         QTest::newRow("invalid_request") << 400 << QByteArray(R"({"error":"invalid_request"})") << int(K::InvalidRequest);
         QTest::newRow("not_found") << 404 << QByteArray(R"({"error":"not_found"})") << int(K::NotFound);
@@ -201,7 +202,7 @@ private Q_SLOTS:
         sync.target = server->base();
         SyncApi redirected(secrets.get(), QUrl(sync.base()));
 
-        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(SyncKind::Presets, QByteArray(), cb); });
         QVERIFY(!reply.ok());
         QVERIFY(!redirected.hasAccessToken());
         QCOMPARE(sync.requests.size(), 1);
@@ -226,7 +227,7 @@ private Q_SLOTS:
                              R"({"access_token":"acc_redirect_test","refresh_token":"ref_redirect_test","expires_in":3600})"});
         SyncApi redirected(secrets.get(), QUrl(sync.base()));
 
-        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(SyncKind::Presets, QByteArray(), cb); });
         QVERIFY(!reply.ok());
         QCOMPARE(sync.requests.size(), 2);
         QCOMPARE(sync.requests.at(1).path, QByteArray("/v1/blob/presets"));
@@ -406,42 +407,105 @@ private Q_SLOTS:
     {
         link();
         const QByteArray blob = someBlob();
-        SyncReply first = wait([&](auto cb) { api->putBlob(blob, QByteArray(), cb); });
+        SyncReply first = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, QByteArray(), cb); });
         QCOMPARE(first.http, 201);
         QVERIFY(!first.etag.isEmpty());
         QCOMPARE(server->of("PUT", "/v1/blob/presets").last().headers.value("if-none-match"), QByteArray("*"));
 
-        SyncReply again = wait([&](auto cb) { api->putBlob(blob, QByteArray(), cb); });
+        SyncReply again = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, QByteArray(), cb); });
         QCOMPARE(int(again.error.kind), int(SyncError::Kind::PreconditionFailed));
         QCOMPARE(again.etag, first.etag);
 
-        SyncReply unchanged = wait([&](auto cb) { api->getBlob(first.etag, cb); });
+        SyncReply unchanged = wait([&](auto cb) { api->getBlob(SyncKind::Presets, first.etag, cb); });
         QVERIFY(unchanged.ok());
         QCOMPARE(unchanged.http, 304);
         QCOMPARE(unchanged.pendingDevices, 0);
 
-        SyncReply replaced = wait([&](auto cb) { api->putBlob(blob, first.etag, cb); });
+        SyncReply replaced = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, first.etag, cb); });
         QCOMPARE(replaced.http, 204);
         QVERIFY(replaced.etag != first.etag);
         QCOMPARE(server->of("PUT", "/v1/blob/presets").last().headers.value("if-match"), '"' + first.etag + '"');
 
-        SyncReply stale = wait([&](auto cb) { api->putBlob(blob, first.etag, cb); });
+        SyncReply stale = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, first.etag, cb); });
         QCOMPARE(int(stale.error.kind), int(SyncError::Kind::PreconditionFailed));
         QCOMPARE(stale.error.extra.value(QLatin1String("etag")).toString().toLatin1(), replaced.etag);
 
-        SyncReply full = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        SyncReply full = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(full.http, 200);
         QCOMPARE(full.body, blob);
         QCOMPARE(full.etag, replaced.etag);
 
-        SyncReply huge = wait([&](auto cb) { api->putBlob(QByteArray(300000, 'x'), replaced.etag, cb); });
+        SyncReply huge = wait([&](auto cb) { api->putBlob(SyncKind::Presets, QByteArray(300000, 'x'), replaced.etag, cb); });
         QCOMPARE(int(huge.error.kind), int(SyncError::Kind::TooLarge));
+    }
+
+    void blobPerKind()
+    {
+        link();
+        server->accounts[kUser].plus = true;
+        const QByteArray presets = someBlob();
+        const QByteArray sessions = someBlob();
+        const SyncReply first = wait([&](auto cb) { api->putBlob(SyncKind::Presets, presets, QByteArray(), cb); });
+        QCOMPARE(first.http, 201);
+        const SyncReply other = wait([&](auto cb) { api->putBlob(SyncKind::Sessions, sessions, QByteArray(), cb); });
+        QCOMPARE(other.http, 201);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QVERIFY(other.etag != first.etag);
+
+        const SyncReply got = wait([&](auto cb) { api->getBlob(SyncKind::Sessions, QByteArray(), cb); });
+        QCOMPARE(got.body, sessions);
+        QCOMPARE(got.etag, other.etag);
+        const SyncReply settings = wait([&](auto cb) { api->getBlob(SyncKind::Settings, QByteArray(), cb); });
+        QCOMPARE(int(settings.error.kind), int(SyncError::Kind::NotFound));
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+
+        // Each kind has its own limit.
+        const SyncReply huge = wait([&](auto cb) { api->putBlob(SyncKind::Settings, QByteArray(9000, 'x'), QByteArray(), cb); });
+        QCOMPARE(int(huge.error.kind), int(SyncError::Kind::TooLarge));
+        QCOMPARE(huge.error.extra.value(QLatin1String("max_bytes")).toInt(), 8192);
+    }
+
+    void plusRequired()
+    {
+        link();
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Tasks, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::PlusRequired));
+        QCOMPARE(get.http, 403);
+        QVERIFY(!get.error.transient());
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Tasks, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::PlusRequired));
+        // The timers sync on every plan.
+        QCOMPARE(wait([&](auto cb) { api->putBlob(SyncKind::Presets, someBlob(), QByteArray(), cb); }).http, 201);
+    }
+
+    void unknownKind()
+    {
+        // A Worker older than the kind: 404 to both GET and PUT.
+        link();
+        server->accounts[kUser].plus = true;
+        server->blobKinds.remove("sessions");
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Sessions, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::NotFound));
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Sessions, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::NotFound));
+    }
+
+    void kindNames()
+    {
+        QCOMPARE(SyncKinds::name(SyncKind::Presets), QLatin1String("presets"));
+        QCOMPARE(SyncKinds::name(SyncKind::Statistics), QLatin1String("statistics"));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Presets), qsizetype(262144));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Tasks), qsizetype(1048576));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Settings), qsizetype(8192));
+        QVERIFY(!SyncKinds::needsPlus(SyncKind::Presets));
+        QVERIFY(SyncKinds::needsPlus(SyncKind::Sessions));
+        QCOMPARE(SyncCrypto::encryptBlob(SyncCrypto::newDataKey(), kUser, "abc").size(), 3 + SyncKinds::BlobOverhead);
     }
 
     void missingBlob()
     {
         link();
-        const SyncReply reply = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(int(reply.error.kind), int(SyncError::Kind::NotFound));
     }
 
@@ -450,7 +514,7 @@ private Q_SLOTS:
         link();
         server->addLinkedDevice(kUser, SyncCrypto::generateKeyPair().publicKey, false);
         QSignalSpy pending(api.get(), &SyncApi::pendingDevicesSeen);
-        const SyncReply reply = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(reply.pendingDevices, 1);
         QCOMPARE(pending.size(), 1);
         QCOMPARE(pending.first().first().toInt(), 1);

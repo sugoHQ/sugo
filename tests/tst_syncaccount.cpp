@@ -311,7 +311,7 @@ private Q_SLOTS:
 
         QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
         connect(a.api.get(), &SyncApi::pendingDevicesSeen, a.account.get(), &SyncAccount::checkPendingDevices);
-        a.api->getBlob(QByteArray(), [](const SyncReply &) {});
+        a.api->getBlob(SyncKind::Presets, QByteArray(), [](const SyncReply &) {});
         QVERIFY(asked.wait(5000));
 
         // "Not Now": not asked again by itself...
@@ -336,7 +336,7 @@ private Q_SLOTS:
         QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
         QSignalSpy approved(a.account.get(), &SyncAccount::deviceApproved);
         connect(a.api.get(), &SyncApi::pendingDevicesSeen, a.account.get(), &SyncAccount::checkPendingDevices);
-        a.api->getBlob(QByteArray(), [](const SyncReply &) {}); // carries Sugo-Pending-Devices: 1
+        a.api->getBlob(SyncKind::Presets, QByteArray(), [](const SyncReply &) {}); // carries Sugo-Pending-Devices: 1
         QVERIFY(asked.wait(5000));
         QCOMPARE(asked.first().at(0).toString(), b.account->deviceId());
         QCOMPARE(asked.first().at(1).toString(), QStringLiteral("B"));
@@ -372,11 +372,11 @@ private Q_SLOTS:
         };
         QVERIFY(bOnA() && bOnA()->pending);
         const int listed = server->count("GET", "/v1/devices");
-        a.api->getBlob(QByteArray(), [](const SyncReply &) {}); // Sugo-Pending-Devices: 0
+        a.api->getBlob(SyncKind::Presets, QByteArray(), [](const SyncReply &) {}); // Sugo-Pending-Devices: 0
         QTRY_COMPARE_WITH_TIMEOUT(server->count("GET", "/v1/devices"), listed + 1, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(bOnA() && !bOnA()->pending, 5000);
         // Nothing waits any more: no further listing.
-        a.api->getBlob(QByteArray(), [](const SyncReply &) {});
+        a.api->getBlob(SyncKind::Presets, QByteArray(), [](const SyncReply &) {});
         QTest::qWait(100);
         QCOMPARE(server->count("GET", "/v1/devices"), listed + 1);
 
@@ -433,7 +433,7 @@ private Q_SLOTS:
         signIn(c, SyncAccount::Phase::WaitingForKey, QStringLiteral("C"));
         QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
         connect(a.api.get(), &SyncApi::pendingDevicesSeen, a.account.get(), &SyncAccount::checkPendingDevices);
-        a.api->getBlob(QByteArray(), [](const SyncReply &) {});
+        a.api->getBlob(SyncKind::Presets, QByteArray(), [](const SyncReply &) {});
         QVERIFY(asked.wait(5000));
         QTRY_COMPARE_WITH_TIMEOUT(asked.size(), 2, 5000); // C goes after the still waiting B
         QCOMPARE(asked.at(1).at(0).toString(), c.account->deviceId());
