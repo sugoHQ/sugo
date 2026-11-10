@@ -153,6 +153,7 @@ QQC2.Page {
         target: PresetModel
         function onCountChanged() {
             ++page.presetsRevision;
+            page.pruneTimerSelection();
         }
         function onPresetChanged() {
             ++page.presetsRevision;
@@ -162,6 +163,7 @@ QQC2.Page {
         }
         function onModelReset() {
             ++page.presetsRevision;
+            page.pruneTimerSelection();
         }
     }
     readonly property var timerGroups: {
@@ -182,7 +184,8 @@ QQC2.Page {
                     groups.push(group);
                 }
             }
-            group.timers.push({ uuid: uuid, index: i, name: preset.name || "", summary: timerSummary(preset), icon: preset.iconName || "" });
+            group.timers.push({ uuid: uuid, index: i, name: preset.name || "", summary: timerSummary(preset), icon: preset.iconName || "",
+                                 builtin: preset.builtin === true });
         }
         if (other.timers.length > 0) {
             groups.push(other);
@@ -202,6 +205,158 @@ QQC2.Page {
         }
         return i18nc("a timer: work · short break, in minutes; then that it has no long break",
                      "%1 · %2 min · %3", work, shortBreak, i18n("no long break"));
+    }
+
+    // Several timers can be chosen and deleted at once: with the box that takes the place of a
+    // timer's icon, Ctrl+click (one more) or Shift+click (all those between). While some are
+    // chosen, a click on a row chooses it too, and the header offers Delete instead of New timer.
+    property var selectedTimers: []
+    /// The timer a Shift+click counts from: the last one chosen or unchosen.
+    property string selectionAnchor: ""
+    readonly property bool selectingTimers: selectedTimers.length > 0
+    /// The Timers category is shown with some timers chosen.
+    readonly property bool choosingTimers: category === "timers" && selectingTimers
+
+    function clearTimerSelection(): void {
+        selectedTimers = [];
+        selectionAnchor = "";
+    }
+    /// The timers in the order of the page (by category), as their rows show them.
+    function shownTimers(): var {
+        return timerGroups.reduce((all, group) => all.concat(group.timers), []);
+    }
+    /// The timer in use while it runs cannot be deleted, nor can the default one.
+    function timerLocked(uuid: string): bool {
+        return PresetModel.currentUuid === uuid && TimerEngine.active;
+    }
+    function timerSelectable(timer: var): bool {
+        return !timer.builtin && !timerLocked(timer.uuid);
+    }
+    function timerSelected(uuid: string): bool {
+        return selectedTimers.indexOf(uuid) >= 0;
+    }
+    function setTimerSelected(uuid: string, selected: bool): void {
+        const others = selectedTimers.filter(other => other !== uuid);
+        selectedTimers = selected ? others.concat([uuid]) : others;
+        selectionAnchor = uuid;
+    }
+    /// Chooses every timer from the anchor to `uuid`, both included.
+    function selectTimerRange(uuid: string): void {
+        const timers = shownTimers();
+        const from = timers.findIndex(timer => timer.uuid === selectionAnchor);
+        const to = timers.findIndex(timer => timer.uuid === uuid);
+        if (from < 0 || to < 0) {
+            return;
+        }
+        const chosen = selectedTimers.slice();
+        for (let i = Math.min(from, to); i <= Math.max(from, to); ++i) {
+            if (timerSelectable(timers[i]) && chosen.indexOf(timers[i].uuid) < 0) {
+                chosen.push(timers[i].uuid);
+            }
+        }
+        selectedTimers = chosen;
+    }
+    function selectAllTimers(): void {
+        selectedTimers = shownTimers().filter(timer => timerSelectable(timer)).map(timer => timer.uuid);
+    }
+    /// A click on a timer's row: opens it, or chooses it (with Ctrl or Shift, or while choosing).
+    function timerRowClicked(timer: var, modifiers: int): void {
+        const shift = (modifiers & Qt.ShiftModifier) !== 0;
+        const control = (modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0;
+        if (!shift && !control && !selectingTimers) {
+            applicationWindow().openTimer(timer.uuid);
+            return;
+        }
+        if (!timerSelectable(timer)) {
+            return;
+        }
+        if (shift && selectionAnchor.length > 0) {
+            selectTimerRange(timer.uuid);
+        } else {
+            setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
+        }
+    }
+    /// A click on a timer's box: chooses or lets go of it, or with Shift all those between.
+    function timerBoxClicked(timer: var, modifiers: int): void {
+        if (!timerSelectable(timer) && !timerSelected(timer.uuid)) {
+            return;
+        }
+        if ((modifiers & Qt.ShiftModifier) !== 0 && selectionAnchor.length > 0) {
+            selectTimerRange(timer.uuid);
+        } else {
+            setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
+        }
+    }
+    /// Timers deleted meanwhile (here, on another page, by Sugo Sync) leave the selection.
+    function pruneTimerSelection(): void {
+        const kept = selectedTimers.filter(uuid => PresetModel.indexOf(uuid) >= 0);
+        if (kept.length !== selectedTimers.length) {
+            selectedTimers = kept;
+        }
+    }
+    function requestDeleteTimers(): void {
+        if (selectingTimers) {
+            deleteTimersDialog.uuids = selectedTimers.slice();
+            deleteTimersDialog.open();
+        }
+    }
+    readonly property bool deleteTimersConfirming: deleteTimersDialog.visible
+
+    ConfirmDialog {
+        id: deleteTimersDialog
+        property var uuids: []
+        readonly property var names: {
+            void page.presetsRevision;
+            return uuids.map(uuid => PresetModel.get(uuid).name || "");
+        }
+        title: i18np("Delete this timer?", "Delete %1 timers?", uuids.length)
+        // At most three names, so a long selection keeps the dialog inside the window.
+        readonly property int namesShown: 3
+        readonly property string listedNames: names.slice(0, namesShown)
+            .map(name => i18nc("a timer's name, in a list", "“%1”", name))
+            .join(i18nc("between the names of a list", ", "))
+        text: uuids.length === 1
+              ? i18n("Delete “%1”? Statistics already recorded with it are kept.", names[0] || "")
+              : uuids.length <= namesShown
+                ? i18n("Delete %1? Statistics already recorded with them are kept.", listedNames)
+                : i18np("Delete %2 and 1 more? Statistics already recorded with them are kept.",
+                        "Delete %2 and %1 more? Statistics already recorded with them are kept.",
+                        uuids.length - namesShown, listedNames)
+        confirmText: i18n("Delete")
+        confirmKind: "danger"
+        onConfirmed: {
+            deleteTimersDialog.close();
+            // The timer in use may have been started meanwhile (tray, shortcut, D-Bus).
+            const kept = [];
+            for (const uuid of uuids) {
+                if (page.timerLocked(uuid)) {
+                    kept.push(PresetModel.get(uuid).name || "");
+                } else {
+                    PresetModel.remove(uuid);
+                }
+            }
+            page.clearTimerSelection();
+            if (kept.length > 0) {
+                applicationWindow().showPassiveNotification(
+                    i18n("“%1” was started meanwhile, so it was not deleted. Stop it to delete it.", kept[0]));
+            }
+        }
+    }
+
+    Shortcut {
+        sequences: [StandardKey.SelectAll]
+        enabled: page.visible && page.category === "timers" && !page.deleteTimersConfirming
+        onActivated: page.selectAllTimers()
+    }
+    Shortcut {
+        sequences: [StandardKey.Delete]
+        enabled: page.visible && page.selectingTimers && !page.deleteTimersConfirming
+        onActivated: page.requestDeleteTimers()
+    }
+    Shortcut {
+        sequences: [StandardKey.Cancel]
+        enabled: page.visible && page.selectingTimers && !page.deleteTimersConfirming
+        onActivated: page.clearTimerSelection()
     }
 
     // About: who we are, and the updates.
@@ -273,8 +428,9 @@ QQC2.Page {
     // approval: read it again whenever the Sync tab is shown, so a device signed out or
     // disconnected elsewhere since then disappears from it.
     onCategoryChanged: {
-        // Another category starts at its top.
+        // Another category starts at its top, with no timer chosen.
         flickable.contentY = 0;
+        clearTimerSelection();
         // When linked, onSyncDevicesShownChanged does it.
         if (category === "sync" && SyncController && !syncDevicesShown) {
             SyncController.refreshDevices();
@@ -844,9 +1000,33 @@ QQC2.Page {
         text: timer.name
         Accessible.name: timer.name
         Accessible.description: timer.summary
-        onClicked: applicationWindow().openTimer(timer.uuid)
+        // From the keyboard; the mouse goes through rowMouse, which knows Ctrl and Shift.
+        onClicked: page.timerRowClicked(timer, Qt.NoModifier)
+
+        readonly property bool pointed: rowMouse.containsMouse || boxMouse.containsMouse
+        readonly property bool selected: page.timerSelected(timer.uuid)
+        // The box shows while timers are chosen, or under the pointer.
+        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed)
+
+        MouseArea {
+            id: rowMouse
+            // Under the row's content, so the box above it gets its own clicks.
+            z: -0.5
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: mouse => page.timerRowClicked(timerRow.timer, mouse.modifiers)
+        }
 
         background: Item {
+            // A chosen timer's row, tinted across the whole card.
+            Rectangle {
+                x: -Theme.settingsRowPaddingX
+                width: parent.width + Theme.settingsRowPaddingX * 2
+                height: parent.height
+                color: Theme.hover
+                opacity: timerRow.selected ? 1 : 0
+            }
             // The line above the row, across the whole card.
             Rectangle {
                 visible: !timerRow.first
@@ -869,12 +1049,64 @@ QQC2.Page {
         contentItem: RowLayout {
             id: timerRowContent
             spacing: Theme.spaceLg
-            // The timer's own icon, in the accent like the other accents of the interface.
-            TimerIcon {
-                visible: timerRow.timer.icon.length > 0
-                iconName: timerRow.timer.icon
-                size: Theme.iconMd
-                color: Theme.accent
+            // The timer's own icon, in the accent like the other accents of the interface; the
+            // box that chooses the timer takes its place.
+            Item {
+                implicitWidth: Theme.iconMd
+                implicitHeight: Theme.iconMd
+                TimerIcon {
+                    anchors.centerIn: parent
+                    visible: timerRow.timer.icon.length > 0
+                    opacity: timerRow.showBox ? 0 : 1
+                    iconName: timerRow.timer.icon
+                    size: Theme.iconMd
+                    color: Theme.accent
+                }
+                QQC2.AbstractButton {
+                    id: selectBox
+                    anchors.fill: parent
+                    visible: !timerRow.timer.builtin
+                    opacity: timerRow.showBox ? 1 : 0
+                    // The running timer's box stays enabled, faded, so its tooltip can say why.
+                    readonly property bool locked: !timerRow.selected && page.timerLocked(timerRow.timer.uuid)
+                    focusPolicy: Qt.NoFocus
+                    checkable: true
+                    checked: timerRow.selected
+                    Accessible.name: i18n("Select “%1”", timerRow.timer.name)
+                    QQC2.ToolTip.visible: boxMouse.containsMouse && locked
+                    QQC2.ToolTip.text: i18n("This timer is running. Stop it to delete it.")
+                    QQC2.ToolTip.delay: Theme.toolTipDelay
+                    // From assistive tools; the mouse goes through boxMouse, which knows Shift.
+                    onClicked: {
+                        checked = Qt.binding(() => timerRow.selected);
+                        page.timerBoxClicked(timerRow.timer, Qt.NoModifier);
+                    }
+                    MouseArea {
+                        id: boxMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mouse => page.timerBoxClicked(timerRow.timer, mouse.modifiers)
+                    }
+                    contentItem: null
+                    background: Rectangle {
+                        anchors.centerIn: parent
+                        width: Theme.iconSm
+                        height: Theme.iconSm
+                        radius: Theme.radiusXs
+                        color: selectBox.checked ? Theme.accent : "transparent"
+                        border.width: selectBox.checked ? 0 : Theme.hairline * 2
+                        border.color: boxMouse.containsMouse && !selectBox.locked ? Theme.foreground : Theme.subtle
+                        opacity: selectBox.locked ? 0.5 : 1
+                        LineIcon {
+                            anchors.centerIn: parent
+                            visible: selectBox.checked
+                            name: "check"
+                            size: Theme.iconSm
+                            color: Theme.accentText
+                        }
+                    }
+                }
             }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -907,7 +1139,7 @@ QQC2.Page {
             LineIcon {
                 name: "chevron-right"
                 size: Theme.iconSm
-                color: timerRow.hovered ? Theme.foreground : Theme.subtle
+                color: timerRow.pointed ? Theme.foreground : Theme.subtle
             }
         }
     }
@@ -994,7 +1226,8 @@ QQC2.Page {
                 SComboBox {
                     id: categoryBox
                     objectName: "settingsCategoryBox"
-                    visible: page.narrow
+                    // While timers are chosen, the count takes its place.
+                    visible: page.narrow && !page.choosingTimers
                     textRole: "text"
                     valueRole: "id"
                     model: page.categories
@@ -1006,9 +1239,11 @@ QQC2.Page {
                     }
                 }
                 Text {
-                    visible: !page.narrow
+                    visible: !page.narrow || page.choosingTimers
                     Layout.fillWidth: true
-                    text: page.categories[page.categoryIndex()].text
+                    text: page.choosingTimers
+                          ? i18np("1 timer chosen", "%1 timers chosen", page.selectedTimers.length)
+                          : page.categories[page.categoryIndex()].text
                     color: Theme.foreground
                     font.pixelSize: Theme.fontSettingsTitle
                     font.weight: Font.DemiBold
@@ -1016,24 +1251,45 @@ QQC2.Page {
                     Accessible.role: Accessible.Heading
                 }
                 Item {
-                    visible: page.narrow
+                    visible: page.narrow && !page.choosingTimers
                     Layout.fillWidth: true
                 }
                 // The button is taller than the title: it is centred on the row without making it
                 // taller, so the Timers page starts at the same height as the others.
+                // While timers are chosen, Cancel and Delete take its place.
                 Item {
                     visible: page.category === "timers"
                     Layout.fillHeight: true
-                    implicitWidth: newTimerButton.implicitWidth
+                    implicitWidth: page.selectingTimers ? selectionButtons.implicitWidth : newTimerButton.implicitWidth
                     SButton {
                         id: newTimerButton
                         objectName: "newTimerButton"
+                        visible: !page.selectingTimers
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         kind: "primary"
                         iconName: "plus"
                         text: i18n("New timer")
                         onClicked: applicationWindow().newTimer()
+                    }
+                    RowLayout {
+                        id: selectionButtons
+                        visible: page.selectingTimers
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spaceSm
+                        SButton {
+                            kind: "ghost"
+                            text: i18n("Cancel")
+                            onClicked: page.clearTimerSelection()
+                        }
+                        SButton {
+                            objectName: "deleteTimersButton"
+                            kind: "danger"
+                            iconName: "trash"
+                            text: i18n("Delete")
+                            onClicked: page.requestDeleteTimers()
+                        }
                     }
                 }
             }
