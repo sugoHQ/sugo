@@ -331,7 +331,7 @@ QQC2.Page {
         id: syncSignOutDialog
         title: i18n("Sign out of Sugo Sync?")
         text: i18n("This computer stops syncing and leaves your list of devices. Your timers stay on this computer.")
-        confirmText: i18n("Sign Out")
+        confirmText: i18n("Sign out")
         confirmKind: "danger"
         onConfirmed: {
             syncSignOutDialog.close();
@@ -361,7 +361,7 @@ QQC2.Page {
         id: syncNewRecoveryDialog
         title: i18n("Create a new recovery code?")
         text: i18n("The recovery code you have now stops working. Sugo shows you the new one, to keep in a safe place.")
-        confirmText: i18n("Create New Code")
+        confirmText: i18n("Create new code")
         onConfirmed: {
             syncNewRecoveryDialog.close();
             if (SyncController) {
@@ -503,7 +503,7 @@ QQC2.Page {
         id: clearHistoryDialog
         title: i18n("Clear session history?")
         text: i18n("This permanently removes all recorded sessions and statistics. Presets and settings will remain.")
-        confirmText: i18n("Clear History")
+        confirmText: i18n("Clear history")
         confirmKind: "danger"
         onConfirmed: {
             DataManager.clearHistory();
@@ -526,7 +526,7 @@ QQC2.Page {
         text: months === 12
             ? i18n("This permanently removes the sessions recorded more than 1 year ago. More recent sessions, presets and settings will remain.")
             : i18n("This permanently removes the sessions recorded more than %1 months ago. More recent sessions, presets and settings will remain.", months)
-        confirmText: i18n("Remove Sessions")
+        confirmText: i18n("Remove sessions")
         confirmKind: "danger"
         onConfirmed: {
             DataManager.clearHistoryOlderThan(months);
