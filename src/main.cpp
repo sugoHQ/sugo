@@ -28,6 +28,7 @@
 #include <memory>
 
 #include "Localization.h"
+#include "Notifier.h"
 
 #include "AppSettings.h"
 #include "DataManager.h"
@@ -40,6 +41,7 @@
 #include "PresetModel.h"
 #include "PresetPersistence.h"
 #include "PresetRepository.h"
+#include "SessionKeeper.h"
 #include "SessionRecorder.h"
 #include "SessionRepository.h"
 #include "SilenceController.h"
@@ -109,7 +111,8 @@ namespace
  *   to end the session.
  *   A quit that goes through sets the window's `platformQuitting` property before Qt closes it
  *   (the window otherwise refuses closing: it hides, or asks), and the running phase is saved
- *   as interrupted by the aboutToQuit -> TimerEngine::stop connection.
+ *   kept for the next start by SessionKeeper (or, if it cannot be, saved as interrupted by
+ *   TimerEngine::stop) at aboutToQuit.
  * - A sugo:// link (`open sugo://toggle`, the Shortcuts app's "Open URLs"): Cocoa's GetURL
  *   event, which Qt delivers as a QFileOpenEvent with a URL, handed to `openUrl`. Opening a link
  *   also activates the application; that must not pop the hidden window up for a command like
@@ -602,9 +605,17 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Quitting mid-phase ends it as an interrupted session instead of losing it.
-    // Then the sessions the database refused get one last try (with the timer idle, nothing else would retry them).
-    SessionRecorder::connectQuit(&app, timer, recorder);
+    // The session under way is kept when Sugo ends, and comes back paused at the next start.
+    auto *keeper = engine.singletonInstance<SessionKeeper *>("stream.sugo.app", "SessionKeeper");
+    if (keeper) {
+        keeper->attach(timer, presets, recorder, SessionKeeper::defaultPath());
+        keeper->restore();
+    }
+
+    // Quitting mid-phase keeps the session for the next start (or, when it cannot be kept, ends
+    // it as an interrupted session instead of losing it). Then the sessions the database refused
+    // get one last try (with the timer idle, nothing else would retry them).
+    SessionRecorder::connectQuit(&app, timer, recorder, [keeper]() { return keeper && keeper->keepForQuit(); });
     // ... and always hands the notifications back before the process ends.
     QObject::connect(&app, &QCoreApplication::aboutToQuit, silence, &SilenceController::shutdown);
     QObject::connect(&app, &QCoreApplication::aboutToQuit, powerInhibitor, &PowerInhibitor::shutdown);
@@ -729,6 +740,26 @@ int main(int argc, char *argv[])
 
         // A click on a notification with nothing more specific to do.
         QObject::connect(notifier, &PhaseNotifier::showWindowRequested, window, activateWindow);
+
+        // A session brought back while Sugo starts hidden (at login): the focus page that says so
+        // is not on screen, so a notification does.
+        if (keeper && keeper->isRestored() && settings->startHidden()) {
+            const int minutes = (timer->remainingSeconds() + 59) / 60;
+            Notifier::Notification restored;
+            restored.title = timer->phase() == TimerEngine::Phase::Work ? i18n("Work session paused") : i18n("Break paused");
+            restored.text = i18np("Sugo was closed during this session. %1 minute is left: resume it when you are ready.",
+                                  "Sugo was closed during this session. %1 minutes are left: resume it when you are ready.",
+                                  minutes);
+            restored.iconName = QStringLiteral("stream.sugo.app");
+            restored.actions.append({i18n("Resume"), [timer](const QString &) {
+                                         if (timer->isPaused()) {
+                                             timer->resume();
+                                         }
+                                     }});
+            restored.defaultActionLabel = i18n("View");
+            restored.defaultAction = activateWindow;
+            notifications->notify(keeper, restored);
+        }
 
         // Sugo Sync: a device asking for approval while the window is hidden is notified; a click
         // shows the window on the Sync settings, where the approval dialog waits.

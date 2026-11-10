@@ -144,6 +144,13 @@ public:
     double progress() const;
     int completedCycles() const { return m_completedCycles; }
     bool isExtendable() const { return isActive() || isContinuable(); }
+    /// The active phase continues one that had ended (continueFinished()).
+    bool continuesEndedSession() const { return m_reopened; }
+
+    /// The active phase's planned length, time left and wall-clock start (SessionKeeper).
+    qint64 plannedMs() const { return isActive() ? m_plannedMs : durationMs(m_phase); }
+    qint64 remainingMs() const;
+    QDateTime phaseStartedAt() const { return m_startWall; }
     bool isContinuable() const;
     Phase finishedPhase() const { return m_reopen.phase; }
 
@@ -172,6 +179,11 @@ public Q_SLOTS:
     /// Back to a fresh Work phase with the cycle count cleared (e.g. after switching preset).
     /// An active phase is stopped first (saved as interrupted).
     void reset();
+
+    /// Puts back, paused, a phase an earlier run of Sugo left under way (SessionKeeper): the same
+    /// session, started at `startedAt`, with `remainingMs` of its `plannedMs` left and `cycles`
+    /// work phases done in the set. Only while Idle; false otherwise or for impossible values.
+    bool restorePaused(TimerEngine::Phase phase, qint64 plannedMs, qint64 remainingMs, const QDateTime &startedAt, int cycles);
 
     /// Adds `seconds` to the active phase; while Idle right after a phase elapsed, takes that one
     /// up again (continueFinished()). False if there is nothing to extend or the phase is at its
@@ -210,6 +222,8 @@ Q_SIGNALS:
 
     /// A phase began (start, auto-start or skip). Not emitted on resume.
     void phaseStarted(TimerEngine::Phase phase);
+    /// A phase of an earlier run was put back, paused (restorePaused()).
+    void phaseRestored(TimerEngine::Phase phase);
 
     /// A phase elapsed naturally. `next` is the upcoming phase. Use for notifications.
     /// Emitted after the transition: if `next` was auto-started, isRunning() is already true.
@@ -223,7 +237,6 @@ Q_SIGNALS:
 
 private:
     qint64 durationMs(Phase phase) const;
-    qint64 remainingMs() const;
     static State stateFor(Phase phase);
 
     /// The phase that really runs in place of `phase`: a zero long break becomes a short break

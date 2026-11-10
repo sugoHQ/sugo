@@ -335,6 +335,31 @@ void TimerEngine::updateExtendable()
     }
 }
 
+bool TimerEngine::restorePaused(Phase phase, qint64 plannedMs, qint64 remainingMs, const QDateTime &startedAt, int cycles)
+{
+    if (m_state != State::Idle || m_completing || plannedMs <= 0 || remainingMs <= 0 || remainingMs > plannedMs
+        || plannedMs > maxDurationMs(phase) || !startedAt.isValid()) {
+        return false;
+    }
+    m_ticker.stop();
+    dropReopen();
+    m_reopened = false;
+    setCycles(std::clamp(cycles, 0, std::max(0, m_cyclesBeforeLong)));
+    m_plannedMs = plannedMs;
+    m_remainingAtPauseMs = remainingMs;
+    m_startWall = startedAt;
+    // Only the end-time guard of emitSessionEnded() reads it: as if the phase began that long ago.
+    m_startMonoMs = m_clock->monotonicMs() - std::max<qint64>(0, startedAt.msecsTo(m_clock->wallTime()));
+    m_warnedOneMinute = remainingMs <= 60 * 1000;
+    m_state = State::Paused;
+    setPhase(phase);
+    Q_EMIT stateChanged();
+    notifyTime(true);
+    updateExtendable();
+    Q_EMIT phaseRestored(phase);
+    return true;
+}
+
 void TimerEngine::refresh()
 {
     if (!isRunning() || m_completing) {

@@ -36,6 +36,8 @@ SessionRecorder::SessionRecorder(TimerEngine *engine, PresetModel *presets, Sess
     connect(engine, &TimerEngine::phaseStarted, this, &SessionRecorder::onPhaseStarted);
     connect(engine, &TimerEngine::sessionEnded, this, &SessionRecorder::onSessionEnded);
     connect(engine, &TimerEngine::phaseReopened, this, &SessionRecorder::onPhaseReopened);
+    // A phase of an earlier run, put back: the timer it ran with is the current one again.
+    connect(engine, &TimerEngine::phaseRestored, this, &SessionRecorder::onPhaseStarted);
     m_retryTimer.setSingleShot(true);
     m_retryTimer.setInterval(60 * 1000);
     connect(&m_retryTimer, &QTimer::timeout, this, &SessionRecorder::storeUnsaved);
@@ -62,6 +64,22 @@ bool SessionRecorder::store(const SessionRecord &record)
         Q_EMIT workSessionRecorded(stored);
     }
     return true;
+}
+
+void SessionRecorder::storeEnded(const SessionRecord &record, qint64 activeMs)
+{
+    if (!record.completed && activeMs < kMinInterruptedMs) {
+        return;
+    }
+    storeUnsaved();
+    if (isSaveFailing() || !store(record)) {
+        const bool wasFailing = isSaveFailing();
+        m_unsaved.append(record);
+        m_retryTimer.start();
+        if (!wasFailing) {
+            Q_EMIT saveFailingChanged();
+        }
+    }
 }
 
 void SessionRecorder::storeUnsaved()
@@ -177,9 +195,14 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     }
 }
 
-void SessionRecorder::connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder)
+void SessionRecorder::connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder,
+                                  std::function<bool()> keep)
 {
-    QObject::connect(app, &QCoreApplication::aboutToQuit, engine, &TimerEngine::stop);
+    QObject::connect(app, &QCoreApplication::aboutToQuit, engine, [engine, keep = std::move(keep)]() {
+        if (!keep || !keep()) {
+            engine->stop();
+        }
+    });
     QObject::connect(app, &QCoreApplication::aboutToQuit, recorder, &SessionRecorder::storeBeforeQuit);
 }
 

@@ -33,7 +33,7 @@ PhaseNotifier::PhaseNotifier(TimerEngine *engine, PresetModel *presets, Notifica
 {
     connect(engine, &TimerEngine::phaseFinished, this, &PhaseNotifier::onPhaseFinished);
     connect(engine, &TimerEngine::oneMinuteRemaining, this, &PhaseNotifier::onOneMinuteRemaining);
-    for (const auto signal : {&TimerEngine::phaseStarted, &TimerEngine::phaseReopened}) {
+    for (const auto signal : {&TimerEngine::phaseStarted, &TimerEngine::phaseReopened, &TimerEngine::phaseRestored}) {
         connect(engine, signal, this, [this]() {
             ++m_phaseSerial;
         });

@@ -123,6 +123,8 @@ Pausing keeps the remaining time; stopping resets the phase. A phase stopped ear
 
 Skipping a running work session counts it towards the long break. Skipping a work session that has not started yet (for example with the notification's **Skip** button) moves on to the short break without counting it, so the long break is only reached by working.
 
+If Sugo ends while a phase is running or paused (you quit it, log out, restart for an update, or it crashes), it keeps the session and brings it back the next time it starts: paused, with the time it had left, as the same session (the time Sugo was closed counts as a pause, never as work or as a break). Press **Resume** to go on, or **Stop** to end it there. A session left for more than 12 hours, or whose timer was deleted meanwhile, is not brought back: it is recorded as interrupted at the moment Sugo ended.
+
 When the computer goes to sleep, a running phase is paused, and it stays paused after the computer wakes up until you resume it: the time asleep never counts as work or as a break.
 
 ---

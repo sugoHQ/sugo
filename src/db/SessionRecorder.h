@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <functional>
 #include <QList>
 #include <QObject>
 #include <QTimer>
@@ -50,15 +51,21 @@ public:
     /// sessions still waiting to be stored, so they do not reappear in the replaced history.
     void forgetHistory();
 
+    /// Stores a session that ended outside the timer (SessionKeeper: one left by an earlier run),
+    /// under the same rules as the timer's: kept if it ran at least kMinInterruptedMs (`activeMs`).
+    void storeEnded(const SessionRecord &record, qint64 activeMs);
+
     /// True while some ended sessions could not be stored yet.
     bool isSaveFailing() const { return !m_unsaved.isEmpty(); }
     void setRetryIntervalForTesting(int ms) { m_retryTimer.setInterval(ms); }
 
     /// Connects quitting in the order that loses nothing: the engine stops first, so a running
-    /// phase is ended as an interrupted session, then the recorder tries once more to store the
-    /// sessions still waiting (with the timer idle, no phase end would retry them) and logs those
-    /// it still cannot store. Both are direct connections, called in the order they are made.
-    static void connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder);
+    /// phase is ended as an interrupted session, unless `keep` says it was kept for the next start
+    /// (SessionKeeper); then the recorder tries once more to store the sessions still waiting (with
+    /// the timer idle, no phase end would retry them) and logs those it still cannot store. Both are
+    /// direct connections, called in the order they are made.
+    static void connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder,
+                            std::function<bool()> keep = {});
 
 public Q_SLOTS:
     /// The last try at quit; see connectQuit().
