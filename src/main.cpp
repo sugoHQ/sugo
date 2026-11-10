@@ -607,7 +607,9 @@ int main(int argc, char *argv[])
 
     // The session under way is kept when Sugo ends, and comes back paused at the next start.
     auto *keeper = engine.singletonInstance<SessionKeeper *>("stream.sugo.app", "SessionKeeper");
-    if (keeper) {
+    // Not over a stand-in database: the timers may be missing there, and what it records is lost
+    // at quit, so the session is left in its file for a later start with the real one.
+    if (keeper && databaseOpened) {
         keeper->attach(timer, presets, recorder, SessionKeeper::defaultPath());
         QObject::connect(keeper, &SessionKeeper::restoreEnded, telemetry, &Telemetry::recordRestore);
         keeper->restore();
