@@ -51,6 +51,10 @@ public:
     /// sessions still waiting to be stored, so they do not reappear in the replaced history.
     void forgetHistory();
 
+    /// Called when the session `sessionId` was deleted: a note or a phase taken up again no
+    /// longer goes to its row (a phase taken up again is stored as a new session).
+    void forgetSession(qint64 sessionId);
+
     /// The running phase is one an earlier run began with the timer then named `name` (SessionKeeper):
     /// it is recorded with that name and category, not the timer's current ones.
     void setActiveTimer(const QString &name, const QString &category)

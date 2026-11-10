@@ -88,8 +88,8 @@ const QList<RestoredTable> &restoredTables()
                         "is_builtin, sort_order, created_at")},
         {QStringLiteral("preset_option"), QStringLiteral("preset_id, key, value")},
         {QStringLiteral("session"),
-         QStringLiteral("id, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_id, "
-                        "preset_name, category, note")},
+         QStringLiteral("id, uuid, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_id, "
+                        "preset_name, category, note, updated_at, updated_by")},
         // The one-time look for Sugo 1.0.0's data (Database::recoverSugo100Database()) was made
         // for this file: a backup from before it, or from another computer, must not undo it.
         {QStringLiteral("meta"), QStringLiteral("key, value"), QStringLiteral("key <> 'sugo100_recovery'")},
@@ -192,6 +192,21 @@ bool DataManager::clearHistory()
     if (m_stats) m_stats->refresh();
     Q_EMIT dataChanged();
     Q_EMIT operationSucceeded(i18n("Session history cleared."));
+    return true;
+}
+
+bool DataManager::deleteSession(qint64 sessionId, bool fromCalendar)
+{
+    SessionRecord deleted;
+    if (!m_sessions || sessionId <= 0 || !m_sessions->deleteById(sessionId, &deleted)) {
+        Q_EMIT operationFailed(i18n("Could not delete the session."));
+        return false;
+    }
+    if (m_recorder) m_recorder->forgetSession(sessionId);
+    if (m_stats) m_stats->refresh();
+    Q_EMIT dataChanged();
+    Q_EMIT sessionDeleted(deleted, fromCalendar);
+    Q_EMIT operationSucceeded(i18n("Session deleted."));
     return true;
 }
 
@@ -496,6 +511,9 @@ bool DataManager::restoreDatabase(const QUrl &fileUrl)
                        "ON CONFLICT(uuid) DO UPDATE SET deleted_at = excluded.deleted_at, deleted_by = excluded.deleted_by")
             .arg(QDateTime::currentMSecsSinceEpoch()),
         QStringLiteral("DELETE FROM main.preset_tombstone WHERE uuid IN (SELECT uuid FROM restore_db.preset)"),
+        // A session deleted here and brought back by the backup is no longer deleted: Sugo Sync
+        // must not delete it again.
+        QStringLiteral("DELETE FROM main.session_tombstone WHERE uuid IN (SELECT uuid FROM restore_db.session)"),
     };
     for (auto it = restoredTables().crbegin(); it != restoredTables().crend(); ++it) {
         const QString where = it->rows.isEmpty() ? QString() : QStringLiteral(" WHERE ") + it->rows;

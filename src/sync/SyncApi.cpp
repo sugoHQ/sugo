@@ -77,6 +77,7 @@ SyncError::Kind SyncError::kindForCode(const QString &code, int http)
         {QStringLiteral("precondition_failed"), Kind::PreconditionFailed},
         {QStringLiteral("precondition_required"), Kind::PreconditionRequired},
         {QStringLiteral("too_large"), Kind::TooLarge},
+        {QStringLiteral("plus_required"), Kind::PlusRequired},
         {QStringLiteral("invalid_blob"), Kind::InvalidBlob},
         {QStringLiteral("invalid_request"), Kind::InvalidRequest},
         {QStringLiteral("not_found"), Kind::NotFound},
@@ -285,11 +286,11 @@ void SyncApi::putRecovery(const QByteArray &sealed, Callback done)
     call(r, std::move(done));
 }
 
-void SyncApi::getBlob(const QByteArray &etag, Callback done)
+void SyncApi::getBlob(SyncKind kind, const QByteArray &etag, Callback done)
 {
     Request r;
     r.verb = "GET";
-    r.path = QStringLiteral("/v1/blob/presets");
+    r.path = QStringLiteral("/v1/blob/") + SyncKinds::name(kind);
     r.expectJson = false;
     if (!etag.isEmpty()) {
         r.headers.append({QByteArrayLiteral("If-None-Match"), '"' + etag + '"'});
@@ -297,11 +298,11 @@ void SyncApi::getBlob(const QByteArray &etag, Callback done)
     call(r, std::move(done));
 }
 
-void SyncApi::putBlob(const QByteArray &blob, const QByteArray &etag, Callback done)
+void SyncApi::putBlob(SyncKind kind, const QByteArray &blob, const QByteArray &etag, Callback done)
 {
     Request r;
     r.verb = "PUT";
-    r.path = QStringLiteral("/v1/blob/presets");
+    r.path = QStringLiteral("/v1/blob/") + SyncKinds::name(kind);
     r.body = blob;
     r.contentType = "application/octet-stream";
     r.expectJson = false;

@@ -196,6 +196,7 @@ private Q_SLOTS:
         const QString sourcePath = elsewhere.filePath(QStringLiteral("source.db"));
         const QString copiedPath = elsewhere.filePath(QStringLiteral("copied.db"));
         const QString wal = QStringLiteral("-wal");
+        QStringList sourceUuids;
         {
             Database source(sourcePath);
             QVERIFY(source.open());
@@ -208,6 +209,9 @@ private Q_SLOTS:
                 QVERIFY(sourceSessions.insert(sampleRecord(QStringLiteral("In the log %1").arg(i))));
             }
             QVERIFY(QFileInfo(sourcePath + wal).size() > 0);
+            for (const SessionRecord &r : sourceSessions.between(0, 2000)) {
+                sourceUuids.append(r.uuid);
+            }
             QVERIFY(QFile::copy(sourcePath, copiedPath));
             QVERIFY(QFile::copy(sourcePath + wal, copiedPath + wal));
         }
@@ -218,9 +222,43 @@ private Q_SLOTS:
         QCOMPARE(succeeded.count(), 1);
         QCOMPARE(manager->sessionCount(), 3);
         QCOMPARE(sessions->between(0, 2000).first().presetName, QStringLiteral("In the log 0"));
+        QStringList restoredUuids;
+        for (const SessionRecord &r : sessions->between(0, 2000)) {
+            restoredUuids.append(r.uuid);
+        }
+        QCOMPARE(restoredUuids, sourceUuids); // the same sessions, as Sugo Sync knows them
         // The user's files are left as they were.
         QVERIFY(QFile::exists(copiedPath + wal));
         QVERIFY(!QFile::exists(copiedPath + QStringLiteral("-shm")));
+    }
+
+    void restoreKeepsWhenNotesChangedAndBringsDeletedSessionsBack()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(sampleRecord(QStringLiteral("Pomodoro")), &id));
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Edited")));
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at FROM session")) && query.next());
+        const QString uuid = query.value(0).toString();
+        const qint64 updatedAt = query.value(1).toLongLong();
+        QVERIFY(updatedAt > 0);
+        query.finish();
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup.db")));
+        QVERIFY(manager->backupDatabase(backup));
+
+        // Deleted afterwards, as Sugo Sync will know it: the row goes, a tombstone stays.
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) SELECT uuid, 1 FROM session")));
+        QVERIFY(query.exec(QStringLiteral("DELETE FROM session")));
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('another', 1)")));
+
+        QVERIFY(manager->restoreDatabase(backup));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at, note FROM session")) && query.next());
+        QCOMPARE(query.value(0).toString(), uuid);
+        QCOMPARE(query.value(1).toLongLong(), updatedAt); // the note's change is not forgotten
+        QCOMPARE(query.value(2).toString(), QStringLiteral("Edited"));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid FROM session_tombstone")) && query.next());
+        QCOMPARE(query.value(0).toString(), QStringLiteral("another")); // only the one not brought back
+        QVERIFY(!query.next());
     }
 
     void restoreWaitsForTheTimerToStop()
@@ -617,6 +655,75 @@ private Q_SLOTS:
         QVERIFY(!manager->clearHistoryOlderThan(0));
         QCOMPARE(failed.count(), 1);
         QCOMPARE(manager->sessionCount(), 1);
+    }
+
+    void deleteSessionRemovesOnlyThatSession()
+    {
+        FakeClock clock;
+        TimerEngine engine(&clock, nullptr);
+        SessionRecorder recorder(&engine, presetModel.get(), sessions.get());
+        manager->setSessionRecorder(&recorder);
+
+        SessionRecord record;
+        record.kind = SessionKind::Work;
+        record.startedAtMs = 1000;
+        record.endedAtMs = 1600;
+        record.durationSec = 600;
+        record.completed = true;
+        qint64 kept = 0;
+        QVERIFY(sessions->insert(record, &kept));
+
+        // A session started by mistake and stopped after 37 seconds.
+        engine.start();
+        clock.advanceSeconds(37);
+        engine.refresh();
+        engine.stop();
+        const qint64 mistake = manager->lastWorkSessionId();
+        QVERIFY(mistake > 0);
+        QCOMPARE(manager->sessionCount(), 2);
+
+        QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
+        QSignalSpy changed(manager.get(), &DataManager::dataChanged);
+        QSignalSpy deletedSpy(manager.get(), &DataManager::sessionDeleted);
+        QString mistakeUuid;
+        for (const SessionRecord &r : sessions->between(0, std::numeric_limits<qint64>::max())) {
+            if (r.id == mistake) {
+                mistakeUuid = r.uuid;
+            }
+        }
+        QVERIFY(!mistakeUuid.isEmpty());
+        QVERIFY(manager->deleteSession(mistake, true));
+        QCOMPARE(manager->sessionCount(), 1);
+        // The calendar hears of it, with what it needs to find the event.
+        QCOMPARE(deletedSpy.count(), 1);
+        const auto deleted = deletedSpy.first().at(0).value<SessionRecord>();
+        QCOMPARE(deleted.id, mistake);
+        QCOMPARE(deleted.uuid, mistakeUuid);
+        QCOMPARE(deleted.completed, false);
+        QCOMPARE(deletedSpy.first().at(1).toBool(), true);
+        // Sugo Sync will tell the other devices: the deletion leaves a tombstone.
+        {
+            QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+            QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at FROM session_tombstone")));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toString(), mistakeUuid);
+            QVERIFY(query.value(1).toLongLong() > 0);
+            QVERIFY(!query.next());
+        }
+        QCOMPARE(sessions->between(0, std::numeric_limits<qint64>::max()).first().id, kept);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(succeeded.count(), 1);
+        // A note typed now has no session to go to.
+        QCOMPARE(manager->lastWorkSessionId(), -1);
+
+        // Deleting it again (or any session that is not there) fails and says so.
+        QSignalSpy failed(manager.get(), &DataManager::operationFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("there is no session")));
+        QVERIFY(!manager->deleteSession(mistake));
+        QVERIFY(!manager->deleteSession(0));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(manager->sessionCount(), 1);
+        manager->setSessionRecorder(nullptr);
     }
 
     void exportToCsvQuotesFieldsAndNeutralisesFormulas()

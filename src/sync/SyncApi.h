@@ -12,6 +12,8 @@
 
 #include <functional>
 
+#include "SyncKind.h"
+
 class QNetworkAccessManager;
 class QNetworkReply;
 class SyncSecrets;
@@ -30,7 +32,8 @@ struct SyncError {
         RateLimited,          ///< 429; `retryAfter` seconds.
         PreconditionFailed,   ///< 412: the blob changed; `extra["etag"]`.
         PreconditionRequired, ///< 428: a blob PUT without a precondition (a bug).
-        TooLarge,             ///< 413.
+        TooLarge,             ///< 413; `extra["max_bytes"]` holds the kind's limit.
+        PlusRequired,         ///< 403: a blob kind that syncs only with Plus, on an account without it.
         InvalidBlob,
         InvalidRequest,
         NotFound,             ///< 404: no such device, key, recovery copy or blob.
@@ -67,7 +70,7 @@ struct SyncReply {
     SyncError error;
     int http = 0;
     QJsonObject json;       ///< The JSON body, if it was an object.
-    QByteArray body;        ///< The raw body (the blob for GET /v1/blob/presets).
+    QByteArray body;        ///< The raw body (the blob for GET /v1/blob/{kind}).
     QByteArray etag;        ///< ETag without quotes; empty if none.
     int pendingDevices = -1; ///< Sugo-Pending-Devices, or -1 when absent.
 
@@ -126,10 +129,10 @@ public:
     void getRecovery(Callback done);
     /// PUT /v1/recovery; `sealed` raw.
     void putRecovery(const QByteArray &sealed, Callback done);
-    /// GET /v1/blob/presets, with If-None-Match when `etag` is not empty (304 is not an error).
-    void getBlob(const QByteArray &etag, Callback done);
-    /// PUT /v1/blob/presets: If-Match `etag`, or If-None-Match: * when it is empty.
-    void putBlob(const QByteArray &blob, const QByteArray &etag, Callback done);
+    /// GET /v1/blob/{kind}, with If-None-Match when `etag` is not empty (304 is not an error).
+    void getBlob(SyncKind kind, const QByteArray &etag, Callback done);
+    /// PUT /v1/blob/{kind}: If-Match `etag`, or If-None-Match: * when it is empty.
+    void putBlob(SyncKind kind, const QByteArray &blob, const QByteArray &etag, Callback done);
 
     /**
      * Calls `done` with no error once there is an access token valid for over a minute,

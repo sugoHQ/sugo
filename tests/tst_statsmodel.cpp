@@ -50,6 +50,7 @@ private Q_SLOTS:
     void testNotesOfThePeriodNewestFirst();
     void testNoteLabelsFollowThePeriod();
     void testNotesFollowNewNotesAndRecords();
+    void testSessionsOfThePeriodNewestFirst();
 
 private:
     void insertWork(const QDateTime &start, bool completed = true);
@@ -724,6 +725,49 @@ void TestStatsModel::testNotesFollowNewNotesAndRecords()
     m_model->refresh();
     m_model->setBreakdownMode(StatsModel::BreakdownMode::ByTask);
     QCOMPARE(notesSpy.count(), 2);
+}
+
+void TestStatsModel::testSessionsOfThePeriodNewestFirst()
+{
+    // "Now" is Saturday 2026-10-03 12:00; the week runs from Monday 09-28.
+    const QTimeZone utc = QTimeZone::utc();
+    insertNote(QDateTime(QDate(2026, 10, 3), QTime(9, 0), utc), QStringLiteral("Morning"));
+    insertNote(QDateTime(QDate(2026, 10, 3), QTime(9, 30), utc), QString(), SessionKind::ShortBreak);
+    insertNote(QDateTime(QDate(2026, 9, 29), QTime(9, 0), utc), QString());
+    insertNote(QDateTime(QDate(2026, 9, 27), QTime(9, 0), utc), QStringLiteral("The week before"));
+    SessionRecord mistake;
+    mistake.startedAtMs = QDateTime(QDate(2026, 10, 3), QTime(11, 0), utc).toMSecsSinceEpoch();
+    mistake.endedAtMs = mistake.startedAtMs + 37'000;
+    mistake.durationSec = 37;
+    mistake.plannedSec = 1500;
+    mistake.completed = false;
+    qint64 mistakeId = 0;
+    QVERIFY(m_repo->insert(mistake, &mistakeId));
+    m_model->setPeriod(StatsModel::Period::Week);
+    m_model->refresh();
+
+    const QVariantList sessions = m_model->sessions();
+    QCOMPARE(sessions.size(), 4);
+    const QVariantMap newest = sessions.constFirst().toMap();
+    QCOMPARE(newest.value(QStringLiteral("sessionId")).toLongLong(), mistakeId);
+    QCOMPARE(newest.value(QStringLiteral("kind")).toString(), QStringLiteral("work"));
+    QCOMPARE(newest.value(QStringLiteral("completed")).toBool(), false);
+    QCOMPARE(newest.value(QStringLiteral("duration")).toString(), QStringLiteral("37s"));
+    QCOMPARE(newest.value(QStringLiteral("timer")).toString(), QStringLiteral("Untitled Timer"));
+    QCOMPARE(sessions.at(1).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("short_break"));
+    QCOMPARE(sessions.at(2).toMap().value(QStringLiteral("note")).toString(), QStringLiteral("Morning"));
+    QCOMPARE(sessions.at(2).toMap().value(QStringLiteral("timer")).toString(), QStringLiteral("Default"));
+
+    // Deleted, it leaves the list and the figures.
+    QSignalSpy changed(m_model.get(), &StatsModel::sessionsChanged);
+    QVERIFY(m_repo->deleteById(mistakeId));
+    m_model->refresh();
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(m_model->sessions().size(), 3);
+    QCOMPARE(m_model->interruptedWorkSessions(), 0);
+
+    m_model->previousPeriod();
+    QCOMPARE(m_model->sessions().size(), 1);
 }
 
 QTEST_MAIN(TestStatsModel)

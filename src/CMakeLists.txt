@@ -161,10 +161,14 @@ target_sources(sugo_core PRIVATE
     sync/SyncCrypto.cpp
     sync/SyncSecrets.h
     sync/SyncSecrets.cpp
+    sync/SyncKind.h
     sync/SyncApi.h
     sync/SyncApi.cpp
     sync/SyncAccount.h
     sync/SyncAccount.cpp
+    sync/SyncChannel.h
+    sync/PresetSyncChannel.h
+    sync/PresetSyncChannel.cpp
     sync/SyncController.h
     sync/SyncController.cpp
 )

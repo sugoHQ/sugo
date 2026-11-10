@@ -196,6 +196,9 @@ QtObject {
     /// The lists of the statistics (where the time went, the notes): this many rows of this height.
     readonly property int statsListRows: 5
     readonly property int statsListRowHeight: 26
+    /// Rows the statistics' list of sessions shows before it scrolls, and the height of each.
+    readonly property int statsSessionRows: 8
+    readonly property int statsSessionRowHeight: 32
     /// The statistics fill the window up to this width, then stay centred.
     readonly property int statsMaxWidth: 1040
 

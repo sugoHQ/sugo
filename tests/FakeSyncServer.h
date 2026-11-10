@@ -12,14 +12,17 @@
 #include <QTcpSocket>
 #include <QTimeZone>
 
+#include <algorithm>
 #include <functional>
+#include <limits>
 
 #include "FakeSecretStore.h" // nextFakeEventSequence()
 
 /**
  * The Sugo Sync API (docs/api.md of sugo-sync) in memory, over a local QTcpServer: sign-in
  * codes, rotating refresh tokens (a reused one blocks the device), devices, boxed keys, the
- * recovery copy and the blob with ETags. The site's part (approving a code) is approve().
+ * recovery copy and one blob per kind with ETags, the kinds' size limits and Plus. The site's part
+ * (approving a code) is approve().
  *
  * Every request is logged with nextFakeEventSequence(), so a test can order it against the
  * keyring accesses of FakeSecretStore. Failures can be programmed per path.
@@ -65,12 +68,20 @@ public:
         bool expired = false;
     };
 
+    struct Blob {
+        QByteArray blob;
+        QByteArray etag;
+        /// Written before a reset (an earlier sync epoch): it counts as no blob, GET answers 404
+        /// and If-Match 412 with `etag: null`, until If-None-Match: * replaces it.
+        bool stale = false;
+    };
+
     struct Account {
         QByteArray recovery;
         QString recoveryUpdatedAt;
         QString recoveryUpdatedBy;
-        QByteArray blob;
-        QByteArray etag;
+        QHash<QByteArray, Blob> blobs; ///< By kind ("presets", ...).
+        bool plus = false;             ///< The Plus kinds answer 403 plus_required without it.
     };
 
     /// A failure answered instead of the real thing, once, to the next request whose path
@@ -101,12 +112,18 @@ public:
     // --- Settings ---------------------------------------------------------------------------------
     int deviceLimit = 2;
     int interval = 5;          ///< Polling interval of the sign-in, in seconds.
-    int maxBlobSize = 262144;  ///< The PUT /blob/presets body limit: a larger upload is refused with 413.
+    /// A limit below the kinds' own (blobKinds) for every upload: a larger one is refused with 413.
+    int maxBlobSize = std::numeric_limits<int>::max();
     int accessExpiresIn = 3600;
     int slowDownNext = 0;      ///< The next n polls of a pending code answer slow_down.
     QByteArray retryAfter = "60"; ///< The Retry-After header of a programmed 429.
     /// Every request is answered by closing the connection, like a server out of reach.
     bool offline = false;
+    /// The blob kinds and their limits; a kind missing here is unknown, 404 to GET and PUT, as
+    /// on a Worker older than the kind.
+    QHash<QByteArray, int> blobKinds = {
+        {"presets", 262144}, {"sessions", 1048576}, {"tasks", 1048576}, {"statistics", 1048576}, {"settings", 8192},
+    };
     QList<Failure> failures;
     void failNext(const QByteArray &pathPrefix, int status, const QByteArray &method = QByteArray())
     {
@@ -617,7 +634,8 @@ private:
                 return;
             }
         }
-        if (path == "/v1/blob/presets") {
+        if (path.startsWith("/v1/blob/")) {
+            const QByteArray kind = path.mid(int(qstrlen("/v1/blob/")));
             int pending = 0;
             for (const Device &d : devicesOf(userId)) {
                 if (d.collected && !d.ready && d.id != caller) {
@@ -625,9 +643,19 @@ private:
                 }
             }
             const QPair<QByteArray, QByteArray> pendingHeader{"Sugo-Pending-Devices", QByteArray::number(pending)};
-            const QByteArray quoted = '"' + account.etag + '"';
+            if (!blobKinds.contains(kind) || (req.method != "GET" && req.method != "PUT")) {
+                error(s, 404, "not_found");
+                return;
+            }
+            if (kind != "presets" && !account.plus) {
+                error(s, 403, "plus_required");
+                return;
+            }
+            Blob &stored = account.blobs[kind];
+            const bool exists = !stored.blob.isEmpty() && !stored.stale;
+            const QByteArray quoted = '"' + stored.etag + '"';
             if (req.method == "GET") {
-                if (account.blob.isEmpty()) {
+                if (!exists) {
                     error(s, 404, "not_found", {}, {pendingHeader});
                     return;
                 }
@@ -635,41 +663,48 @@ private:
                     reply(s, 304, {}, {pendingHeader, {"ETag", quoted}});
                     return;
                 }
-                reply(s, 200, account.blob, {pendingHeader, {"ETag", quoted}}, "application/octet-stream");
+                reply(s, 200, stored.blob, {pendingHeader, {"ETag", quoted}}, "application/octet-stream");
                 return;
             }
-            if (req.method == "PUT") {
-                const QByteArray ifMatch = req.headers.value("if-match");
-                const QByteArray ifNoneMatch = req.headers.value("if-none-match");
-                if (req.body.size() > maxBlobSize) {
-                    error(s, 413, "too_large");
-                    return;
+            const QByteArray ifMatch = req.headers.value("if-match");
+            const QByteArray ifNoneMatch = req.headers.value("if-none-match");
+            // A kind's own limit, or a lower one a test sets for every kind.
+            const int limit = std::min(blobKinds.value(kind), maxBlobSize);
+            if (req.body.size() > limit) {
+                QJsonObject extra;
+                extra.insert(QStringLiteral("max_bytes"), limit);
+                error(s, 413, "too_large", extra);
+                return;
+            }
+            if (ifMatch.isEmpty() == (ifNoneMatch != "*")) {
+                if (ifMatch.isEmpty()) {
+                    error(s, 428, "precondition_required");
+                } else {
+                    error(s, 400, "invalid_request");
                 }
-                if (ifMatch.isEmpty() == (ifNoneMatch != "*")) {
-                    if (ifMatch.isEmpty()) {
-                        error(s, 428, "precondition_required");
-                    } else {
-                        error(s, 400, "invalid_request");
-                    }
-                    return;
-                }
-                const QByteArray wanted = QByteArray(ifMatch).replace('"', "");
-                if ((ifNoneMatch == "*" && !account.blob.isEmpty()) || (!ifMatch.isEmpty() && (account.blob.isEmpty() || wanted != account.etag))) {
-                    QJsonObject extra;
-                    extra.insert(QStringLiteral("etag"), QString::fromLatin1(account.etag));
+                return;
+            }
+            const QByteArray wanted = QByteArray(ifMatch).replace('"', "");
+            if ((ifNoneMatch == "*" && exists) || (!ifMatch.isEmpty() && (!exists || wanted != stored.etag))) {
+                QJsonObject extra;
+                if (exists) {
+                    extra.insert(QStringLiteral("etag"), QString::fromLatin1(stored.etag));
                     error(s, 412, "precondition_failed", extra, {{"ETag", quoted}});
-                    return;
+                } else {
+                    extra.insert(QStringLiteral("etag"), QJsonValue::Null);
+                    error(s, 412, "precondition_failed", extra);
                 }
-                if (!req.body.startsWith("SUGO") || req.body.size() < 4 + 1 + 24 + 16) {
-                    error(s, 400, "invalid_blob");
-                    return;
-                }
-                const bool created = account.blob.isEmpty();
-                account.blob = req.body;
-                account.etag = "e" + QByteArray::number(++m_counter);
-                reply(s, created ? 201 : 204, {}, {{"ETag", '"' + account.etag + '"'}});
                 return;
             }
+            if (!req.body.startsWith("SUGO") || req.body.size() < 4 + 1 + 24 + 16) {
+                error(s, 400, "invalid_blob");
+                return;
+            }
+            stored.blob = req.body;
+            stored.stale = false;
+            stored.etag = "e" + QByteArray::number(++m_counter);
+            reply(s, exists ? 204 : 201, {}, {{"ETag", '"' + stored.etag + '"'}});
+            return;
         }
         error(s, 404, "not_found");
     }

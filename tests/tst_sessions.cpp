@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QSqlDatabase>
@@ -7,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QUuid>
 
 #include "Localization.h"
 
@@ -212,6 +214,76 @@ private Q_SLOTS:
         r.presetUuid = QStringLiteral("never-saved");
         QVERIFY(sessions->insert(r));
         QVERIFY(all().at(0).presetUuid.isEmpty());
+    }
+
+    void eachSessionGetsItsOwnUuid()
+    {
+        QVERIFY(sessions->insert(makeRecord(1000)));
+        QVERIFY(sessions->insert(makeRecord(2000)));
+        const QList<SessionRecord> rows = all();
+        QCOMPARE(rows.size(), 2);
+        for (const SessionRecord &r : rows) {
+            QVERIFY2(!QUuid::fromString(r.uuid).isNull(), qPrintable(r.uuid));
+        }
+        QVERIFY(rows.at(0).uuid != rows.at(1).uuid);
+    }
+
+    void aSessionKeepsTheUuidItCameWith()
+    {
+        SessionRecord r = makeRecord(1000);
+        r.uuid = QStringLiteral("0b6f2c4e-8a51-4d7e-9c3a-5f1e2d7b9a60");
+        QVERIFY(sessions->insert(r));
+        QCOMPARE(all().at(0).uuid, r.uuid);
+        QVERIFY(!sessions->insert(r)); // the same session twice: one row
+        QCOMPARE(sessions->count(), 1);
+    }
+
+    void aChangedNoteMarksTheSessionChanged()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(makeRecord(1000), &id));
+        const auto updatedAt = [this, id]() {
+            QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+            query.prepare(QStringLiteral("SELECT updated_at FROM session WHERE id = ?"));
+            query.addBindValue(id);
+            return query.exec() && query.next() ? query.value(0).toLongLong() : -1;
+        };
+        QCOMPARE(updatedAt(), 0); // as recorded
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Chapter 4")));
+        QVERIFY(updatedAt() >= before);
+    }
+
+    void aDeletedSessionLeavesATombstone()
+    {
+        qint64 kept = 0;
+        qint64 gone = 0;
+        QVERIFY(sessions->insert(makeRecord(1000), &kept));
+        QVERIFY(sessions->insert(makeRecord(2000), &gone));
+        const QString uuid = all().at(1).uuid;
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        SessionRecord deleted;
+        QVERIFY(sessions->deleteById(gone, &deleted));
+        QCOMPARE(deleted.id, gone);
+        QCOMPARE(deleted.uuid, uuid);
+        QCOMPARE(deleted.startedAtMs, 2000);
+        QCOMPARE(all().size(), 1);
+        QCOMPARE(all().at(0).id, kept);
+
+        QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at, deleted_by FROM session_tombstone")));
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toString(), uuid);
+        QVERIFY(query.value(1).toLongLong() >= before);
+        QCOMPARE(query.value(2).toString(), QString()); // this device
+        QVERIFY(!query.next());
+
+        // No such session: nothing changes, no tombstone.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("there is no session")));
+        QVERIFY(!sessions->deleteById(gone));
+        QVERIFY(query.exec(QStringLiteral("SELECT count(*) FROM session_tombstone")) && query.next());
+        QCOMPARE(query.value(0).toInt(), 1);
+        QCOMPARE(sessions->count(), 1);
     }
 
     // --- SessionRecorder -----------------------------------------------------
@@ -590,6 +662,26 @@ private Q_SLOTS:
         QCOMPARE(again.id, id);
         QCOMPARE(again.durationSec, 30 * 60);
         QCOMPARE(again.note, QStringLiteral("Report"));
+    }
+
+    void workTakenUpAgainAfterItsSessionWasDeletedIsStoredAnew()
+    {
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        const qint64 id = all().at(0).id;
+        QVERIFY(sessions->deleteById(id));
+        recorder->forgetSession(id);
+        QCOMPARE(recorder->lastWorkSessionId(), -1);
+
+        elapse(60);
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).id != id);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), r.at(0).id);
     }
 
     void workTakenUpAgainKeepsTheTimerNameItBeganWith()
