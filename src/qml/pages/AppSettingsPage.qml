@@ -1481,12 +1481,12 @@ QQC2.Page {
 
                 SettingRow {
                     first: true
-                    title: i18n("Add an event to your calendar each time you finish a work session.")
+                    title: i18n("Add an event to your calendar each time you finish a work session")
                     description: i18n("Sugo then sends the name of your timer, its category and the time of each finished work session to the calendar server you choose.")
                     SSwitch {
                         id: calendarSwitch
                         checked: page.calOn
-                        Accessible.name: i18n("Add an event to your calendar each time you finish a work session.")
+                        Accessible.name: i18n("Add an event to your calendar each time you finish a work session")
                         onToggled: {
                             if (CalendarSync) {
                                 CalendarSync.enabled = checked;
