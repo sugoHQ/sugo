@@ -223,6 +223,15 @@ void Telemetry::recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngin
             {QStringLiteral("minutes"), std::clamp((seconds + 30) / 60, 1, 60)}});
 }
 
+void Telemetry::recordRestore(TimerEngine::Phase phase, const QString &result)
+{
+    static const QStringList results = {QStringLiteral("resumed"), QStringLiteral("stopped"), QStringLiteral("expired")};
+    if (!m_enabled || !results.contains(result)) {
+        return;
+    }
+    record(QStringLiteral("session_restored"), {{QStringLiteral("phase"), phaseName(phase)}, {QStringLiteral("result"), result}});
+}
+
 void Telemetry::tourEnded(int step, bool skipped)
 {
     if (!m_enabled) {

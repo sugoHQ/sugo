@@ -396,6 +396,20 @@ private Q_SLOTS:
         QCOMPARE(off->queue().size(), before + 1);
     }
 
+    void restoreEvents()
+    {
+        Telemetry *t = make();
+        t->recordRestore(TimerEngine::Phase::Work, QStringLiteral("resumed")); // off
+        t->setEnabled(true);
+        t->recordRestore(TimerEngine::Phase::Work, QStringLiteral("resumed"));
+        t->recordRestore(TimerEngine::Phase::LongBreak, QStringLiteral("expired"));
+        t->recordRestore(TimerEngine::Phase::Work, QStringLiteral("eaten")); // not a result
+        QCOMPARE(t->queue().size(), 2);
+        QCOMPARE(t->queue().at(0).toObject().value(QStringLiteral("event")).toString(), QStringLiteral("session_restored"));
+        QCOMPARE(t->queue().at(1).toObject().value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("phase"), QStringLiteral("long_break")}, {QStringLiteral("result"), QStringLiteral("expired")}}));
+    }
+
     void updateInstallEvents()
     {
         Telemetry *t = make();

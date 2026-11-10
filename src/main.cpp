@@ -609,6 +609,7 @@ int main(int argc, char *argv[])
     auto *keeper = engine.singletonInstance<SessionKeeper *>("stream.sugo.app", "SessionKeeper");
     if (keeper) {
         keeper->attach(timer, presets, recorder, SessionKeeper::defaultPath());
+        QObject::connect(keeper, &SessionKeeper::restoreEnded, telemetry, &Telemetry::recordRestore);
         keeper->restore();
     }
 
