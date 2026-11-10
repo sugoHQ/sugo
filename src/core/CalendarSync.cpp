@@ -638,6 +638,13 @@ void CalendarSync::loadQueue()
         Pending item;
         item.uid = o.value(QLatin1String("uid")).toString();
         item.account = o.value(QLatin1String("account")).toString();
+        for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
+            item.urls.append(url.toString());
+        }
+        // Saved by a development build before "urls": one address.
+        if (const QString url = o.value(QLatin1String("url")).toString(); item.urls.isEmpty() && !url.isEmpty()) {
+            item.urls.append(url);
+        }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
         r.kind = SessionKind::Work;
@@ -660,7 +667,13 @@ void CalendarSync::loadQueue()
         Pending item;
         item.uid = o.value(QLatin1String("uid")).toString();
         item.account = o.value(QLatin1String("account")).toString();
-        item.url = o.value(QLatin1String("url")).toString();
+        for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
+            item.urls.append(url.toString());
+        }
+        // Saved by a development build before "urls": one address.
+        if (const QString url = o.value(QLatin1String("url")).toString(); item.urls.isEmpty() && !url.isEmpty()) {
+            item.urls.append(url);
+        }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
         r.kind = SessionKind::Work;
@@ -694,6 +707,7 @@ void CalendarSync::saveQueue()
         pending.append(QJsonObject{
             {QStringLiteral("uid"), item.uid},
             {QStringLiteral("account"), item.account},
+            {QStringLiteral("urls"), QJsonArray::fromStringList(item.urls)},
             {QStringLiteral("id"), r.id},
             {QStringLiteral("startedAtMs"), r.startedAtMs},
             {QStringLiteral("endedAtMs"), r.endedAtMs},
@@ -711,7 +725,7 @@ void CalendarSync::saveQueue()
         sent.append(QJsonObject{
             {QStringLiteral("uid"), item.uid},
             {QStringLiteral("account"), item.account},
-            {QStringLiteral("url"), item.url},
+            {QStringLiteral("urls"), QJsonArray::fromStringList(item.urls)},
             {QStringLiteral("id"), r.id},
             {QStringLiteral("startedAtMs"), r.startedAtMs},
             {QStringLiteral("endedAtMs"), r.endedAtMs},
@@ -1314,7 +1328,7 @@ void CalendarSync::enqueueWorkSession(const SessionRecord &record)
     }
     // Before an account is complete (signing in, a calendar not chosen yet) the event waits,
     // bound to the user name only, if one is given; the account set up next adopts it.
-    Pending item{record, uidFor(record), configured() ? currentAccount() : unboundAccount(), QString()};
+    Pending item{record, uidFor(record), configured() ? currentAccount() : unboundAccount(), QStringList()};
     for (Pending &queued : m_queue) {
         if (queued.uid == item.uid) {
             queued.record = record;
@@ -1372,28 +1386,61 @@ void CalendarSync::onSessionDeleted(const SessionRecord &record, bool fromCalend
     // Waiting: it never goes. On its way: onSendFinished() finds it gone from the queue.
     const bool inFlight = m_inFlight && m_inFlightUid == uid;
     QString account;
-    // Where it went: the calendar chosen then, which may not be the one chosen now.
-    QString url = inFlight ? m_inFlightUrl : QString();
-    if (const auto it = std::find_if(m_sent.cbegin(), m_sent.cend(), sameUid); it != m_sent.cend()) {
-        account = it->account;
-        if (url.isEmpty()) {
-            url = it->url;
+    // Everywhere it may be: where it went or was tried (the calendar chosen then, which may not be
+    // the one chosen now), and where it is on its way to.
+    QStringList urls;
+    const auto addUrl = [&urls](const QString &url) {
+        if (!url.isEmpty() && !urls.contains(url)) {
+            urls.append(url);
+        }
+    };
+    if (inFlight) {
+        addUrl(m_inFlightUrl);
+    }
+    for (const Pending &item : std::as_const(m_sent)) {
+        if (item.uid == uid) {
+            account = item.account;
+            for (const QString &url : item.urls) {
+                addUrl(url);
+            }
         }
     }
-    const bool wasQueued = m_queue.removeIf(sameUid) > 0;
+    for (const Pending &item : std::as_const(m_queue)) {
+        // Tried (it has a place): queued for the account it was sent with. Never tried: nowhere yet.
+        if (item.uid == uid && !item.urls.isEmpty()) {
+            if (account.isEmpty()) {
+                account = item.account;
+            }
+            for (const QString &url : item.urls) {
+                addUrl(url);
+            }
+        }
+    }
+    m_queue.removeIf(sameUid);
     m_sent.removeIf(sameUid);
-    // Sent (as far as Sugo remembers, or too long ago to remember) or being sent: the user may
-    // want it off the calendar. A session only queued never reached it.
-    if (fromCalendar && m_enabled && configured() && (inFlight || !account.isEmpty() || !wasQueued)) {
+    // The keyring was not ready at startup: asked again now, at the user's request, rather than
+    // taking the account for incomplete and leaving the event behind.
+    if (fromCalendar && m_enabled) {
+        rereadPassword();
+    }
+    // Even an event still waiting may be on the server: an upload the server took but whose answer
+    // never came (Sugo quit, the network dropped) leaves it queued. A DELETE of an event that is
+    // not there is answered 404, which counts as done.
+    if (fromCalendar && m_enabled && configured()) {
         if (account.isEmpty()) {
             account = currentAccount();
         }
-        m_leftoverTests.removeIf([&uid](const LeftoverTest &leftover) {
-            return leftover.uid == uid;
-        });
         // Sent too long ago to be remembered (or by a version of Sugo that did not keep where):
         // the calendar chosen now.
-        m_leftoverTests.append({uid, account, url.isEmpty() ? eventUrl(uid).toString() : url});
+        if (urls.isEmpty()) {
+            urls.append(eventUrl(uid).toString());
+        }
+        for (const QString &url : std::as_const(urls)) {
+            m_leftoverTests.removeIf([&uid, &url](const LeftoverTest &leftover) {
+                return leftover.uid == uid && leftover.url == url;
+            });
+            m_leftoverTests.append({uid, account, url});
+        }
         // An event still on its way is deleted once its upload has finished.
         if (!inFlight) {
             removeLeftoverTestEvents();
@@ -1424,6 +1471,11 @@ void CalendarSync::trySend()
     m_inFlightUid = it->uid;
     m_inFlightRecord = it->record;
     m_inFlightUrl = eventUrl(it->uid).toString();
+    // Kept before the request goes: if its answer is lost (Sugo quits), the event may be there.
+    if (!it->urls.contains(m_inFlightUrl)) {
+        m_queue[it - m_queue.cbegin()].urls.append(m_inFlightUrl);
+        saveQueue();
+    }
     const QByteArray ics = buildIcs(it->record, m_includeNote, it->uid);
     request("PUT", QUrl(m_inFlightUrl), ics, {{"Content-Type", "text/calendar; charset=utf-8"}}, true,
             [this, account, password = m_password, calendar = m_calendarUrl](const Result &r) {
@@ -1483,7 +1535,9 @@ void CalendarSync::onSendFinished(const Result &r, bool credentialsChangedMeanwh
     if (isSuccess(r.http)) {
         Pending sentItem = m_queue.at(index);
         sentItem.record = m_inFlightRecord;
-        sentItem.url = m_inFlightUrl;
+        if (!sentItem.urls.contains(m_inFlightUrl)) {
+            sentItem.urls.append(m_inFlightUrl);
+        }
         rememberSent(sentItem);
         // Changed while this request was on its way (a note, or the session itself): send it again.
         const bool changedMeanwhile = !sameEvent(m_queue.at(index).record, m_inFlightRecord);
@@ -1569,11 +1623,13 @@ void CalendarSync::removeLeftoverTestEvents()
         if (m_inFlight && m_inFlightUid == uid) {
             continue;
         }
-        const QUrl url = leftover.url.isEmpty() ? eventUrl(uid) : QUrl(leftover.url);
-        request("DELETE", url, QByteArray(), {}, true, [this, uid](const Result &del) {
+        const QString where = leftover.url;
+        const QUrl url = where.isEmpty() ? eventUrl(uid) : QUrl(where);
+        request("DELETE", url, QByteArray(), {}, true, [this, uid, where](const Result &del) {
             if (isSuccess(del.http) || del.http == 404) {
+                // Only this place: the same event may still wait to go from another calendar.
                 m_leftoverTests.removeIf([&](const LeftoverTest &l) {
-                    return l.uid == uid;
+                    return l.uid == uid && l.url == where;
                 });
                 saveQueue();
             }
