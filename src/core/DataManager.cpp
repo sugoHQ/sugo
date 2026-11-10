@@ -15,46 +15,17 @@
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QLoggingCategory>
-#include <QSaveFile>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QUuid>
 
-#include <limits>
 #include <memory>
 
 namespace
 {
-QString isoWithOffset(qint64 ms)
-{
-    const QDateTime local = QDateTime::fromMSecsSinceEpoch(ms);
-    return local.toOffsetFromUtc(local.offsetFromUtc()).toString(Qt::ISODate);
-}
-
-QString csvCell(QString value, bool text)
-{
-    // Spreadsheets run a cell that starts like a formula: a leading ' makes it plain text.
-    if (text && !value.isEmpty()) {
-        const QChar first = value.at(0);
-        if (first == QLatin1Char('=') || first == QLatin1Char('+') || first == QLatin1Char('-')
-            || first == QLatin1Char('@') || first == QLatin1Char('\t') || first == QLatin1Char('\r')) {
-            value.prepend(QLatin1Char('\''));
-        }
-    }
-    if (value.contains(QLatin1Char(',')) || value.contains(QLatin1Char('"')) || value.contains(QLatin1Char('\n'))
-        || value.contains(QLatin1Char('\r'))) {
-        value.replace(QLatin1Char('"'), QStringLiteral("\"\""));
-        return QLatin1Char('"') + value + QLatin1Char('"');
-    }
-    return value;
-}
-
 QString comparablePath(const QString &path)
 {
     const QFileInfo info(path);
@@ -241,79 +212,6 @@ bool DataManager::clearHistoryOlderThan(int months)
     if (m_stats) m_stats->refresh();
     Q_EMIT dataChanged();
     Q_EMIT operationSucceeded(i18np("%1 session removed.", "%1 sessions removed.", removed));
-    return true;
-}
-
-bool DataManager::exportHistory(const QUrl &fileUrl)
-{
-    const QString path = fileUrl.toLocalFile();
-    if (path.isEmpty() || !m_sessions) {
-        Q_EMIT operationFailed(i18n("Choose a local file for the export."));
-        return false;
-    }
-    const QString suffix = QFileInfo(path).suffix().toLower();
-    const bool csv = suffix == QLatin1String("csv");
-    if (!csv && suffix != QLatin1String("json")) {
-        Q_EMIT operationFailed(i18n("Name the file with the ending .csv or .json."));
-        return false;
-    }
-
-    // A history that cannot be read is not an empty one: an existing file is left as it was.
-    bool readOk = false;
-    const QList<SessionRecord> records =
-        m_sessions->between(std::numeric_limits<qint64>::min(), std::numeric_limits<qint64>::max(), &readOk);
-    if (!readOk) {
-        Q_EMIT operationFailed(i18n("Could not read the session history."));
-        return false;
-    }
-    QByteArray data;
-    if (csv) {
-        QString out = QStringLiteral("id,kind,started_at,ended_at,duration_sec,planned_sec,completed,preset_name,category,note\r\n");
-        for (const SessionRecord &r : records) {
-            const QStringList cells = {
-                QString::number(r.id),
-                csvCell(SessionRepository::kindToString(r.kind), false),
-                csvCell(isoWithOffset(r.startedAtMs), false),
-                csvCell(isoWithOffset(r.endedAtMs), false),
-                QString::number(r.durationSec),
-                QString::number(r.plannedSec),
-                r.completed ? QStringLiteral("1") : QStringLiteral("0"),
-                csvCell(r.presetName, true),
-                csvCell(r.category, true),
-                csvCell(r.note, true),
-            };
-            out += cells.join(QLatin1Char(',')) + QStringLiteral("\r\n");
-        }
-        data = out.toUtf8();
-    } else {
-        QJsonArray array;
-        for (const SessionRecord &r : records) {
-            array.append(QJsonObject{
-                {QStringLiteral("id"), r.id},
-                {QStringLiteral("kind"), SessionRepository::kindToString(r.kind)},
-                {QStringLiteral("started_at"), isoWithOffset(r.startedAtMs)},
-                {QStringLiteral("ended_at"), isoWithOffset(r.endedAtMs)},
-                {QStringLiteral("duration_sec"), r.durationSec},
-                {QStringLiteral("planned_sec"), r.plannedSec},
-                {QStringLiteral("completed"), r.completed},
-                {QStringLiteral("preset_name"), r.presetName},
-                {QStringLiteral("category"), r.category},
-                {QStringLiteral("note"), r.note},
-            });
-        }
-        data = QJsonDocument(array).toJson(QJsonDocument::Indented);
-    }
-
-    // The history may hold private notes: the file is for its owner only. QSaveFile writes a
-    // temporary file and renames it, so a failed export leaves an existing file as it was.
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly) || !file.setPermissions(QFile::ReadOwner | QFile::WriteOwner)
-        || file.write(data) != data.size() || !file.commit()) {
-        file.cancelWriting();
-        Q_EMIT operationFailed(i18n("Could not write the export file."));
-        return false;
-    }
-    Q_EMIT operationSucceeded(i18np("Exported %1 session.", "Exported %1 sessions.", records.size()));
     return true;
 }
 
