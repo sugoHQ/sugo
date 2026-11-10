@@ -872,9 +872,28 @@ QQC2.ApplicationWindow {
                      + ", first done " + first.done + ", second current " + second.current);
                 return true;
             }
+            // The break waits: a suggestion for it shows under the clock, and stays the same when
+            // the page is made again (after Statistics, say).
+            const tip = findItem(page, item => item.objectName === "breakTip");
+            if (!tip || tip.text.length === 0 || !tip.fits || tip.y < findItem(page, item => item.objectName === "cycleTrack").mapToItem(page, 0, 0).y) {
+                fail(68, "No suggestion under the clock for the break waiting to start: "
+                     + (tip ? "\"" + tip.text + "\", fits " + tip.fits : "missing"));
+                return true;
+            }
+            const shownTip = tip.text;
+            root.navigate("stats");
+            root.navigate("timer");
+            const timerPage = root.pageStack.get(0);
+            const tipAgain = findItem(timerPage, item => item.objectName === "breakTip");
+            if (!tipAgain || tipAgain.text !== shownTip) {
+                fail(68, "The break suggestion changed when the focus page came back: \"" + shownTip + "\" then \""
+                     + (tipAgain ? tipAgain.text : "missing") + "\"");
+                return true;
+            }
+            const firstAgain = findItem(timerPage, item => item.objectName === "cycleSegment-0");
             TimerEngine.start();
             TimerEngine.stop();
-            if (first.done || !first.current) {
+            if (!firstAgain || firstAgain.done || !firstAgain.current) {
                 fail(49, "The track still shows work done after Stop");
                 return true;
             }
