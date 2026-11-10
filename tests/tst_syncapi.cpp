@@ -502,6 +502,19 @@ private Q_SLOTS:
         QCOMPARE(SyncCrypto::encryptBlob(SyncCrypto::newDataKey(), kUser, "abc").size(), 3 + SyncKinds::BlobOverhead);
     }
 
+    void anOversizedAnswerIsCutOff()
+    {
+        link();
+        // A server that sends more than any blob may hold: placed on it directly, as no upload
+        // that large is let in.
+        server->accounts[kUser].blobs["presets"] = {QByteArrayLiteral("SUGO") + QByteArray(9 * 1024 * 1024, 'x'), "e1"};
+
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(reply.http, 0);
+        QVERIFY(reply.body.isEmpty());
+    }
+
     void missingBlob()
     {
         link();

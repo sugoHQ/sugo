@@ -163,6 +163,7 @@ public:
     QList<int> putStatuses;            ///< Consumed one per PUT, then defaultPut.
     int defaultPut = 201;
     QByteArray putRetryAfter;          ///< Retry-After of a PUT that is not accepted, when not empty.
+    QByteArray putAnswer;              ///< The body of every PUT's answer.
     int deleteStatus = 204;
     int propfindStatus = 0;            ///< Answers every PROPFIND with this status when not 0.
     QByteArray forbiddenPropfindPath;  ///< A PROPFIND of this path is answered with 403.
@@ -328,7 +329,7 @@ private:
             if (status >= 200 && status < 300) {
                 stored.insert(path, req.body);
             }
-            reply(s, status, QByteArray(), "application/json", status >= 200 && status < 300 ? QByteArray() : putRetryAfter);
+            reply(s, status, putAnswer, "application/json", status >= 200 && status < 300 ? QByteArray() : putRetryAfter);
             return;
         }
         if (req.method == "DELETE") {
@@ -1454,6 +1455,15 @@ private Q_SLOTS:
         m_sync->testConnection();
         QTRY_COMPARE(m_sync->pendingCount(), 0);
         QTRY_COMPARE(m_sync->status(), CalendarSync::Ready);
+    }
+
+    void anOversizedAnswerIsCutOff()
+    {
+        configureCustom();
+        m_server->putAnswer = QByteArray(9 * 1024 * 1024, 'x');
+        m_sync->testConnection();
+        QTRY_COMPARE(m_sync->status(), CalendarSync::Failed);
+        QVERIFY(m_sync->lastError().contains(QStringLiteral("The server's answer is too large")));
     }
 
     void networkErrorIsReported()

@@ -63,6 +63,9 @@ const QString kCaldav = QStringLiteral("caldav");
 constexpr int kMaxQueue = 100;
 constexpr int kMaxSent = 50;
 constexpr int kLoginTimeoutMs = 15 * 60 * 1000;
+/// The most an answer may hold. A calendar server's answers to Sugo are a few KiB: one that sends
+/// more is cut off rather than read into memory.
+constexpr qint64 kMaxResponseSize = 8 * 1024 * 1024;
 
 QString appVersion()
 {
@@ -1202,6 +1205,12 @@ void CalendarSync::request(const QByteArray &verb, const QUrl &url, const QByteA
 
     QNetworkReply *reply = network()->sendCustomRequest(req, verb, body);
     m_replies.insert(reply);
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64 total) {
+        if (received > kMaxResponseSize || total > kMaxResponseSize) {
+            reply->setProperty("sugoTooLarge", true);
+            reply->abort();
+        }
+    });
     const quint64 gen = m_generation;
     connect(reply, &QNetworkReply::finished, this, [this, reply, gen, done]() {
         m_replies.remove(reply);
@@ -1210,6 +1219,12 @@ void CalendarSync::request(const QByteArray &verb, const QUrl &url, const QByteA
             return;
         }
         Result r;
+        if (reply->property("sugoTooLarge").toBool()) {
+            // Cut off for its size: it fails as the network does, with nothing of what came.
+            r.networkError = i18n("The server's answer is too large");
+            done(r);
+            return;
+        }
         r.http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         r.body = reply->readAll();
         if (r.http == 0) {
