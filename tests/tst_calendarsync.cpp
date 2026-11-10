@@ -2462,6 +2462,29 @@ private Q_SLOTS:
         QVERIFY(keyring.secrets->isEmpty());
     }
 
+    void deletedSessionWhoseUploadAnswerWasLostLeavesTheCalendarItWasTriedIn()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(16));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        const QByteArray path = "/cal/personal/" + CalendarSync::uidFor(record(16)).toUtf8() + ".ics";
+        m_server->stored.insert(path, QByteArray("BEGIN:VCALENDAR")); // the server took it
+        // Another calendar of the same account is chosen, and Sugo restarts before the answer came.
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT"; // the new calendar does not answer either
+        };
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(16), true);
+        QTRY_VERIFY(m_server->count("DELETE") >= 1);
+        QTRY_VERIFY(!m_server->stored.contains(path));
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
     void deletedSessionReadsAKeyringThatWasNotReadyAtStartup()
     {
         FakeSecretStore keyring;
