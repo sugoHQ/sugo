@@ -168,6 +168,10 @@ msgstr ""
 msgid "The server could not be reached"
 msgstr ""
 
+#: src/core/CalendarSync.cpp:1224
+msgid "The server's answer is too large"
+msgstr ""
+
 #: src/core/CalendarSync.cpp:1276
 msgid "The calendar must be on the Nextcloud server you signed in to."
 msgstr ""
