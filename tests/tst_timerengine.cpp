@@ -940,6 +940,7 @@ private Q_SLOTS:
         QCOMPARE(extended.at(0).at(0).value<Phase>(), Phase::Work);
         QCOMPARE(extended.at(0).at(1).toBool(), false);
         QCOMPARE(extended.at(0).at(2).value<TimerEngine::ExtendSource>(), TimerEngine::ExtendSource::App);
+        QCOMPARE(extended.at(0).at(3).toInt(), 5 * 60);
     }
 
     void extendWorksWhilePaused()

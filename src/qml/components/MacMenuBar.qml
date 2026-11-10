@@ -71,17 +71,17 @@ Item {
                 Platform.MenuItem {
                     text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 2)
                     role: Platform.MenuItem.NoRole
-                    onTriggered: TimerEngine.extend(2 * 60)
+                    onTriggered: TimerEngine.extend(2 * 60, TimerEngine.ExtendSource.Menu)
                 }
                 Platform.MenuItem {
                     text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 5)
                     role: Platform.MenuItem.NoRole
-                    onTriggered: TimerEngine.extend(5 * 60)
+                    onTriggered: TimerEngine.extend(5 * 60, TimerEngine.ExtendSource.Menu)
                 }
                 Platform.MenuItem {
                     text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 10)
                     role: Platform.MenuItem.NoRole
-                    onTriggered: TimerEngine.extend(10 * 60)
+                    onTriggered: TimerEngine.extend(10 * 60, TimerEngine.ExtendSource.Menu)
                 }
             }
             Platform.MenuSeparator {}

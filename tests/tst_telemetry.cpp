@@ -361,18 +361,20 @@ private Q_SLOTS:
     void extendEvents()
     {
         Telemetry *t = make();
-        t->recordExtend(TimerEngine::Phase::Work, false, TimerEngine::ExtendSource::App); // off
+        t->recordExtend(TimerEngine::Phase::Work, false, TimerEngine::ExtendSource::App, 300); // off
         t->setEnabled(true);
-        t->recordExtend(TimerEngine::Phase::Work, true, TimerEngine::ExtendSource::Notification);
-        t->recordExtend(TimerEngine::Phase::ShortBreak, false, TimerEngine::ExtendSource::Menu);
+        t->recordExtend(TimerEngine::Phase::Work, true, TimerEngine::ExtendSource::Notification, 300);
+        t->recordExtend(TimerEngine::Phase::ShortBreak, false, TimerEngine::ExtendSource::Menu, 600);
         QCOMPARE(t->queue().size(), 2);
         const auto at = [t](int i) { return t->queue().at(i).toObject(); };
         QCOMPARE(at(0).value(QStringLiteral("event")).toString(), QStringLiteral("timer_extended"));
         QCOMPARE(at(0).value(QStringLiteral("props")).toObject(),
                  QJsonObject({{QStringLiteral("phase"), QStringLiteral("work")},
                               {QStringLiteral("moment"), QStringLiteral("ended")},
-                              {QStringLiteral("source"), QStringLiteral("notification")}}));
+                              {QStringLiteral("source"), QStringLiteral("notification")},
+                              {QStringLiteral("minutes"), 5}}));
         QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("source")).toString(), QStringLiteral("menu"));
+        QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("minutes")).toInt(), 10);
 
         // The session taken up again was counted when it first ended.
         t->skipNextSession();

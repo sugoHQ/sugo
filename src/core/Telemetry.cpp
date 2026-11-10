@@ -194,7 +194,7 @@ void Telemetry::recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool c
             {QStringLiteral("completed"), completed}});
 }
 
-void Telemetry::recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source)
+void Telemetry::recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds)
 {
     if (!m_enabled) {
         return;
@@ -217,7 +217,8 @@ void Telemetry::recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngin
     record(QStringLiteral("timer_extended"),
            {{QStringLiteral("phase"), phaseName(phase)},
             {QStringLiteral("moment"), afterEnd ? QStringLiteral("ended") : QStringLiteral("running")},
-            {QStringLiteral("source"), from}});
+            {QStringLiteral("source"), from},
+            {QStringLiteral("minutes"), std::clamp((seconds + 30) / 60, 1, 60)}});
 }
 
 void Telemetry::tourEnded(int step, bool skipped)

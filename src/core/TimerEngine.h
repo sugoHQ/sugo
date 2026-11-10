@@ -215,8 +215,8 @@ Q_SIGNALS:
     /// Emitted after the transition: if `next` was auto-started, isRunning() is already true.
     void phaseFinished(TimerEngine::Phase finished, TimerEngine::Phase next);
 
-    /// Time was added: to the running phase (`afterEnd` false) or to the one that had just ended.
-    void phaseExtended(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source);
+    /// `seconds` were added: to the running phase (`afterEnd` false) or to the one that had just ended.
+    void phaseExtended(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds);
     /// The phase that had just ended, already reported by sessionEnded(), goes on: its next
     /// sessionEnded() is the same session, longer. Emitted before the state changes.
     void phaseReopened(TimerEngine::Phase phase);

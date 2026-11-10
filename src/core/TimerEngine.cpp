@@ -276,7 +276,7 @@ bool TimerEngine::extend(int seconds, ExtendSource source)
     }
     notifyTime(true);
     updateExtendable();
-    Q_EMIT phaseExtended(m_phase, false, source);
+    Q_EMIT phaseExtended(m_phase, false, source, int(added / 1000));
     return true;
 }
 
@@ -312,7 +312,7 @@ bool TimerEngine::continueFinished(int seconds, ExtendSource source)
     m_ticker.start();
     notifyTime(true);
     updateExtendable();
-    Q_EMIT phaseExtended(reopen.phase, true, source);
+    Q_EMIT phaseExtended(reopen.phase, true, source, int(added / 1000));
     return true;
 }
 
