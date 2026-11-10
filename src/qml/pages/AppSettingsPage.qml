@@ -1002,11 +1002,20 @@ QQC2.Page {
         Accessible.description: timer.summary
         // From the keyboard; the mouse goes through rowMouse, which knows Ctrl and Shift.
         onClicked: page.timerRowClicked(timer, Qt.NoModifier)
+        // Ctrl (⌘) or Shift with Space or Enter chooses the timer, as Ctrl/Shift+click does,
+        // instead of opening it. Taken here, the press never reaches the button, so no click follows.
+        Keys.onPressed: event => {
+            const choosing = (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.ShiftModifier)) !== 0;
+            if (choosing && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                page.timerRowClicked(timer, event.modifiers);
+                event.accepted = true;
+            }
+        }
 
         readonly property bool pointed: rowMouse.containsMouse || boxMouse.containsMouse
         readonly property bool selected: page.timerSelected(timer.uuid)
-        // The box shows while timers are chosen, or under the pointer.
-        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed)
+        // The box shows while timers are chosen, under the pointer, or on the row with keyboard focus.
+        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed || visualFocus)
 
         MouseArea {
             id: rowMouse
