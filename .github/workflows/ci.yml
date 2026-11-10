@@ -177,7 +177,8 @@ jobs:
       - name: Run test suite
         run: ctest --test-dir build --output-on-failure --parallel "$(getconf _NPROCESSORS_ONLN)"
 
-  # Clang's warnings are close to those of Apple's compiler: they show up here before the macOS job.
+  # Clang's warnings are close to those of Apple's compiler: they show up here before the macOS job,
+  # and the tests run again on what it built.
   build-clang:
     name: Build with Clang
     needs: [changes, image]
@@ -221,6 +222,10 @@ jobs:
           ccache --show-stats
           # Keep only what this build used: the cache stays the size of one build.
           ccache --evict-older-than 7200s
+
+      # The suite again, built by another compiler: what one of them gets wrong shows up here.
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure --parallel "$(getconf _NPROCESSORS_ONLN)"
 
   # Native arm64 build and tests with Qt from qt.io, extra-cmake-modules and libsodium from source,
   # at the versions packaging/macos/build.sh and build-libsodium.sh pin. Not blocking yet: a
