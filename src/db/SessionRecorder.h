@@ -26,6 +26,10 @@ class QCoreApplication;
  * A session that cannot be stored (database busy, disk full...) is not dropped: it is kept in
  * memory and stored again at the next phase end or retry, and isSaveFailing() says so meanwhile.
  * Quitting tries once more (see connectQuit()).
+ *
+ * A phase taken up again after it ended (TimerEngine::phaseReopened) is the same session: when it
+ * ends, the row stored for it is updated instead of a new one added, and workSessionRecorded()
+ * comes again with the same id (the calendar replaces its event).
  */
 class SessionRecorder : public QObject
 {
@@ -68,6 +72,7 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void onPhaseStarted(TimerEngine::Phase phase);
+    void onPhaseReopened(TimerEngine::Phase phase);
     void onSessionEnded(TimerEngine::Phase phase,
                         const QDateTime &startedAt,
                         const QDateTime &endedAt,
@@ -83,6 +88,11 @@ private:
     SessionRepository *m_repository;
     TimerPreset m_active; ///< Preset captured at the start of the running phase.
     qint64 m_lastWorkSessionId = -1;
+    qint64 m_lastSessionId = -1;     ///< Row id of the phase that ended last, of any kind; -1 if not stored.
+    qint64 m_reopenedId = 0;         ///< Row the next ended phase updates (> 0), or 0.
+    bool m_reopenedUnsaved = false;  ///< The next ended phase replaces the last unsaved one instead.
+    qint64 m_lastEndedStartMs = -1;  ///< Start of the phase that ended last, to know its row once a retry stores it.
+    SessionKind m_lastEndedKind = SessionKind::Work;
     QList<SessionRecord> m_unsaved; ///< Ended sessions the database refused, oldest first.
     QTimer m_retryTimer;
 };

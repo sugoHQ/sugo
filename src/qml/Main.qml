@@ -1382,6 +1382,12 @@ QQC2.ApplicationWindow {
             list.push({ text: i18n("Stop the timer"), icon: "stop", run: () => root.requestEndPhase(false) });
             list.push({ text: i18n("Skip to the next phase"), icon: "skip", run: () => root.requestEndPhase(true) });
         }
+        if (TimerEngine.extendable) {
+            for (const minutes of [2, 5, 10]) {
+                list.push({ text: i18np("Add %1 minute", "Add %1 minutes", minutes), icon: "plus",
+                            run: () => TimerEngine.extend(minutes * 60) });
+            }
+        }
         return list.concat(root.timerCommands());
     }
 

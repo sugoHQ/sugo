@@ -358,6 +358,44 @@ private Q_SLOTS:
         QVERIFY(again->queue().isEmpty());
     }
 
+    void extendEvents()
+    {
+        Telemetry *t = make();
+        t->recordExtend(TimerEngine::Phase::Work, false, TimerEngine::ExtendSource::App, 300); // off
+        t->setEnabled(true);
+        t->recordExtend(TimerEngine::Phase::Work, true, TimerEngine::ExtendSource::Notification, 300);
+        t->recordExtend(TimerEngine::Phase::ShortBreak, false, TimerEngine::ExtendSource::Menu, 600);
+        QCOMPARE(t->queue().size(), 2);
+        const auto at = [t](int i) { return t->queue().at(i).toObject(); };
+        QCOMPARE(at(0).value(QStringLiteral("event")).toString(), QStringLiteral("timer_extended"));
+        QCOMPARE(at(0).value(QStringLiteral("props")).toObject(),
+                 QJsonObject({{QStringLiteral("phase"), QStringLiteral("work")},
+                              {QStringLiteral("moment"), QStringLiteral("ended")},
+                              {QStringLiteral("source"), QStringLiteral("notification")},
+                              {QStringLiteral("minutes"), 5}}));
+        QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("source")).toString(), QStringLiteral("menu"));
+        QCOMPARE(at(1).value(QStringLiteral("props")).toObject().value(QStringLiteral("minutes")).toInt(), 10);
+
+        // The session taken up again was counted when it first ended.
+        t->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 3);
+        t->skipNextSession();
+        t->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 3);
+        t->recordSession(TimerEngine::Phase::ShortBreak, 5 * 60 * 1000, true);
+        QCOMPARE(t->queue().size(), 4);
+
+        // Ended while the statistics were off, taken up again, turned on before its new end:
+        // that end is the only one sent.
+        Telemetry *off = make();
+        off->recordSession(TimerEngine::Phase::Work, 25 * 60 * 1000, true);
+        off->skipNextSession();
+        off->setEnabled(true);
+        const qsizetype before = off->queue().size();
+        off->recordSession(TimerEngine::Phase::Work, 30 * 60 * 1000, true);
+        QCOMPARE(off->queue().size(), before + 1);
+    }
+
     void updateInstallEvents()
     {
         Telemetry *t = make();

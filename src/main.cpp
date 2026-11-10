@@ -536,6 +536,8 @@ int main(int argc, char *argv[])
                          [telemetry](TimerEngine::Phase phase, const QDateTime &, const QDateTime &, qint64, qint64 plannedMs, bool completed) {
                              telemetry->recordSession(phase, plannedMs, completed);
                          });
+        QObject::connect(timer, &TimerEngine::phaseExtended, telemetry, &Telemetry::recordExtend);
+        QObject::connect(timer, &TimerEngine::phaseReopened, telemetry, &Telemetry::skipNextSession);
         if (updates) {
             QObject::connect(updates, &UpdateChecker::installFinished, telemetry, &Telemetry::recordUpdateInstall);
         }

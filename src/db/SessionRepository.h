@@ -39,6 +39,12 @@ public:
     /// when there is no session with that id.
     bool updateNote(qint64 sessionId, const QString &note);
 
+    /// Gives the session `record.id` the end, active and planned time and completion of `record`
+    /// (a phase taken up again after it ended); its start, timer and note stay. On success `note`
+    /// (if given) receives the session's note. Returns false (and logs) on failure or when there
+    /// is no session with that id.
+    bool updateEnd(const SessionRecord &record, QString *note = nullptr);
+
     /// Recent unique non-empty task notes (trimmed), most recently used first.
     QStringList recentNotes(int limit = 5) const;
 

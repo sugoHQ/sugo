@@ -85,6 +85,16 @@ void DBusTimerService::skip()
     answer(m_commands.skip());
 }
 
+void DBusTimerService::extend()
+{
+    answer(m_commands.extend());
+}
+
+void DBusTimerService::extendBy(int minutes)
+{
+    answer(m_commands.extend(minutes));
+}
+
 QString DBusTimerService::status() const
 {
     return m_commands.status();
