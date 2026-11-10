@@ -89,7 +89,7 @@ const QList<RestoredTable> &restoredTables()
         {QStringLiteral("preset_option"), QStringLiteral("preset_id, key, value")},
         {QStringLiteral("session"),
          QStringLiteral("id, uuid, kind, started_at, ended_at, duration_sec, planned_sec, completed, preset_id, "
-                        "preset_name, category, note")},
+                        "preset_name, category, note, updated_at, updated_by")},
         // The one-time look for Sugo 1.0.0's data (Database::recoverSugo100Database()) was made
         // for this file: a backup from before it, or from another computer, must not undo it.
         {QStringLiteral("meta"), QStringLiteral("key, value"), QStringLiteral("key <> 'sugo100_recovery'")},
@@ -496,6 +496,9 @@ bool DataManager::restoreDatabase(const QUrl &fileUrl)
                        "ON CONFLICT(uuid) DO UPDATE SET deleted_at = excluded.deleted_at, deleted_by = excluded.deleted_by")
             .arg(QDateTime::currentMSecsSinceEpoch()),
         QStringLiteral("DELETE FROM main.preset_tombstone WHERE uuid IN (SELECT uuid FROM restore_db.preset)"),
+        // A session deleted here and brought back by the backup is no longer deleted: Sugo Sync
+        // must not delete it again.
+        QStringLiteral("DELETE FROM main.session_tombstone WHERE uuid IN (SELECT uuid FROM restore_db.session)"),
     };
     for (auto it = restoredTables().crbegin(); it != restoredTables().crend(); ++it) {
         const QString where = it->rows.isEmpty() ? QString() : QStringLiteral(" WHERE ") + it->rows;
