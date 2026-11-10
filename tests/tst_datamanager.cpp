@@ -474,6 +474,25 @@ private Q_SLOTS:
         manager->setPresetPersistence(nullptr);
     }
 
+    void timersThatCouldNotBeReadAreReported()
+    {
+        QVERIFY(!manager->timersUnreadable());
+        // The stored timers cannot be read at startup (stands in for a busy or damaged file).
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        PresetModel model;
+        PresetPersistence persistence(&model, presetRepository.get());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+
+        QSignalSpy failing(manager.get(), &DataManager::saveFailingChanged);
+        manager->setPresetPersistence(&persistence);
+        QVERIFY(manager->timersUnreadable());
+        QCOMPARE(failing.count(), 1);
+
+        manager->setPresetPersistence(nullptr);
+        QVERIFY(!manager->timersUnreadable());
+    }
+
     void sessionsWaitingToBeStoredDoNotReappearAfterClearing()
     {
         FakeClock clock;

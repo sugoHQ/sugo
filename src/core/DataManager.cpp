@@ -114,6 +114,11 @@ bool DataManager::saveFailing() const
     return (m_recorder && m_recorder->isSaveFailing()) || (m_presetPersistence && m_presetPersistence->isSaveFailing());
 }
 
+bool DataManager::timersUnreadable() const
+{
+    return m_presetPersistence && m_presetPersistence->loadFailed();
+}
+
 void DataManager::setPresetPersistence(PresetPersistence *persistence)
 {
     if (m_presetPersistence) {
