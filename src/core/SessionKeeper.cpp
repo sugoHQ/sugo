@@ -160,7 +160,13 @@ bool SessionKeeper::write()
 
 bool SessionKeeper::keepForQuit()
 {
-    if (!m_engine || !m_restoreDone || m_path.isEmpty() || !m_engine->isActive() || m_engine->continuesEndedSession()) {
+    if (!m_engine || !m_restoreDone || m_path.isEmpty()) {
+        return false;
+    }
+    // A phase whose time ran out before the next tick has ended: it is recorded as completed, not
+    // kept with no time left (the next start would drop it).
+    m_engine->refresh();
+    if (!m_engine->isActive() || m_engine->continuesEndedSession()) {
         return false;
     }
     m_heartbeat.stop();

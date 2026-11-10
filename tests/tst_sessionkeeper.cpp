@@ -263,6 +263,18 @@ private Q_SLOTS:
         QCOMPARE(all().at(0).presetName, QStringLiteral("Gone"));
     }
 
+    void quittingJustAfterTheDeadlineRecordsTheFinishedPhase()
+    {
+        engine->start();
+        clock.advanceSeconds(25 * 60); // the time is up, and the quit comes before the next tick
+        QVERIFY(!keeper->keepForQuit()); // the short break waits: nothing under way to keep
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 25 * 60);
+        QVERIFY(!QFile::exists(path()));
+    }
+
     void aWorkTakenUpAgainIsNotKept()
     {
         engine->start();
