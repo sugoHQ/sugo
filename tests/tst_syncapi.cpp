@@ -505,11 +505,9 @@ private Q_SLOTS:
     void anOversizedAnswerIsCutOff()
     {
         link();
-        // A server that sends more than any blob may hold: here one the fake server lets in.
-        server->blobKinds["presets"] = 10 * 1024 * 1024;
-        const QByteArray blob = QByteArrayLiteral("SUGO") + QByteArray(9 * 1024 * 1024, 'x');
-        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, QByteArray(), cb); });
-        QCOMPARE(put.http, 201);
+        // A server that sends more than any blob may hold: placed on it directly, as no upload
+        // that large is let in.
+        server->accounts[kUser].blobs["presets"] = {QByteArrayLiteral("SUGO") + QByteArray(9 * 1024 * 1024, 'x'), "e1"};
 
         const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
