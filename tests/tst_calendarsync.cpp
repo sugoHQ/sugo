@@ -1566,6 +1566,45 @@ private Q_SLOTS:
         QCOMPARE(m_sync->pendingCount(), 0);
     }
 
+    void deletedSessionLeavesTheCalendarItWasSentTo()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(11));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        const QByteArray sentTo = m_server->of("PUT").first().path;
+
+        // Another calendar of the same account is chosen afterwards, and Sugo restarts.
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(11), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, sentTo);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void anUploadOnItsWayIsNotDeletedBeforeItArrives()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(12));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(13));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        // 13 is deleted while on its way, then 12 (sent): only 12's event may go now.
+        m_sync->onSessionDeleted(record(13), true);
+        m_sync->onSessionDeleted(record(12), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTest::qWait(50);
+        QCOMPARE(m_server->count("DELETE"), 1);
+        m_server->hold = nullptr;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+    }
+
     void deletingFromAnUnreachableCalendarIsTriedAgain()
     {
         configureCustom();
