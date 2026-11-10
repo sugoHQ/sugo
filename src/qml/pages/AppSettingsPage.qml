@@ -309,7 +309,7 @@ QQC2.Page {
             void page.presetsRevision;
             return uuids.map(uuid => PresetModel.get(uuid).name || "");
         }
-        title: i18np("Delete this timer?", "Delete %1 timers?", uuids.length)
+        title: i18ncp("@title:window the timers chosen on the Timers page", "Delete this timer?", "Delete %1 timers?", uuids.length)
         // At most three names, so a long selection keeps the dialog inside the window.
         readonly property int namesShown: 3
         readonly property string listedNames: names.slice(0, namesShown)
@@ -1002,11 +1002,23 @@ QQC2.Page {
         Accessible.description: timer.summary
         // From the keyboard; the mouse goes through rowMouse, which knows Ctrl and Shift.
         onClicked: page.timerRowClicked(timer, Qt.NoModifier)
+        // Ctrl (⌘) or Shift with Space or Enter chooses the timer, as Ctrl/Shift+click does,
+        // instead of opening it. Taken here, the press never reaches the button, so no click follows.
+        Keys.onPressed: event => {
+            const choosing = (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.ShiftModifier)) !== 0;
+            if (choosing && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                // A held key chooses once: its repeats would undo and redo the choice.
+                if (!event.isAutoRepeat) {
+                    page.timerRowClicked(timer, event.modifiers);
+                }
+                event.accepted = true;
+            }
+        }
 
         readonly property bool pointed: rowMouse.containsMouse || boxMouse.containsMouse
         readonly property bool selected: page.timerSelected(timer.uuid)
-        // The box shows while timers are chosen, or under the pointer.
-        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed)
+        // The box shows while timers are chosen, under the pointer, or on the row with keyboard focus.
+        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed || visualFocus)
 
         MouseArea {
             id: rowMouse
