@@ -479,7 +479,7 @@ msgstr ""
 msgid "5 More Minutes"
 msgstr ""
 
-#: src/core/PhaseNotifier.cpp:174
+#: src/core/PhaseNotifier.cpp:174 src/main.cpp:760
 msgid "View"
 msgstr ""
 
@@ -613,7 +613,8 @@ msgid_plural "%1 Minutes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/core/TimerMenuActions.cpp:100 src/platform/KRunnerService.cpp:66
+#: src/core/TimerMenuActions.cpp:100 src/main.cpp:755
+#: src/platform/KRunnerService.cpp:66
 msgid "Resume"
 msgstr ""
 
@@ -677,7 +678,7 @@ msgid ""
 "%2"
 msgstr ""
 
-#: src/core/TrayPresenter.cpp:71 src/main.cpp:213 src/main.cpp:217
+#: src/core/TrayPresenter.cpp:71 src/main.cpp:216 src/main.cpp:220
 msgid "Sugo"
 msgstr ""
 
@@ -760,21 +761,39 @@ msgstr ""
 msgid "the copy is incomplete"
 msgstr ""
 
-#: src/main.cpp:219
+#: src/main.cpp:222
 msgid "A Pomodoro timer with time statistics"
 msgstr ""
 
-#: src/main.cpp:220
+#: src/main.cpp:223
 msgid "© 2026 Sugo contributors"
 msgstr ""
 
-#: src/main.cpp:229
+#: src/main.cpp:232
 msgid "Start hidden in the menu bar (used by the login item)"
 msgstr ""
 
-#: src/main.cpp:232
+#: src/main.cpp:235
 msgid "Start hidden in the system tray (used by the login entry)"
 msgstr ""
+
+#: src/main.cpp:750
+msgid "Work session paused"
+msgstr ""
+
+#: src/main.cpp:750
+msgid "Break paused"
+msgstr ""
+
+#: src/main.cpp:751
+msgid ""
+"Sugo was closed during this session. %1 minute is left: resume it when you "
+"are ready."
+msgid_plural ""
+"Sugo was closed during this session. %1 minutes are left: resume it when you "
+"are ready."
+msgstr[0] ""
+msgstr[1] ""
 
 #: src/platform/KRunnerService.cpp:89
 msgid "Sugo: control from other programs is turned off"
@@ -1173,22 +1192,26 @@ msgstr ""
 
 #: src/qml/Main.qml:155
 msgid ""
-"A work session is in progress. Restarting ends it now, and it is saved as "
-"interrupted."
+"A work session is in progress. It is paused while Sugo restarts, and waits "
+"for you afterwards."
 msgstr ""
 
 #: src/qml/Main.qml:156
-msgid "A break is in progress. Restarting ends it now."
+msgid ""
+"A break is in progress. It is paused while Sugo restarts, and waits for you "
+"afterwards."
 msgstr ""
 
 #: src/qml/Main.qml:158
 msgid ""
-"A work session is in progress. Quitting ends it now, and it is saved as "
-"interrupted."
+"A work session is in progress. Quitting pauses it, and it waits for you the "
+"next time Sugo starts."
 msgstr ""
 
 #: src/qml/Main.qml:159
-msgid "A break is in progress. Quitting ends it now."
+msgid ""
+"A break is in progress. Quitting pauses it, and it waits for you the next "
+"time Sugo starts."
 msgstr ""
 
 #: src/qml/Main.qml:160
@@ -1360,7 +1383,7 @@ msgid "Open folder"
 msgstr ""
 
 #: src/qml/Main.qml:1613 src/qml/pages/AppSettingsPage.qml:2436
-#: src/qml/pages/TimerPage.qml:438
+#: src/qml/pages/TimerPage.qml:438 src/qml/pages/TimerPage.qml:462
 msgid "Dismiss"
 msgstr ""
 
@@ -3309,19 +3332,23 @@ msgstr ""
 msgid "The timer was paused because your screen was locked."
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:472
+#: src/qml/pages/TimerPage.qml:452
+msgid "Sugo was closed during this session, so it was paused."
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:496
 msgctxt "the focus page's line about today: work sessions finished"
 msgid "Today <b>%1 session</b>"
 msgid_plural "Today <b>%1 sessions</b>"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/qml/pages/TimerPage.qml:477
+#: src/qml/pages/TimerPage.qml:501
 msgctxt "the focus page's line about today: time spent working"
 msgid "<b>%1</b> focused"
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:482
+#: src/qml/pages/TimerPage.qml:506
 msgctxt "the focus page's line about today: days in a row with work"
 msgid "Streak <b>%1 day</b>"
 msgid_plural "Streak <b>%1 days</b>"
