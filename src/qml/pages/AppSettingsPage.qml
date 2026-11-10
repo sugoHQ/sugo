@@ -309,7 +309,7 @@ QQC2.Page {
             void page.presetsRevision;
             return uuids.map(uuid => PresetModel.get(uuid).name || "");
         }
-        title: i18np("Delete this timer?", "Delete %1 timers?", uuids.length)
+        title: i18ncp("@title:window the timers chosen on the Timers page", "Delete this timer?", "Delete %1 timers?", uuids.length)
         // At most three names, so a long selection keeps the dialog inside the window.
         readonly property int namesShown: 3
         readonly property string listedNames: names.slice(0, namesShown)
