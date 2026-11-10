@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-10 00:30+0000\n"
+"POT-Creation-Date: 2026-11-10 00:42+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1231,7 +1231,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: src/qml/Main.qml:757 src/qml/components/AutoStartMenu.qml:41
-#: src/qml/components/Composer.qml:40 src/qml/pages/PresetEditPage.qml:825
+#: src/qml/components/Composer.qml:39 src/qml/pages/PresetEditPage.qml:825
 msgid "All phases"
 msgstr ""
 
@@ -1271,7 +1271,7 @@ msgstr ""
 msgid "About"
 msgstr ""
 
-#: src/qml/Main.qml:1302 src/qml/components/Composer.qml:118
+#: src/qml/Main.qml:1302 src/qml/components/Composer.qml:104
 msgid "Stop the timer to switch to a different timer."
 msgstr ""
 
@@ -1321,7 +1321,7 @@ msgstr ""
 msgid "Skip to the next phase"
 msgstr ""
 
-#: src/qml/Main.qml:1387
+#: src/qml/Main.qml:1387 src/qml/pages/TimerPage.qml:407
 msgid "Add %1 minute"
 msgid_plural "Add %1 minutes"
 msgstr[0] ""
@@ -1360,7 +1360,7 @@ msgid "Open folder"
 msgstr ""
 
 #: src/qml/Main.qml:1613 src/qml/pages/AppSettingsPage.qml:2436
-#: src/qml/pages/TimerPage.qml:406
+#: src/qml/pages/TimerPage.qml:438
 msgid "Dismiss"
 msgstr ""
 
@@ -1500,13 +1500,13 @@ msgstr ""
 msgid "Accent color"
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:23 src/qml/components/Composer.qml:132
-#: src/qml/components/Composer.qml:133 src/qml/pages/PresetEditPage.qml:820
+#: src/qml/components/AutoStartMenu.qml:23 src/qml/components/Composer.qml:118
+#: src/qml/components/Composer.qml:119 src/qml/pages/PresetEditPage.qml:820
 #: src/qml/pages/PresetEditPage.qml:824
 msgid "Start automatically"
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:27 src/qml/components/Composer.qml:40
+#: src/qml/components/AutoStartMenu.qml:27 src/qml/components/Composer.qml:39
 #: src/qml/pages/PresetEditPage.qml:825
 msgid "Manual"
 msgstr ""
@@ -1516,7 +1516,7 @@ msgctxt "the start mode Manual"
 msgid "You start every phase."
 msgstr ""
 
-#: src/qml/components/AutoStartMenu.qml:34 src/qml/components/Composer.qml:40
+#: src/qml/components/AutoStartMenu.qml:34 src/qml/components/Composer.qml:39
 #: src/qml/pages/PresetEditPage.qml:825
 msgid "Breaks only"
 msgstr ""
@@ -1544,35 +1544,22 @@ msgstr ""
 msgid "Nothing found"
 msgstr ""
 
-#: src/qml/components/Composer.qml:147
+#: src/qml/components/Composer.qml:133
 msgid "Quiet"
 msgstr ""
 
-#: src/qml/components/Composer.qml:155 src/qml/pages/PresetEditPage.qml:835
+#: src/qml/components/Composer.qml:141 src/qml/pages/PresetEditPage.qml:835
 msgid "Needs the two Focus shortcuts: install them in Settings → Focus."
 msgstr ""
 
-#: src/qml/components/Composer.qml:156 src/qml/pages/PresetEditPage.qml:837
+#: src/qml/components/Composer.qml:142 src/qml/pages/PresetEditPage.qml:837
 msgid ""
 "Not available: this desktop's notification service cannot be silenced by "
 "applications."
 msgstr ""
 
-#: src/qml/components/Composer.qml:157 src/qml/components/Composer.qml:160
+#: src/qml/components/Composer.qml:143 src/qml/components/Composer.qml:146
 msgid "Notifications silenced until the break"
-msgstr ""
-
-#: src/qml/components/Composer.qml:185 src/qml/components/Composer.qml:192
-#: src/qml/components/ExtendMenu.qml:15
-msgid "Add time"
-msgstr ""
-
-#: src/qml/components/Composer.qml:190
-msgid "Keep working for a few more minutes"
-msgstr ""
-
-#: src/qml/components/Composer.qml:191
-msgid "Make the break a few minutes longer"
 msgstr ""
 
 #: src/qml/components/ConfirmDialog.qml:15
@@ -1583,14 +1570,6 @@ msgstr ""
 #: src/qml/pages/AppSettingsPage.qml:1603
 #: src/qml/pages/AppSettingsPage.qml:1968 src/qml/pages/PresetEditPage.qml:412
 msgid "Cancel"
-msgstr ""
-
-#: src/qml/components/ExtendMenu.qml:16
-msgid "Keep working"
-msgstr ""
-
-#: src/qml/components/ExtendMenu.qml:17
-msgid "Make the break longer"
 msgstr ""
 
 #: src/qml/components/FocusShortcutsStatus.qml:20
@@ -3309,27 +3288,40 @@ msgctxt "the phase after this one, its minutes"
 msgid "Next: %1 · %2 min"
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:392
+#: src/qml/pages/TimerPage.qml:393
+msgid "Keep working a few more minutes"
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:394
+msgid "Make the break a few minutes longer"
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:403
+msgctxt "adds minutes to the timer"
+msgid "+%1 min"
+msgstr ""
+
+#: src/qml/pages/TimerPage.qml:424
 msgid "The timer was paused because the computer went to sleep."
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:393
+#: src/qml/pages/TimerPage.qml:425
 msgid "The timer was paused because your screen was locked."
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:440
+#: src/qml/pages/TimerPage.qml:472
 msgctxt "the focus page's line about today: work sessions finished"
 msgid "Today <b>%1 session</b>"
 msgid_plural "Today <b>%1 sessions</b>"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/qml/pages/TimerPage.qml:445
+#: src/qml/pages/TimerPage.qml:477
 msgctxt "the focus page's line about today: time spent working"
 msgid "<b>%1</b> focused"
 msgstr ""
 
-#: src/qml/pages/TimerPage.qml:450
+#: src/qml/pages/TimerPage.qml:482
 msgctxt "the focus page's line about today: days in a row with work"
 msgid "Streak <b>%1 day</b>"
 msgid_plural "Streak <b>%1 days</b>"
