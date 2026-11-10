@@ -2594,10 +2594,23 @@ private Q_SLOTS:
         QVERIFY(!m_sync->isPasswordInKeyring());
         // The settings tell the user, from the property this sets.
         QVERIFY(m_sync->passwordOutsideKeyring());
-        QVERIFY(storage.count() >= 1);
         QVERIFY(configFileContents().contains(kPassword.toUtf8()));
         const QFileInfo info(configPath());
         QVERIFY(!(info.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther)));
+
+        // Saving the password again tells the settings where it went, though there was one
+        // before and there is one after (hasPasswordChanged() is not emitted).
+        storage.clear();
+        *keyring.available = true;
+        m_sync->setPassword(kPassword);
+        QVERIFY(m_sync->isPasswordInKeyring());
+        QVERIFY(!m_sync->passwordOutsideKeyring());
+        QCOMPARE(storage.count(), 1);
+        *keyring.available = false;
+        m_sync->setPassword(kPassword);
+        QVERIFY(m_sync->passwordOutsideKeyring());
+        QCOMPARE(storage.count(), 2);
+        QVERIFY(configFileContents().contains(kPassword.toUtf8()));
 
         // The keyring comes back: the next start moves it there.
         *keyring.available = true;
