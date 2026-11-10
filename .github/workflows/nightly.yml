@@ -157,26 +157,16 @@ jobs:
       - name: Write the release notes
         env:
           REPO: ${{ github.repository }}
-          VERSION: ${{ needs.version.outputs.version }}
           SHA: ${{ needs.version.outputs.sha }}
         run: |
           prev=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
           range=${prev:+$prev..}$SHA
-          plural() { [ "$1" = 1 ] && echo "$1 $2" || echo "$1 $2s"; }
-          changes=$(git rev-list --count --no-merges "$range")
-          # grep -c fails when it counts nothing: a nightly built again from the same commit.
-          people=$(git log --no-merges --format=%aN "$range" | sort -u | grep -c . || true)
           fix='^(fix|repair)|no longer|crash'
           # grep fails when nothing matches too: a build with only fixes, or with none.
           highlights=$(git log --no-merges --format=%s "$range" | grep -viE "$fix" | sed 's/^/- /' || true)
           fixes=$(git log --no-merges --format=%s "$range" | grep -iE "$fix" | sed 's/^/- /' || true)
           {
-            echo "**v$VERSION** · $(plural "$changes" change) from $(plural "$people" contributor)"
-            echo
-            echo "The branch testing at $SHA, built automatically. It may have bugs; the stable releases are tested."
-            echo
-            echo "Download Sugo-$VERSION-x86_64.AppImage (Sugo-$VERSION-aarch64.AppImage on ARM), make it executable and start it. In Settings → Updates, the Nightly channel keeps it up to date by itself."
-            if [ -n "$highlights" ]; then printf '\n## Highlights\n%s\n' "$highlights"; fi
+            if [ -n "$highlights" ]; then printf '## Highlights\n%s\n' "$highlights"; fi
             if [ -n "$fixes" ]; then printf '\n## Fixes\n%s\n' "$fixes"; fi
             if [ -n "$prev" ] && [ "$prev" != "$SHA" ]; then
               printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$REPO" "$prev" "$SHA"
