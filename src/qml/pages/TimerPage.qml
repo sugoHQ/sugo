@@ -459,23 +459,6 @@ QQC2.Page {
         i18nc("a suggestion for the long break", "Have a snack and something to drink."),
         i18nc("a suggestion for the long break", "Tidy your desk, then rest a moment.")
     ]
-    property int tipIndex: 0
-    function pickTip(): void {
-        const count = TimerEngine.phase === TimerEngine.Phase.LongBreak ? longBreakTips.length : breakTips.length;
-        // Never the same one twice in a row.
-        const next = Math.floor(Math.random() * Math.max(1, count - 1));
-        tipIndex = next >= tipIndex % count ? next + 1 : next;
-    }
-    Component.onCompleted: pickTip()
-    Connections {
-        target: TimerEngine
-        function onPhaseChanged() {
-            if (TimerEngine.phase !== TimerEngine.Phase.Work) {
-                page.pickTip();
-            }
-        }
-    }
-
     Text {
         id: breakTip
         objectName: "breakTip"
@@ -490,7 +473,8 @@ QQC2.Page {
         color: Theme.muted
         font.pixelSize: Theme.fontBody
         readonly property var tips: TimerEngine.phase === TimerEngine.Phase.LongBreak ? page.longBreakTips : page.breakTips
-        text: tips[page.tipIndex % tips.length]
+        // Main.qml counts the breaks, so the page coming back keeps the same suggestion.
+        text: tips[applicationWindow().breakTipNumber % tips.length]
         readonly property bool fits: y + height + Theme.spaceXl <= dock.y
         opacity: !page.isWorkPhase && fits ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }

@@ -139,6 +139,18 @@ QQC2.ApplicationWindow {
 
     property bool restarting: false
 
+    /// Which suggestion the focus page shows during a break: one more for each break, so two in a
+    /// row always differ; kept here, where it outlives the page. It starts anywhere in the list.
+    property int breakTipNumber: Math.floor(Math.random() * 1000)
+    Connections {
+        target: TimerEngine
+        function onPhaseChanged() {
+            if (TimerEngine.phase !== TimerEngine.Phase.Work) {
+                ++root.breakTipNumber;
+            }
+        }
+    }
+
     function quitNow(): void {
         UpdateChecker.setRestartOnQuit(root.restarting);
         Qt.quit();
