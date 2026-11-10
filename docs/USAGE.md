@@ -322,7 +322,7 @@ Inside the Flatpak the Linux files live under `~/.var/app/stream.sugo.app/`.
 
 **Settings → Advanced → Data management** can **back up** the database to a file, **restore** a backup (including backups made by older versions), and **clear the session history**. Restoring replaces your current timers and sessions, and is not possible while a timer is running. If the database file is damaged, Sugo moves it aside (`sugo.db.corrupt-…`) and starts a new one.
 
-**What leaves your computer.** Nothing about you:
+**What leaves your computer.** Only this, and only for what you use:
 
 - **Updates**: the AppImage and the macOS app download a small file from GitHub every few hours to see whether a newer Sugo exists (see [Updates](#updates-and-diagnostics); you can turn this off), and the new version itself only when you click **Install update**. The other packages only look when you press **Check for Updates**. Either way the request carries only the program version.
 - **Calendar sync**, if you turn it on, sends the information described [above](#good-to-know) to the server you chose.
