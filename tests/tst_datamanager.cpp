@@ -196,6 +196,7 @@ private Q_SLOTS:
         const QString sourcePath = elsewhere.filePath(QStringLiteral("source.db"));
         const QString copiedPath = elsewhere.filePath(QStringLiteral("copied.db"));
         const QString wal = QStringLiteral("-wal");
+        QStringList sourceUuids;
         {
             Database source(sourcePath);
             QVERIFY(source.open());
@@ -208,6 +209,9 @@ private Q_SLOTS:
                 QVERIFY(sourceSessions.insert(sampleRecord(QStringLiteral("In the log %1").arg(i))));
             }
             QVERIFY(QFileInfo(sourcePath + wal).size() > 0);
+            for (const SessionRecord &r : sourceSessions.between(0, 2000)) {
+                sourceUuids.append(r.uuid);
+            }
             QVERIFY(QFile::copy(sourcePath, copiedPath));
             QVERIFY(QFile::copy(sourcePath + wal, copiedPath + wal));
         }
@@ -218,9 +222,43 @@ private Q_SLOTS:
         QCOMPARE(succeeded.count(), 1);
         QCOMPARE(manager->sessionCount(), 3);
         QCOMPARE(sessions->between(0, 2000).first().presetName, QStringLiteral("In the log 0"));
+        QStringList restoredUuids;
+        for (const SessionRecord &r : sessions->between(0, 2000)) {
+            restoredUuids.append(r.uuid);
+        }
+        QCOMPARE(restoredUuids, sourceUuids); // the same sessions, as Sugo Sync knows them
         // The user's files are left as they were.
         QVERIFY(QFile::exists(copiedPath + wal));
         QVERIFY(!QFile::exists(copiedPath + QStringLiteral("-shm")));
+    }
+
+    void restoreKeepsWhenNotesChangedAndBringsDeletedSessionsBack()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(sampleRecord(QStringLiteral("Pomodoro")), &id));
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Edited")));
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at FROM session")) && query.next());
+        const QString uuid = query.value(0).toString();
+        const qint64 updatedAt = query.value(1).toLongLong();
+        QVERIFY(updatedAt > 0);
+        query.finish();
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup.db")));
+        QVERIFY(manager->backupDatabase(backup));
+
+        // Deleted afterwards, as Sugo Sync will know it: the row goes, a tombstone stays.
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) SELECT uuid, 1 FROM session")));
+        QVERIFY(query.exec(QStringLiteral("DELETE FROM session")));
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('another', 1)")));
+
+        QVERIFY(manager->restoreDatabase(backup));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at, note FROM session")) && query.next());
+        QCOMPARE(query.value(0).toString(), uuid);
+        QCOMPARE(query.value(1).toLongLong(), updatedAt); // the note's change is not forgotten
+        QCOMPARE(query.value(2).toString(), QStringLiteral("Edited"));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid FROM session_tombstone")) && query.next());
+        QCOMPARE(query.value(0).toString(), QStringLiteral("another")); // only the one not brought back
+        QVERIFY(!query.next());
     }
 
     void restoreWaitsForTheTimerToStop()

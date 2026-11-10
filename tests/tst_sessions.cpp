@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QSqlDatabase>
@@ -7,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QUuid>
 
 #include "Localization.h"
 
@@ -212,6 +214,44 @@ private Q_SLOTS:
         r.presetUuid = QStringLiteral("never-saved");
         QVERIFY(sessions->insert(r));
         QVERIFY(all().at(0).presetUuid.isEmpty());
+    }
+
+    void eachSessionGetsItsOwnUuid()
+    {
+        QVERIFY(sessions->insert(makeRecord(1000)));
+        QVERIFY(sessions->insert(makeRecord(2000)));
+        const QList<SessionRecord> rows = all();
+        QCOMPARE(rows.size(), 2);
+        for (const SessionRecord &r : rows) {
+            QVERIFY2(!QUuid::fromString(r.uuid).isNull(), qPrintable(r.uuid));
+        }
+        QVERIFY(rows.at(0).uuid != rows.at(1).uuid);
+    }
+
+    void aSessionKeepsTheUuidItCameWith()
+    {
+        SessionRecord r = makeRecord(1000);
+        r.uuid = QStringLiteral("0b6f2c4e-8a51-4d7e-9c3a-5f1e2d7b9a60");
+        QVERIFY(sessions->insert(r));
+        QCOMPARE(all().at(0).uuid, r.uuid);
+        QVERIFY(!sessions->insert(r)); // the same session twice: one row
+        QCOMPARE(sessions->count(), 1);
+    }
+
+    void aChangedNoteMarksTheSessionChanged()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(makeRecord(1000), &id));
+        const auto updatedAt = [this, id]() {
+            QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+            query.prepare(QStringLiteral("SELECT updated_at FROM session WHERE id = ?"));
+            query.addBindValue(id);
+            return query.exec() && query.next() ? query.value(0).toLongLong() : -1;
+        };
+        QCOMPARE(updatedAt(), 0); // as recorded
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Chapter 4")));
+        QVERIFY(updatedAt() >= before);
     }
 
     // --- SessionRecorder -----------------------------------------------------
