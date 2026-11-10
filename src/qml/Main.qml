@@ -1633,6 +1633,12 @@ QQC2.ApplicationWindow {
                             if (DataManager.usingTemporaryDatabase === true) {
                                 return i18n("Your data cannot be saved: the database could not be opened. Sugo is using a temporary database.");
                             }
+                            // Both: the sessions waiting must not be hidden behind the timers' message.
+                            // (While the timers are unreadable no timer save is tried, so only
+                            // sessions can be waiting.)
+                            if (DataManager.timersUnreadable === true && DataManager.saveFailing === true) {
+                                return i18n("Your timers could not be read, and your latest sessions could not be saved yet. Sugo keeps trying to save them: do not quit until this message no longer mentions them.");
+                            }
                             if (DataManager.timersUnreadable === true) {
                                 return i18n("Your timers could not be read, so Sugo is using the built-in timer for now. Timer changes are not saved until Sugo is started again.");
                             }
