@@ -117,6 +117,9 @@ jobs:
     concurrency:
       group: nightly-publish
       cancel-in-progress: false
+    # The update signing key is a secret of this environment, which only main, testing and v* tags (a workflow_run runs on main)
+    # may use (Settings › Environments): a workflow pushed to another branch cannot read it.
+    environment: update-signing
     runs-on: ubuntu-24.04
     permissions:
       contents: write
