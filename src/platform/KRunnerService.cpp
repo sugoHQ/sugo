@@ -273,7 +273,9 @@ void KRunnerService::Run(const QString &id, const QString &actionId)
 void KRunnerService::runCommand(const QString &command)
 {
     if (command == QStringLiteral("start")) {
-        m_timer->start();
+        // "Start" as over D-Bus and in a sugo:// link: it resumes a paused timer (Run() has
+        // already asked whether control is allowed).
+        TimerCommands(m_timer, m_presets).start();
     } else if (command == QStringLiteral("pause")) {
         m_timer->pause();
     } else if (command == QStringLiteral("resume")) {

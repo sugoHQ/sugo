@@ -20,6 +20,9 @@
 namespace
 {
 constexpr int kTransferTimeoutMs = 30000;
+/// The most an answer may hold. A blob is at most a few hundred KiB (the server refuses larger
+/// uploads): a server that sends more is cut off rather than read into memory.
+constexpr qint64 kMaxResponseSize = 8 * 1024 * 1024;
 /// An access token is renewed when it has less than this left.
 constexpr qint64 kAccessMarginMs = 60 * 1000;
 
@@ -493,6 +496,12 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
 
     QNetworkReply *reply = network()->sendCustomRequest(req, request.verb, request.body);
     m_replies.insert(reply);
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64 total) {
+        if (received > kMaxResponseSize || total > kMaxResponseSize) {
+            reply->setProperty("sugoTooLarge", true);
+            reply->abort();
+        }
+    });
     const bool expectJson = request.expectJson;
     connect(reply, &QNetworkReply::finished, this, [this, reply, gen, done, expectJson]() {
         m_replies.remove(reply);
@@ -501,8 +510,10 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
             return;
         }
         SyncReply r;
-        r.http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        r.body = reply->readAll();
+        // Cut off for its size: it fails as the network does, with nothing of what came.
+        const bool tooLarge = reply->property("sugoTooLarge").toBool();
+        r.http = tooLarge ? 0 : reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        r.body = tooLarge ? QByteArray() : reply->readAll();
         r.etag = bareEtag(reply->rawHeader("ETag"));
         const QByteArray pending = reply->rawHeader("Sugo-Pending-Devices");
         bool pendingOk = false;
@@ -511,8 +522,8 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
         // A transfer cut off after the status line (closed, timed out) has a status but not all of its
         // body: it fails as the network does, not as a good answer with half a blob.
         const QNetworkReply::NetworkError transport = reply->error();
-        const bool cutOff = transport != QNetworkReply::NoError && transport < QNetworkReply::ContentAccessDenied;
-        r.error = cutOff ? SyncError::fromResponse(0, {}, reply->errorString())
+        const bool cutOff = tooLarge || (transport != QNetworkReply::NoError && transport < QNetworkReply::ContentAccessDenied);
+        r.error = cutOff ? SyncError::fromResponse(0, {}, tooLarge ? QStringLiteral("The server's answer is too large") : reply->errorString())
                          : SyncError::fromResponse(r.http, r.body, r.http == 0 ? reply->errorString() : QString());
         if (!r.error.ok()) {
             // An HTTP date (or anything unreadable) gives 0: the caller's own delay.

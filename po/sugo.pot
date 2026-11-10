@@ -168,6 +168,10 @@ msgstr ""
 msgid "The server could not be reached"
 msgstr ""
 
+#: src/core/CalendarSync.cpp:1224
+msgid "The server's answer is too large"
+msgstr ""
+
 #: src/core/CalendarSync.cpp:1276
 msgid "The calendar must be on the Nextcloud server you signed in to."
 msgstr ""
@@ -2878,7 +2882,7 @@ msgid "Share anonymous usage statistics"
 msgstr ""
 
 #: src/qml/pages/AppSettingsPage.qml:2491 src/qml/pages/WelcomePage.qml:696
-msgid "Helps us see which features to improve. Nothing about you is sent."
+msgid "Optional, used only to improve Sugo. Never your name, notes or files."
 msgstr ""
 
 #: src/qml/pages/AppSettingsPage.qml:2500
