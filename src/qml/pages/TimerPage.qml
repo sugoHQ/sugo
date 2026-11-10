@@ -440,6 +440,48 @@ QQC2.Page {
         }
     }
 
+    // During a break (and while one waits to start): a small idea for it, under the clock. A new
+    // one each break; out of the column, so the clock does not move when it comes or goes, and
+    // only where it fits above the controls.
+    readonly property var breakTips: [
+        i18nc("a suggestion for the break", "Stand up and stretch your back and shoulders."),
+        i18nc("a suggestion for the break", "Drink a glass of water."),
+        i18nc("a suggestion for the break", "Look at something far away for 20 seconds."),
+        i18nc("a suggestion for the break", "Take a few slow, deep breaths."),
+        i18nc("a suggestion for the break", "Walk around for a minute or two."),
+        i18nc("a suggestion for the break", "Open a window and let some fresh air in."),
+        i18nc("a suggestion for the break", "Roll your shoulders and loosen your neck."),
+        i18nc("a suggestion for the break", "Close your eyes and rest them for a moment."),
+        i18nc("a suggestion for the break", "Step away from the screen, and leave the phone too.")
+    ]
+    readonly property var longBreakTips: [
+        i18nc("a suggestion for the long break", "Go for a short walk outside."),
+        i18nc("a suggestion for the long break", "Have a snack and something to drink."),
+        i18nc("a suggestion for the long break", "Tidy your desk, then rest a moment.")
+    ]
+    Text {
+        id: breakTip
+        objectName: "breakTip"
+        anchors.top: extendRow.bottom
+        anchors.topMargin: Theme.spaceLg
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        width: page.trackWidth
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+        color: Theme.muted
+        font.pixelSize: Theme.fontBody
+        readonly property var tips: TimerEngine.phase === TimerEngine.Phase.LongBreak ? page.longBreakTips : page.breakTips
+        // Main.qml counts the breaks, so the page coming back keeps the same suggestion.
+        text: tips[applicationWindow().breakTipNumber % tips.length]
+        readonly property bool fits: y + height + Theme.spaceXl <= dock.y
+        opacity: !page.isWorkPhase && fits ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
+        Accessible.role: Accessible.StaticText
+        Accessible.name: opacity > 0 ? text : ""
+    }
+
     // A session an earlier run of Sugo left under way, brought back paused: say why, and offer to go on.
     MessageSlot {
         objectName: "restoredSessionMessage"
