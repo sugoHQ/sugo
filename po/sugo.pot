@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-10 00:42+0000\n"
+"POT-Creation-Date: 2026-11-10 01:04+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -479,7 +479,7 @@ msgstr ""
 msgid "5 More Minutes"
 msgstr ""
 
-#: src/core/PhaseNotifier.cpp:174 src/main.cpp:760
+#: src/core/PhaseNotifier.cpp:174 src/main.cpp:763
 msgid "View"
 msgstr ""
 
@@ -613,7 +613,7 @@ msgid_plural "%1 Minutes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/core/TimerMenuActions.cpp:100 src/main.cpp:755
+#: src/core/TimerMenuActions.cpp:100 src/main.cpp:757
 #: src/platform/KRunnerService.cpp:66
 msgid "Resume"
 msgstr ""
@@ -777,15 +777,15 @@ msgstr ""
 msgid "Start hidden in the system tray (used by the login entry)"
 msgstr ""
 
-#: src/main.cpp:750
+#: src/main.cpp:752
 msgid "Work session paused"
 msgstr ""
 
-#: src/main.cpp:750
+#: src/main.cpp:752
 msgid "Break paused"
 msgstr ""
 
-#: src/main.cpp:751
+#: src/main.cpp:753
 msgid ""
 "Sugo was closed during this session. %1 minute is left: resume it when you "
 "are ready."
@@ -1192,243 +1192,261 @@ msgstr ""
 
 #: src/qml/Main.qml:155
 msgid ""
+"A work session is in progress. Restarting ends it now, as a finished session."
+msgstr ""
+
+#: src/qml/Main.qml:156
+msgid ""
+"A work session is in progress. Quitting ends it now, as a finished session."
+msgstr ""
+
+#: src/qml/Main.qml:157
+msgid "A break is in progress. Restarting ends it now."
+msgstr ""
+
+#: src/qml/Main.qml:158
+msgid "A break is in progress. Quitting ends it now."
+msgstr ""
+
+#: src/qml/Main.qml:161
+msgid ""
 "A work session is in progress. It is paused while Sugo restarts, and waits "
 "for you afterwards."
 msgstr ""
 
-#: src/qml/Main.qml:156
+#: src/qml/Main.qml:162
 msgid ""
 "A break is in progress. It is paused while Sugo restarts, and waits for you "
 "afterwards."
 msgstr ""
 
-#: src/qml/Main.qml:158
+#: src/qml/Main.qml:164
 msgid ""
 "A work session is in progress. Quitting pauses it, and it waits for you the "
 "next time Sugo starts."
 msgstr ""
 
-#: src/qml/Main.qml:159
+#: src/qml/Main.qml:165
 msgid ""
 "A break is in progress. Quitting pauses it, and it waits for you the next "
 "time Sugo starts."
 msgstr ""
 
-#: src/qml/Main.qml:160
+#: src/qml/Main.qml:166
 msgid "Restart"
 msgstr ""
 
-#: src/qml/Main.qml:162
+#: src/qml/Main.qml:168
 msgid "Keep Running"
 msgstr ""
 
-#: src/qml/Main.qml:215
+#: src/qml/Main.qml:221
 msgid "name"
 msgstr ""
 
-#: src/qml/Main.qml:216
+#: src/qml/Main.qml:222
 msgid "category"
 msgstr ""
 
-#: src/qml/Main.qml:217
+#: src/qml/Main.qml:223
 msgid "work duration"
 msgstr ""
 
-#: src/qml/Main.qml:218
+#: src/qml/Main.qml:224
 msgid "short break"
 msgstr ""
 
-#: src/qml/Main.qml:219 src/qml/pages/WelcomePage.qml:455
+#: src/qml/Main.qml:225 src/qml/pages/WelcomePage.qml:455
 msgid "long break"
 msgstr ""
 
-#: src/qml/Main.qml:220
+#: src/qml/Main.qml:226
 msgid "work sessions before the long break"
 msgstr ""
 
-#: src/qml/Main.qml:223
+#: src/qml/Main.qml:229
 msgid "This value of “%2” was outside the allowed range and was adjusted: %3."
 msgid_plural ""
 "These values of “%2” were outside the allowed range and were adjusted: %3."
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/qml/Main.qml:757 src/qml/components/AutoStartMenu.qml:41
+#: src/qml/Main.qml:763 src/qml/components/AutoStartMenu.qml:41
 #: src/qml/components/Composer.qml:39 src/qml/pages/PresetEditPage.qml:825
 msgid "All phases"
 msgstr ""
 
-#: src/qml/Main.qml:1248
+#: src/qml/Main.qml:1254
 msgid "General"
 msgstr ""
 
-#: src/qml/Main.qml:1249 src/qml/pages/AppSettingsPage.qml:2032
+#: src/qml/Main.qml:1255 src/qml/pages/AppSettingsPage.qml:2032
 #: src/qml/pages/PresetEditPage.qml:309
 msgid "Timers"
 msgstr ""
 
-#: src/qml/Main.qml:1250 src/qml/pages/AppSettingsPage.qml:1278
+#: src/qml/Main.qml:1256 src/qml/pages/AppSettingsPage.qml:1278
 msgid "Sounds"
 msgstr ""
 
-#: src/qml/Main.qml:1251 src/qml/Main.qml:1373
+#: src/qml/Main.qml:1257 src/qml/Main.qml:1379
 #: src/qml/components/TitleBar.qml:139
 msgid "Focus"
 msgstr ""
 
-#: src/qml/Main.qml:1252 src/qml/pages/AppSettingsPage.qml:1479
+#: src/qml/Main.qml:1258 src/qml/pages/AppSettingsPage.qml:1479
 #: src/qml/pages/AppSettingsPage.qml:1737
 #: src/qml/pages/AppSettingsPage.qml:1756
 msgid "Calendar"
 msgstr ""
 
-#: src/qml/Main.qml:1253
+#: src/qml/Main.qml:1259
 msgid "Sync"
 msgstr ""
 
-#: src/qml/Main.qml:1254
+#: src/qml/Main.qml:1260
 msgid "Advanced"
 msgstr ""
 
-#: src/qml/Main.qml:1255 src/qml/Main.qml:1376
+#: src/qml/Main.qml:1261 src/qml/Main.qml:1382
 msgid "About"
 msgstr ""
 
-#: src/qml/Main.qml:1302 src/qml/components/Composer.qml:104
+#: src/qml/Main.qml:1308 src/qml/components/Composer.qml:104
 msgid "Stop the timer to switch to a different timer."
 msgstr ""
 
-#: src/qml/Main.qml:1354
+#: src/qml/Main.qml:1360
 msgid "Skip This Work Session?"
 msgstr ""
 
-#: src/qml/Main.qml:1354
+#: src/qml/Main.qml:1360
 msgid "Stop This Work Session?"
 msgstr ""
 
-#: src/qml/Main.qml:1355
+#: src/qml/Main.qml:1361
 msgid ""
 "The rest of this work session is skipped and it is saved as interrupted."
 msgstr ""
 
-#: src/qml/Main.qml:1356
+#: src/qml/Main.qml:1362
 msgid "The work session ends now and is saved as interrupted."
 msgstr ""
 
-#: src/qml/Main.qml:1359
+#: src/qml/Main.qml:1365
 msgid "Keep Working"
 msgstr ""
 
-#: src/qml/Main.qml:1377
+#: src/qml/Main.qml:1383
 msgid "Resume the timer"
 msgstr ""
 
-#: src/qml/Main.qml:1377
+#: src/qml/Main.qml:1383
 msgid "Pause the timer"
 msgstr ""
 
-#: src/qml/Main.qml:1377
+#: src/qml/Main.qml:1383
 msgid "Start the timer"
 msgstr ""
 
-#: src/qml/Main.qml:1379 src/qml/components/TimerMenu.qml:201
+#: src/qml/Main.qml:1385 src/qml/components/TimerMenu.qml:201
 #: src/qml/pages/AppSettingsPage.qml:1035
 msgid "New timer"
 msgstr ""
 
-#: src/qml/Main.qml:1382
+#: src/qml/Main.qml:1388
 msgid "Stop the timer"
 msgstr ""
 
-#: src/qml/Main.qml:1383
+#: src/qml/Main.qml:1389
 msgid "Skip to the next phase"
 msgstr ""
 
-#: src/qml/Main.qml:1387 src/qml/pages/TimerPage.qml:407
+#: src/qml/Main.qml:1393 src/qml/pages/TimerPage.qml:407
 msgid "Add %1 minute"
 msgid_plural "Add %1 minutes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/qml/Main.qml:1594
+#: src/qml/Main.qml:1600
 msgid ""
 "Your data cannot be saved: the database could not be opened. Sugo is using a "
 "temporary database."
 msgstr ""
 
-#: src/qml/Main.qml:1597
+#: src/qml/Main.qml:1603
 msgid ""
 "Your latest sessions or timer changes could not be saved yet. Sugo keeps "
 "them and tries again; do not quit until this message is gone."
 msgstr ""
 
-#: src/qml/Main.qml:1600
+#: src/qml/Main.qml:1606
 msgid ""
 "Your database was damaged, so Sugo started a new one. The old file is kept "
 "as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1601
+#: src/qml/Main.qml:1607
 msgid ""
 "The database file did not belong to Sugo, so Sugo started a new one. That "
 "file is kept as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1605
+#: src/qml/Main.qml:1611
 msgid "Show in Finder"
 msgstr ""
 
-#: src/qml/Main.qml:1605
+#: src/qml/Main.qml:1611
 msgid "Open folder"
 msgstr ""
 
-#: src/qml/Main.qml:1613 src/qml/pages/AppSettingsPage.qml:2436
+#: src/qml/Main.qml:1619 src/qml/pages/AppSettingsPage.qml:2436
 #: src/qml/pages/TimerPage.qml:438 src/qml/pages/TimerPage.qml:462
 msgid "Dismiss"
 msgstr ""
 
-#: src/qml/Main.qml:1691
+#: src/qml/Main.qml:1697
 msgid ""
 "Your timers and history from Sugo 1.0.0 are back. The empty database that "
 "had replaced them is kept as %1."
 msgstr ""
 
-#: src/qml/Main.qml:1712
+#: src/qml/Main.qml:1718
 msgid "Work Session Finished"
 msgstr ""
 
-#: src/qml/Main.qml:1714
+#: src/qml/Main.qml:1720
 msgid "What did you accomplish during “%1”?"
 msgstr ""
 
-#: src/qml/Main.qml:1715
+#: src/qml/Main.qml:1721
 msgid "What did you accomplish during this session?"
 msgstr ""
 
-#: src/qml/Main.qml:1716
+#: src/qml/Main.qml:1722
 msgid "Save Note"
 msgstr ""
 
-#: src/qml/Main.qml:1724
+#: src/qml/Main.qml:1730
 msgid "e.g. Refactored auth module, wrote tests…"
 msgstr ""
 
-#: src/qml/Main.qml:1748
+#: src/qml/Main.qml:1754
 msgctxt "@action:button use a recent note"
 msgid "Use “%1”"
 msgstr ""
 
-#: src/qml/Main.qml:1843
+#: src/qml/Main.qml:1849
 msgid ""
 "Signed out on this computer, but Sugo Sync could not be reached. Disconnect "
 "this device on sugo.stream to free its place."
 msgstr ""
 
-#: src/qml/Main.qml:1881
+#: src/qml/Main.qml:1887
 msgid "Keep your recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1882
+#: src/qml/Main.qml:1888
 msgid ""
 "With this code a new device opens your synced timers when none of your other "
 "devices is at hand. If you lose all your devices and this code, the synced "
@@ -1436,85 +1454,85 @@ msgid ""
 "manager."
 msgstr ""
 
-#: src/qml/Main.qml:1883 src/qml/pages/WelcomePage.qml:939
+#: src/qml/Main.qml:1889 src/qml/pages/WelcomePage.qml:939
 msgid "Done"
 msgstr ""
 
-#: src/qml/Main.qml:1884
+#: src/qml/Main.qml:1890
 msgid "Later"
 msgstr ""
 
-#: src/qml/Main.qml:1888
+#: src/qml/Main.qml:1894
 msgid "Recovery code checked. Keep it somewhere safe."
 msgstr ""
 
-#: src/qml/Main.qml:1920 src/qml/pages/AppSettingsPage.qml:376
+#: src/qml/Main.qml:1926 src/qml/pages/AppSettingsPage.qml:376
 #: src/qml/pages/AppSettingsPage.qml:411 src/qml/pages/AppSettingsPage.qml:2000
 #: src/qml/pages/AppSettingsPage.qml:2098
 msgid "Recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1930
+#: src/qml/Main.qml:1936
 msgid "Copy recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1935 src/qml/pages/AppSettingsPage.qml:385
+#: src/qml/Main.qml:1941 src/qml/pages/AppSettingsPage.qml:385
 msgid "Recovery code copied to the clipboard."
 msgstr ""
 
-#: src/qml/Main.qml:1941
+#: src/qml/Main.qml:1947
 msgid "To check that you have kept it, type group %1 of %2."
 msgstr ""
 
-#: src/qml/Main.qml:1952
+#: src/qml/Main.qml:1958
 msgid "Group %1"
 msgstr ""
 
-#: src/qml/Main.qml:1954
+#: src/qml/Main.qml:1960
 msgid "Group %1 of the recovery code"
 msgstr ""
 
-#: src/qml/Main.qml:1986
+#: src/qml/Main.qml:1992
 msgid "Approve “%1”?"
 msgstr ""
 
-#: src/qml/Main.qml:1987
+#: src/qml/Main.qml:1993
 msgid ""
 "A new device wants to sync your timers. Approve it only if it is yours and "
 "shows the same code as here."
 msgstr ""
 
-#: src/qml/Main.qml:1988
+#: src/qml/Main.qml:1994
 msgid "Approve"
 msgstr ""
 
-#: src/qml/Main.qml:1989
+#: src/qml/Main.qml:1995
 msgid "Not Now"
 msgstr ""
 
-#: src/qml/Main.qml:2023 src/qml/Main.qml:2041
+#: src/qml/Main.qml:2029 src/qml/Main.qml:2047
 msgid "Verification code"
 msgstr ""
 
-#: src/qml/Main.qml:2049
+#: src/qml/Main.qml:2055
 msgid "Welcome Back"
 msgstr ""
 
-#: src/qml/Main.qml:2049
+#: src/qml/Main.qml:2055
 msgid "Screen Unlocked"
 msgstr ""
 
-#: src/qml/Main.qml:2051
+#: src/qml/Main.qml:2057
 msgid ""
 "The timer was paused while the computer was asleep. Would you like to resume?"
 msgstr ""
 
-#: src/qml/Main.qml:2052
+#: src/qml/Main.qml:2058
 msgid ""
 "The timer was paused while your screen was locked. Would you like to resume?"
 msgstr ""
 
-#: src/qml/Main.qml:2054
+#: src/qml/Main.qml:2060
 msgid "Keep Paused"
 msgstr ""
 
