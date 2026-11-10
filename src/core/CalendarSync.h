@@ -187,9 +187,9 @@ private:
         SessionRecord record;
         QString uid;
         QString account; ///< currentAccount() when it was queued.
-        /// Where it was put (sent) or last tried (queued, saved before the request goes): a
+        /// Every place it was put or tried, oldest first (saved before each request goes): a
         /// calendar chosen later is another place, and an answer lost may hide that it got there.
-        QString url;
+        QStringList urls;
     };
     /// An event Sugo put on the server that must go: a connection test's, or a deleted session's.
     struct LeftoverTest {

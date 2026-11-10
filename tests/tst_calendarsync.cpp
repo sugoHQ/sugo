@@ -2475,14 +2475,17 @@ private Q_SLOTS:
         // Another calendar of the same account is chosen, and Sugo restarts before the answer came.
         m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
         m_sync.reset();
-        m_server->hold = [](const FakeServer::Request &req) {
-            return req.method == "PUT"; // the new calendar does not answer either
-        };
+        m_server->hold = nullptr;
+        // At the restart it is sent again, to the calendar chosen now, and this time the answer comes.
         m_sync = makeSync();
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        const QByteArray now = "/cal/work/" + CalendarSync::uidFor(record(16)).toUtf8() + ".ics";
+        QVERIFY(m_server->stored.contains(now));
+        // Deleting the session deletes it from both.
         m_sync->onSessionDeleted(record(16), true);
-        QTRY_VERIFY(m_server->count("DELETE") >= 1);
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
         QTRY_VERIFY(!m_server->stored.contains(path));
-        QCOMPARE(m_sync->pendingCount(), 0);
+        QVERIFY(!m_server->stored.contains(now));
     }
 
     void deletedSessionReadsAKeyringThatWasNotReadyAtStartup()

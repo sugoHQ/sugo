@@ -638,7 +638,9 @@ void CalendarSync::loadQueue()
         Pending item;
         item.uid = o.value(QLatin1String("uid")).toString();
         item.account = o.value(QLatin1String("account")).toString();
-        item.url = o.value(QLatin1String("url")).toString();
+        for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
+            item.urls.append(url.toString());
+        }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
         r.kind = SessionKind::Work;
@@ -661,7 +663,9 @@ void CalendarSync::loadQueue()
         Pending item;
         item.uid = o.value(QLatin1String("uid")).toString();
         item.account = o.value(QLatin1String("account")).toString();
-        item.url = o.value(QLatin1String("url")).toString();
+        for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
+            item.urls.append(url.toString());
+        }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
         r.kind = SessionKind::Work;
@@ -695,7 +699,7 @@ void CalendarSync::saveQueue()
         pending.append(QJsonObject{
             {QStringLiteral("uid"), item.uid},
             {QStringLiteral("account"), item.account},
-            {QStringLiteral("url"), item.url},
+            {QStringLiteral("urls"), QJsonArray::fromStringList(item.urls)},
             {QStringLiteral("id"), r.id},
             {QStringLiteral("startedAtMs"), r.startedAtMs},
             {QStringLiteral("endedAtMs"), r.endedAtMs},
@@ -713,7 +717,7 @@ void CalendarSync::saveQueue()
         sent.append(QJsonObject{
             {QStringLiteral("uid"), item.uid},
             {QStringLiteral("account"), item.account},
-            {QStringLiteral("url"), item.url},
+            {QStringLiteral("urls"), QJsonArray::fromStringList(item.urls)},
             {QStringLiteral("id"), r.id},
             {QStringLiteral("startedAtMs"), r.startedAtMs},
             {QStringLiteral("endedAtMs"), r.endedAtMs},
@@ -1316,7 +1320,7 @@ void CalendarSync::enqueueWorkSession(const SessionRecord &record)
     }
     // Before an account is complete (signing in, a calendar not chosen yet) the event waits,
     // bound to the user name only, if one is given; the account set up next adopts it.
-    Pending item{record, uidFor(record), configured() ? currentAccount() : unboundAccount(), QString()};
+    Pending item{record, uidFor(record), configured() ? currentAccount() : unboundAccount(), QStringList()};
     for (Pending &queued : m_queue) {
         if (queued.uid == item.uid) {
             queued.record = record;
@@ -1388,16 +1392,20 @@ void CalendarSync::onSessionDeleted(const SessionRecord &record, bool fromCalend
     for (const Pending &item : std::as_const(m_sent)) {
         if (item.uid == uid) {
             account = item.account;
-            addUrl(item.url);
+            for (const QString &url : item.urls) {
+                addUrl(url);
+            }
         }
     }
     for (const Pending &item : std::as_const(m_queue)) {
         // Tried (it has a place): queued for the account it was sent with. Never tried: nowhere yet.
-        if (item.uid == uid && !item.url.isEmpty()) {
+        if (item.uid == uid && !item.urls.isEmpty()) {
             if (account.isEmpty()) {
                 account = item.account;
             }
-            addUrl(item.url);
+            for (const QString &url : item.urls) {
+                addUrl(url);
+            }
         }
     }
     m_queue.removeIf(sameUid);
@@ -1456,8 +1464,8 @@ void CalendarSync::trySend()
     m_inFlightRecord = it->record;
     m_inFlightUrl = eventUrl(it->uid).toString();
     // Kept before the request goes: if its answer is lost (Sugo quits), the event may be there.
-    if (it->url != m_inFlightUrl) {
-        m_queue[it - m_queue.cbegin()].url = m_inFlightUrl;
+    if (!it->urls.contains(m_inFlightUrl)) {
+        m_queue[it - m_queue.cbegin()].urls.append(m_inFlightUrl);
         saveQueue();
     }
     const QByteArray ics = buildIcs(it->record, m_includeNote, it->uid);
@@ -1519,7 +1527,9 @@ void CalendarSync::onSendFinished(const Result &r, bool credentialsChangedMeanwh
     if (isSuccess(r.http)) {
         Pending sentItem = m_queue.at(index);
         sentItem.record = m_inFlightRecord;
-        sentItem.url = m_inFlightUrl;
+        if (!sentItem.urls.contains(m_inFlightUrl)) {
+            sentItem.urls.append(m_inFlightUrl);
+        }
         rememberSent(sentItem);
         // Changed while this request was on its way (a note, or the session itself): send it again.
         const bool changedMeanwhile = !sameEvent(m_queue.at(index).record, m_inFlightRecord);
