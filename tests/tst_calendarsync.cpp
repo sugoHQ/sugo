@@ -1510,6 +1510,120 @@ private Q_SLOTS:
         QVERIFY(puts.at(1).body.contains("DESCRIPTION:wrote the report\\, finally"));
     }
 
+    void deletedSessionLeavesTheCalendarWhenAsked()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(9));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        // Kept on the calendar: nothing is asked of the server.
+        m_sync->onSessionDeleted(record(9), false);
+        QTest::qWait(50);
+        QCOMPARE(m_server->count("DELETE"), 0);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        m_sync->enqueueWorkSession(record(10));
+        QTRY_COMPARE(m_server->stored.size(), 2);
+        m_sync->onSessionDeleted(record(10), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, m_server->of("PUT").last().path);
+        QCOMPARE(m_server->stored.size(), 1);
+        // A note for it later has no event to go to.
+        m_sync->setIncludeNote(true);
+        m_sync->onNoteChanged(10, QStringLiteral("too late"));
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
+    void deletedSessionNotSentYetIsNeverSent()
+    {
+        configureCustom();
+        m_sync->setRetryDelaysForTesting({60'000}); // the event waits for its next try
+        m_server->putStatuses = {500};
+        m_sync->enqueueWorkSession(record(3));
+        QTRY_VERIFY(m_sync->retryIntervalForTesting() > 0);
+        m_sync->onSessionDeleted(record(3), true);
+        QCOMPARE(m_sync->pendingCount(), 0);
+        QTest::qWait(100);
+        QCOMPARE(m_server->count("PUT"), 1);
+        QCOMPARE(m_server->count("DELETE"), 0);
+    }
+
+    void deletedSessionOnItsWayIsRemovedOnceItArrives()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(4));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        m_sync->onSessionDeleted(record(4), true);
+        QCOMPARE(m_server->count("DELETE"), 0); // not before the upload has finished
+        m_server->hold = nullptr;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
+    void deletedSessionLeavesTheCalendarItWasSentTo()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(11));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        const QByteArray sentTo = m_server->of("PUT").first().path;
+
+        // Another calendar of the same account is chosen afterwards, and Sugo restarts.
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(11), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, sentTo);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void anUploadOnItsWayIsNotDeletedBeforeItArrives()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(12));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(13));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        // 13 is deleted while on its way, then 12 (sent): only 12's event may go now.
+        m_sync->onSessionDeleted(record(13), true);
+        m_sync->onSessionDeleted(record(12), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTest::qWait(50);
+        QCOMPARE(m_server->count("DELETE"), 1);
+        m_server->hold = nullptr;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+    }
+
+    void deletingFromAnUnreachableCalendarIsTriedAgain()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(5));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        m_server->deleteStatus = 503;
+        m_sync->onSessionDeleted(record(5), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        // Kept across a restart, and tried again once the server takes an event.
+        m_sync.reset();
+        m_sync = makeSync();
+        m_server->deleteStatus = 204;
+        m_sync->enqueueWorkSession(record(6));
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_COMPARE(m_server->stored.size(), 1);
+    }
+
     void noteUpdatesQueuedItem()
     {
         configureCustom();

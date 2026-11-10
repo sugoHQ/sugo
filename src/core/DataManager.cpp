@@ -195,6 +195,21 @@ bool DataManager::clearHistory()
     return true;
 }
 
+bool DataManager::deleteSession(qint64 sessionId, bool fromCalendar)
+{
+    SessionRecord deleted;
+    if (!m_sessions || sessionId <= 0 || !m_sessions->deleteById(sessionId, &deleted)) {
+        Q_EMIT operationFailed(i18n("Could not delete the session."));
+        return false;
+    }
+    if (m_recorder) m_recorder->forgetSession(sessionId);
+    if (m_stats) m_stats->refresh();
+    Q_EMIT dataChanged();
+    Q_EMIT sessionDeleted(deleted, fromCalendar);
+    Q_EMIT operationSucceeded(i18n("Session deleted."));
+    return true;
+}
+
 void DataManager::setNowProvider(std::function<QDateTime()> provider)
 {
     m_now = std::move(provider);

@@ -657,6 +657,75 @@ private Q_SLOTS:
         QCOMPARE(manager->sessionCount(), 1);
     }
 
+    void deleteSessionRemovesOnlyThatSession()
+    {
+        FakeClock clock;
+        TimerEngine engine(&clock, nullptr);
+        SessionRecorder recorder(&engine, presetModel.get(), sessions.get());
+        manager->setSessionRecorder(&recorder);
+
+        SessionRecord record;
+        record.kind = SessionKind::Work;
+        record.startedAtMs = 1000;
+        record.endedAtMs = 1600;
+        record.durationSec = 600;
+        record.completed = true;
+        qint64 kept = 0;
+        QVERIFY(sessions->insert(record, &kept));
+
+        // A session started by mistake and stopped after 37 seconds.
+        engine.start();
+        clock.advanceSeconds(37);
+        engine.refresh();
+        engine.stop();
+        const qint64 mistake = manager->lastWorkSessionId();
+        QVERIFY(mistake > 0);
+        QCOMPARE(manager->sessionCount(), 2);
+
+        QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
+        QSignalSpy changed(manager.get(), &DataManager::dataChanged);
+        QSignalSpy deletedSpy(manager.get(), &DataManager::sessionDeleted);
+        QString mistakeUuid;
+        for (const SessionRecord &r : sessions->between(0, std::numeric_limits<qint64>::max())) {
+            if (r.id == mistake) {
+                mistakeUuid = r.uuid;
+            }
+        }
+        QVERIFY(!mistakeUuid.isEmpty());
+        QVERIFY(manager->deleteSession(mistake, true));
+        QCOMPARE(manager->sessionCount(), 1);
+        // The calendar hears of it, with what it needs to find the event.
+        QCOMPARE(deletedSpy.count(), 1);
+        const auto deleted = deletedSpy.first().at(0).value<SessionRecord>();
+        QCOMPARE(deleted.id, mistake);
+        QCOMPARE(deleted.uuid, mistakeUuid);
+        QCOMPARE(deleted.completed, false);
+        QCOMPARE(deletedSpy.first().at(1).toBool(), true);
+        // Sugo Sync will tell the other devices: the deletion leaves a tombstone.
+        {
+            QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+            QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at FROM session_tombstone")));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toString(), mistakeUuid);
+            QVERIFY(query.value(1).toLongLong() > 0);
+            QVERIFY(!query.next());
+        }
+        QCOMPARE(sessions->between(0, std::numeric_limits<qint64>::max()).first().id, kept);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(succeeded.count(), 1);
+        // A note typed now has no session to go to.
+        QCOMPARE(manager->lastWorkSessionId(), -1);
+
+        // Deleting it again (or any session that is not there) fails and says so.
+        QSignalSpy failed(manager.get(), &DataManager::operationFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("there is no session")));
+        QVERIFY(!manager->deleteSession(mistake));
+        QVERIFY(!manager->deleteSession(0));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(manager->sessionCount(), 1);
+        manager->setSessionRecorder(nullptr);
+    }
+
     void exportToCsvQuotesFieldsAndNeutralisesFormulas()
     {
         SessionRecord record;

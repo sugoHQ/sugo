@@ -62,6 +62,11 @@ public:
     /// The number of sessions, or -1 if it cannot be read.
     int count() const;
     bool deleteAll();
+    /// Deletes the session `sessionId` and leaves a tombstone of its uuid, so Sugo Sync can tell
+    /// the other devices. On success `deleted` (if given) receives the session as it was (its id,
+    /// uuid, kind, start and end, completion). Returns false (and logs) on failure or when there
+    /// is no session with that id; then nothing changes.
+    bool deleteById(qint64 sessionId, SessionRecord *deleted = nullptr);
     /// Deletes the sessions that started before `ms` (Unix ms). Returns how many rows were
     /// deleted, or -1 on error.
     int deleteStartedBefore(qint64 ms);

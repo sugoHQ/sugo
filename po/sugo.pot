@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-10 17:05+0000\n"
+"POT-Creation-Date: 2026-11-10 17:58+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -124,7 +124,7 @@ msgid ""
 "fields."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:940 src/core/CalendarSync.cpp:1535
+#: src/core/CalendarSync.cpp:940 src/core/CalendarSync.cpp:1576
 msgid "Choose a calendar first."
 msgstr ""
 
@@ -132,7 +132,7 @@ msgstr ""
 msgid "Login rejected: check username and app password"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1105 src/core/CalendarSync.cpp:1834
+#: src/core/CalendarSync.cpp:1105 src/core/CalendarSync.cpp:1875
 msgid "Signed in as %1. Choose a calendar to finish."
 msgstr ""
 
@@ -177,82 +177,82 @@ msgid ""
 "Too many calendar events are waiting to be sent: the oldest one was dropped."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1493
+#: src/core/CalendarSync.cpp:1534
 msgid "The server refused an event (HTTP %1); it was skipped."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1544
+#: src/core/CalendarSync.cpp:1585
 msgid "Testing the connection…"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1550
+#: src/core/CalendarSync.cpp:1591
 msgid "Sugo connection test"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1625
+#: src/core/CalendarSync.cpp:1666
 msgid ""
 "The connection works, but the test event could not be removed yet (%1). Sugo "
 "will try again later."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1628
+#: src/core/CalendarSync.cpp:1669
 msgid "Connection test succeeded"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1638
+#: src/core/CalendarSync.cpp:1679
 msgid "Enter the server address, user name and password first."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1645
+#: src/core/CalendarSync.cpp:1686
 msgid "Looking for calendars…"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1771
+#: src/core/CalendarSync.cpp:1812
 msgid ""
 "The server does not let this account list the calendars at this address "
 "(HTTP 403): check the address."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1791 src/core/CalendarSync.cpp:1832
+#: src/core/CalendarSync.cpp:1832 src/core/CalendarSync.cpp:1873
 msgid "No calendars were found at this address."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1847
+#: src/core/CalendarSync.cpp:1888
 msgid "Enter the Nextcloud address first, for example %1"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1854
+#: src/core/CalendarSync.cpp:1895
 msgid "Contacting the server…"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1872
+#: src/core/CalendarSync.cpp:1913
 msgid "This does not look like a Nextcloud server."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1881 src/core/CalendarSync.cpp:1983
+#: src/core/CalendarSync.cpp:1922 src/core/CalendarSync.cpp:2024
 msgid "The server gave an unexpected answer to the login request."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1893
+#: src/core/CalendarSync.cpp:1934
 msgid "The server redirected the login to a different host; it was refused."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1902
+#: src/core/CalendarSync.cpp:1943
 msgid "Waiting for you to authorize Sugo in the browser…"
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1938
+#: src/core/CalendarSync.cpp:1979
 msgid "The login was not completed in time. Please try again."
 msgstr ""
 
-#: src/core/CalendarSync.cpp:1977
+#: src/core/CalendarSync.cpp:2018
 msgid ""
 "The server returned an address that does not match the one you entered; the "
 "login was refused."
 msgstr ""
 
-#: src/core/DataManager.cpp:188 src/core/DataManager.cpp:211
-#: src/core/DataManager.cpp:217
+#: src/core/DataManager.cpp:188 src/core/DataManager.cpp:226
+#: src/core/DataManager.cpp:232
 msgid "Could not clear session history."
 msgstr ""
 
@@ -260,113 +260,121 @@ msgstr ""
 msgid "Session history cleared."
 msgstr ""
 
-#: src/core/DataManager.cpp:221
+#: src/core/DataManager.cpp:202
+msgid "Could not delete the session."
+msgstr ""
+
+#: src/core/DataManager.cpp:209
+msgid "Session deleted."
+msgstr ""
+
+#: src/core/DataManager.cpp:236
 msgid "There were no sessions to remove."
 msgstr ""
 
-#: src/core/DataManager.cpp:228
+#: src/core/DataManager.cpp:243
 msgid "%1 session removed."
 msgid_plural "%1 sessions removed."
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/core/DataManager.cpp:236
+#: src/core/DataManager.cpp:251
 msgid "Choose a local file for the export."
 msgstr ""
 
-#: src/core/DataManager.cpp:242
+#: src/core/DataManager.cpp:257
 msgid "Name the file with the ending .csv or .json."
 msgstr ""
 
-#: src/core/DataManager.cpp:251
+#: src/core/DataManager.cpp:266
 msgid "Could not read the session history."
 msgstr ""
 
-#: src/core/DataManager.cpp:298
+#: src/core/DataManager.cpp:313
 msgid "Could not write the export file."
 msgstr ""
 
-#: src/core/DataManager.cpp:301
+#: src/core/DataManager.cpp:316
 msgid "Exported %1 session."
 msgid_plural "Exported %1 sessions."
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/core/DataManager.cpp:317
+#: src/core/DataManager.cpp:332
 msgid "Choose a local file for the backup."
 msgstr ""
 
-#: src/core/DataManager.cpp:321 src/core/DataManager.cpp:424
+#: src/core/DataManager.cpp:336 src/core/DataManager.cpp:439
 msgid "Choose a backup file other than the active database."
 msgstr ""
 
-#: src/core/DataManager.cpp:328
+#: src/core/DataManager.cpp:343
 msgid "Could not prepare the database for backup: %1"
 msgstr ""
 
-#: src/core/DataManager.cpp:338
+#: src/core/DataManager.cpp:353
 msgid "Could not create the backup file."
 msgstr ""
 
-#: src/core/DataManager.cpp:346
+#: src/core/DataManager.cpp:361
 msgid "Could not create the backup: %1"
 msgstr ""
 
-#: src/core/DataManager.cpp:353
+#: src/core/DataManager.cpp:368
 msgid "Could not replace the selected backup file."
 msgstr ""
 
-#: src/core/DataManager.cpp:359
+#: src/core/DataManager.cpp:374
 msgid "Could not finish writing the backup file."
 msgstr ""
 
-#: src/core/DataManager.cpp:363
+#: src/core/DataManager.cpp:378
 msgid "Database backup created."
 msgstr ""
 
-#: src/core/DataManager.cpp:370 src/core/DataManager.cpp:392
-#: src/core/DataManager.cpp:429 src/core/DataManager.cpp:461
+#: src/core/DataManager.cpp:385 src/core/DataManager.cpp:407
+#: src/core/DataManager.cpp:444 src/core/DataManager.cpp:476
 msgid "This file is not a Sugo database."
 msgstr ""
 
-#: src/core/DataManager.cpp:394
+#: src/core/DataManager.cpp:409
 msgid "This backup was created by a newer version of Sugo."
 msgstr ""
 
-#: src/core/DataManager.cpp:410
+#: src/core/DataManager.cpp:425
 msgid "Stop the active timer before restoring a backup."
 msgstr ""
 
-#: src/core/DataManager.cpp:415
+#: src/core/DataManager.cpp:430
 msgid "Choose a local backup file."
 msgstr ""
 
-#: src/core/DataManager.cpp:420
+#: src/core/DataManager.cpp:435
 msgid "The data file could not be opened, so a backup cannot be restored now."
 msgstr ""
 
-#: src/core/DataManager.cpp:429 src/core/DataManager.cpp:450
-#: src/core/DataManager.cpp:463 src/core/DataManager.cpp:540
+#: src/core/DataManager.cpp:444 src/core/DataManager.cpp:465
+#: src/core/DataManager.cpp:478 src/core/DataManager.cpp:555
 msgid "Could not restore the backup: %1"
 msgstr ""
 
-#: src/core/DataManager.cpp:442
+#: src/core/DataManager.cpp:457
 msgid "Could not read the backup file."
 msgstr ""
 
-#: src/core/DataManager.cpp:460
+#: src/core/DataManager.cpp:475
 msgid "The backup is damaged."
 msgstr ""
 
-#: src/core/DataManager.cpp:473 src/core/DataManager.cpp:485
+#: src/core/DataManager.cpp:488 src/core/DataManager.cpp:500
 msgid "Could not open the backup: %1"
 msgstr ""
 
-#: src/core/DataManager.cpp:525
+#: src/core/DataManager.cpp:540
 msgid "The restored timers could not be read."
 msgstr ""
 
-#: src/core/DataManager.cpp:551
+#: src/core/DataManager.cpp:566
 msgid "Backup restored."
 msgstr ""
 
@@ -479,7 +487,7 @@ msgstr ""
 msgid "5 More Minutes"
 msgstr ""
 
-#: src/core/PhaseNotifier.cpp:174 src/main.cpp:763
+#: src/core/PhaseNotifier.cpp:174 src/main.cpp:764
 msgid "View"
 msgstr ""
 
@@ -613,7 +621,7 @@ msgid_plural "%1 Minutes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/core/TimerMenuActions.cpp:100 src/main.cpp:757
+#: src/core/TimerMenuActions.cpp:100 src/main.cpp:758
 #: src/platform/KRunnerService.cpp:66
 msgid "Resume"
 msgstr ""
@@ -777,15 +785,15 @@ msgstr ""
 msgid "Start hidden in the system tray (used by the login entry)"
 msgstr ""
 
-#: src/main.cpp:752
+#: src/main.cpp:753
 msgid "Work session paused"
 msgstr ""
 
-#: src/main.cpp:752
+#: src/main.cpp:753
 msgid "Break paused"
 msgstr ""
 
-#: src/main.cpp:753
+#: src/main.cpp:754
 msgid ""
 "Sugo was closed during this session. %1 minute is left: resume it when you "
 "are ready."
@@ -905,130 +913,145 @@ msgstr ""
 msgid "Open Sugo Window"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:185
+#: src/stats/StatsModel.cpp:186
 msgctxt ""
 "QDate::toString() format of the first day of a week within one month, e.g. "
 "\"5\" in \"5 – 11 October 2026\""
 msgid "d"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:189
+#: src/stats/StatsModel.cpp:190
 msgctxt ""
 "QDate::toString() format of the last day of a week within one month, e.g. "
 "\"11 October 2026\" in \"5 – 11 October 2026\""
 msgid "d MMMM yyyy"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:194
+#: src/stats/StatsModel.cpp:195
 msgctxt ""
 "QDate::toString() format of the first day of a week spanning two months, "
 "e.g. \"28 Sep\" in \"28 Sep – 4 Oct 2026\""
 msgid "d MMM"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:198
+#: src/stats/StatsModel.cpp:199
 msgctxt ""
 "QDate::toString() format of the last day of a week spanning two months, e.g. "
 "\"4 Oct 2026\" in \"28 Sep – 4 Oct 2026\""
 msgid "d MMM yyyy"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:203
+#: src/stats/StatsModel.cpp:204
 msgctxt ""
 "QDate::toString() format of either day of a week spanning two years, e.g. "
 "\"29 Dec 2025\""
 msgid "d MMM yyyy"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:207
+#: src/stats/StatsModel.cpp:208
 msgctxt "@title week range: %1 first day, %2 last day"
 msgid "%1 – %2"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:211
+#: src/stats/StatsModel.cpp:212
 msgctxt "@title %1 month name, %2 year"
 msgid "%1 %2"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:377
+#: src/stats/StatsModel.cpp:378
 msgid ""
 "%1:00 %2 – %3:00 %4\n"
 "Work: %5\n"
 "Breaks: %6"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:383
+#: src/stats/StatsModel.cpp:384
 msgid ""
 "%1:00 – %2:00\n"
 "Work: %3\n"
 "Breaks: %4"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:392 src/stats/StatsModel.cpp:398
+#: src/stats/StatsModel.cpp:393 src/stats/StatsModel.cpp:399
 msgid ""
 "%1\n"
 "Work: %2\n"
 "Breaks: %3"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:417
+#: src/stats/StatsModel.cpp:418
 msgctxt "clock hour"
 msgid "%1:00"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:424
+#: src/stats/StatsModel.cpp:425
 msgctxt "QDate::toString() format of a day of the month, e.g. \"30 October\""
 msgid "d MMMM"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:456
+#: src/stats/StatsModel.cpp:457
 msgid ""
 "%1\n"
 "Work: %2"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:520
+#: src/stats/StatsModel.cpp:521 src/stats/StatsModel.cpp:683
 msgid "Untitled Timer"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:522
+#: src/stats/StatsModel.cpp:523
 msgid "Uncategorized"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:524
+#: src/stats/StatsModel.cpp:525
 msgid "Without note"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:545
+#: src/stats/StatsModel.cpp:546
 msgid "0m"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:553
+#: src/stats/StatsModel.cpp:554
 msgid "%1h %2m"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:555
+#: src/stats/StatsModel.cpp:556
 msgid "%1h"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:558
+#: src/stats/StatsModel.cpp:559
 #, c-format
 msgid "%1m"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:560
+#: src/stats/StatsModel.cpp:561
 #, c-format
 msgid "%1s"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:620
+#: src/stats/StatsModel.cpp:639
 msgctxt "QDate::toString() format of the day of a task note, e.g. \"5 Oct\""
 msgid "d MMM"
 msgstr ""
 
-#: src/stats/StatsModel.cpp:627
+#: src/stats/StatsModel.cpp:641
 msgctxt "when a task note was written: date, time"
 msgid "%1, %2"
+msgstr ""
+
+#: src/stats/StatsModel.cpp:670
+msgctxt "a kind of session"
+msgid "Focus"
+msgstr ""
+
+#: src/stats/StatsModel.cpp:673
+msgctxt "a kind of session"
+msgid "Short break"
+msgstr ""
+
+#: src/stats/StatsModel.cpp:676
+msgctxt "a kind of session"
+msgid "Long break"
 msgstr ""
 
 #: src/sync/SyncController.cpp:143 src/sync/SyncController.cpp:770
@@ -1897,6 +1920,7 @@ msgstr[1] ""
 
 #: src/qml/pages/AppSettingsPage.qml:325 src/qml/pages/AppSettingsPage.qml:1302
 #: src/qml/pages/PresetEditPage.qml:246 src/qml/pages/PresetEditPage.qml:380
+#: src/qml/pages/StatsPage.qml:765
 msgid "Delete"
 msgstr ""
 
@@ -3256,7 +3280,7 @@ msgstr ""
 msgid "Focused"
 msgstr ""
 
-#: src/qml/pages/StatsPage.qml:268
+#: src/qml/pages/StatsPage.qml:268 src/qml/pages/StatsPage.qml:618
 msgid "Sessions"
 msgstr ""
 
@@ -3311,6 +3335,55 @@ msgstr ""
 
 #: src/qml/pages/StatsPage.qml:563
 msgid "No notes in this period."
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:622
+msgid "%1 session"
+msgid_plural "%1 sessions"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/qml/pages/StatsPage.qml:651
+msgid "No sessions in this period."
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:664
+msgctxt "a session: its timer · its task note"
+msgid "%1 · %2"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:668
+msgctxt "a session in the list: kind, duration, timer and note"
+msgid "%1, %2: %3"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:707
+msgctxt "an interrupted session: its duration"
+msgid "%1, interrupted"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:719
+msgid "Delete session"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:759
+msgid "Delete this session?"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:762
+msgctxt "@info deleting a session: %1 kind, %2 duration, %3 date and time"
+msgid ""
+"%1 of %2, started %3. It no longer counts in the statistics. This cannot be "
+"undone."
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:783
+msgctxt "@option:check %1 calendar name"
+msgid "Also delete its event from the calendar “%1”"
+msgstr ""
+
+#: src/qml/pages/StatsPage.qml:784
+msgid "Also delete its event from the calendar"
 msgstr ""
 
 #: src/qml/pages/TimerPage.qml:41

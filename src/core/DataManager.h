@@ -7,12 +7,13 @@
 
 #include <functional>
 
+#include "SessionRepository.h"
+
 class Database;
 class PresetModel;
 class PresetPersistence;
 class PresetRepository;
 class SessionRecorder;
-class SessionRepository;
 class StatsModel;
 
 /// Backup, restore, export and clear the user's recorded timer sessions.
@@ -63,6 +64,9 @@ public:
     Q_INVOKABLE bool clearHistory();
     /// Deletes the sessions that started more than `months` months ago. Removing none is a success.
     Q_INVOKABLE bool clearHistoryOlderThan(int months);
+    /// Deletes one session (a phase started by mistake, say) and updates the statistics.
+    /// `fromCalendar`: its event goes from the calendar too (sessionDeleted()).
+    Q_INVOKABLE bool deleteSession(qint64 sessionId, bool fromCalendar = false);
     /// Writes every session to a .csv or .json file (chosen by the file's extension).
     Q_INVOKABLE bool exportHistory(const QUrl &fileUrl);
     /// Opens the folder holding the database in the file manager.
@@ -79,6 +83,8 @@ Q_SIGNALS:
     void saveFailingChanged();
     /// A session note was stored (also emitted for an empty note).
     void sessionNoteChanged(qint64 sessionId, const QString &note);
+    /// A session was deleted (deleteSession()); `fromCalendar`: the user wants its event gone too.
+    void sessionDeleted(const SessionRecord &record, bool fromCalendar);
 
 private:
     bool validateBackup(const QString &path, QString *error) const;

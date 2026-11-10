@@ -225,6 +225,58 @@ bool SessionRepository::deleteAll()
     return true;
 }
 
+bool SessionRepository::deleteById(qint64 sessionId, SessionRecord *deleted)
+{
+    QSqlDatabase db = QSqlDatabase::database(m_connection, false);
+    QSqlQuery read(db);
+    read.prepare(QStringLiteral("SELECT uuid, kind, started_at, ended_at, completed FROM session WHERE id = ?"));
+    read.addBindValue(sessionId);
+    if (!read.exec()) {
+        qCWarning(lcSessionRepo) << "Cannot delete session:" << read.lastError().text();
+        return false;
+    }
+    if (!read.next()) {
+        qCWarning(lcSessionRepo) << "Cannot delete session: there is no session" << sessionId;
+        return false;
+    }
+    SessionRecord record;
+    record.id = sessionId;
+    record.uuid = read.value(0).toString();
+    record.kind = kindFromString(read.value(1).toString());
+    record.startedAtMs = read.value(2).toLongLong();
+    record.endedAtMs = read.value(3).toLongLong();
+    record.completed = read.value(4).toBool();
+    read.finish();
+
+    // The row and its tombstone go together, or neither.
+    if (!db.transaction()) {
+        qCWarning(lcSessionRepo) << "Cannot delete session:" << db.lastError().text();
+        return false;
+    }
+    QSqlQuery query(db);
+    bool ok = true;
+    if (!record.uuid.isEmpty()) {
+        query.prepare(QStringLiteral("INSERT OR REPLACE INTO session_tombstone (uuid, deleted_at, deleted_by) VALUES (?, ?, '')"));
+        query.addBindValue(record.uuid);
+        query.addBindValue(QDateTime::currentMSecsSinceEpoch());
+        ok = query.exec();
+    }
+    if (ok) {
+        query.prepare(QStringLiteral("DELETE FROM session WHERE id = ?"));
+        query.addBindValue(sessionId);
+        ok = query.exec() && query.numRowsAffected() == 1;
+    }
+    if (!ok || !db.commit()) {
+        qCWarning(lcSessionRepo) << "Cannot delete session:" << query.lastError().text() << db.lastError().text();
+        db.rollback();
+        return false;
+    }
+    if (deleted) {
+        *deleted = record;
+    }
+    return true;
+}
+
 int SessionRepository::deleteStartedBefore(qint64 ms)
 {
     QSqlDatabase db = QSqlDatabase::database(m_connection, false);

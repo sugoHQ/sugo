@@ -55,6 +55,7 @@ StatsModel::StatsModel(QObject *parent)
     armMidnightTimer();
     // The notes follow everything the period's figures follow.
     connect(this, &StatsModel::statsChanged, this, &StatsModel::rebuildNotes);
+    connect(this, &StatsModel::statsChanged, this, &StatsModel::rebuildSessions);
 }
 
 void StatsModel::attach(SessionRepository *repository, SessionRecorder *recorder)
@@ -602,35 +603,94 @@ void StatsModel::rebuildNotes()
         return a->startedAtMs != b->startedAtMs ? a->startedAtMs > b->startedAtMs : a->id > b->id;
     });
 
-    const QDate today = todayDate();
     QVariantList notes;
     for (const SessionRecord *record : std::as_const(withNotes)) {
         if (notes.size() >= kMaxNotes) {
             break;
         }
-        const QDateTime start = QDateTime::fromMSecsSinceEpoch(record->startedAtMs, m_env.timeZone);
-        const QString time = m_env.locale.toString(start.time(), QLocale::ShortFormat);
         QString label;
-        if (m_period == Period::Day || start.date() == today) {
-            label = time;
-        } else if (m_period == Period::Week) {
-            label = m_env.locale.dayName(start.date().dayOfWeek(), QLocale::ShortFormat);
-        } else {
-            label = m_env.locale.toString(
-                start.date(), i18nc("QDate::toString() format of the day of a task note, e.g. \"5 Oct\"", "d MMM"));
-        }
+        QString when;
+        describeStart(record->startedAtMs, &label, &when);
         QVariantMap map;
         map[QStringLiteral("sessionId")] = record->id;
         map[QStringLiteral("note")] = record->note.trimmed();
-        map[QStringLiteral("time")] = start;
+        map[QStringLiteral("time")] = QDateTime::fromMSecsSinceEpoch(record->startedAtMs, m_env.timeZone);
         map[QStringLiteral("label")] = label;
-        map[QStringLiteral("when")] = i18nc("when a task note was written: date, time", "%1, %2",
-                                            m_env.locale.toString(start.date(), QLocale::LongFormat), time);
+        map[QStringLiteral("when")] = when;
         notes.append(map);
     }
 
     if (notes != m_notesVariant) {
         m_notesVariant = notes;
         Q_EMIT notesChanged();
+    }
+}
+
+void StatsModel::describeStart(qint64 startedAtMs, QString *label, QString *when) const
+{
+    const QDateTime start = QDateTime::fromMSecsSinceEpoch(startedAtMs, m_env.timeZone);
+    const QString time = m_env.locale.toString(start.time(), QLocale::ShortFormat);
+    if (m_period == Period::Day || start.date() == todayDate()) {
+        *label = time;
+    } else if (m_period == Period::Week) {
+        *label = m_env.locale.dayName(start.date().dayOfWeek(), QLocale::ShortFormat);
+    } else {
+        *label = m_env.locale.toString(
+            start.date(), i18nc("QDate::toString() format of the day of a task note, e.g. \"5 Oct\"", "d MMM"));
+    }
+    *when = i18nc("when a task note was written: date, time", "%1, %2",
+                  m_env.locale.toString(start.date(), QLocale::LongFormat), time);
+}
+
+// --- Every session of the shown period ---------------------------------------------------------
+
+void StatsModel::rebuildSessions()
+{
+    const StatsPeriod sp = toStatsPeriod(m_period);
+    const PeriodRange range = Stats::rangeFor(sp, m_anchorDate, m_env.firstDayOfWeek, m_env.timeZone);
+
+    QList<const SessionRecord *> shown;
+    for (const SessionRecord &record : std::as_const(m_currentRecords)) {
+        if (record.startedAtMs >= range.startMs && record.startedAtMs < range.endMs) {
+            shown.append(&record);
+        }
+    }
+    std::sort(shown.begin(), shown.end(), [](const SessionRecord *a, const SessionRecord *b) {
+        return a->startedAtMs != b->startedAtMs ? a->startedAtMs > b->startedAtMs : a->id > b->id;
+    });
+
+    QVariantList sessions;
+    for (const SessionRecord *record : std::as_const(shown)) {
+        QString label;
+        QString when;
+        describeStart(record->startedAtMs, &label, &when);
+        QString kindName;
+        switch (record->kind) {
+        case SessionKind::Work:
+            kindName = i18nc("a kind of session", "Focus");
+            break;
+        case SessionKind::ShortBreak:
+            kindName = i18nc("a kind of session", "Short break");
+            break;
+        case SessionKind::LongBreak:
+            kindName = i18nc("a kind of session", "Long break");
+            break;
+        }
+        QVariantMap map;
+        map[QStringLiteral("sessionId")] = record->id;
+        map[QStringLiteral("kind")] = SessionRepository::kindToString(record->kind);
+        map[QStringLiteral("kindName")] = kindName;
+        map[QStringLiteral("timer")] = record->presetName.isEmpty() ? i18n("Untitled Timer") : record->presetName;
+        map[QStringLiteral("note")] = record->note.trimmed();
+        map[QStringLiteral("completed")] = record->completed;
+        map[QStringLiteral("duration")] = formatDuration(record->durationSec);
+        map[QStringLiteral("label")] = label;
+        map[QStringLiteral("when")] = when;
+        sessions.append(map);
+    }
+
+    if (sessions != m_sessionsVariant) {
+        m_sessionsVariant = sessions;
+        Q_EMIT sessionsChanged();
     }
 }

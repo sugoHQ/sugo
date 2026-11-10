@@ -108,6 +108,12 @@ public:
     /// Its own signal, raised only when the list changes.
     Q_PROPERTY(QVariantList notes READ notes NOTIFY notesChanged FINAL)
 
+    /// Every session of the shown period (work and breaks, interrupted ones too), newest first:
+    /// { sessionId, kind ("work", "short_break", "long_break"), kindName, timer, note, completed,
+    ///   duration (formatted active time), label, when }. `label` and `when` are as for `notes`.
+    /// Its own signal, raised only when the list changes.
+    Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged FINAL)
+
     explicit StatsModel(QObject *parent = nullptr);
 
     void attach(SessionRepository *repository, SessionRecorder *recorder = nullptr);
@@ -152,6 +158,7 @@ public:
     int todayCompletedSessions() const { return m_todayCompletedSessions; }
     static constexpr int kMaxNotes = 20;
     QVariantList notes() const { return m_notesVariant; }
+    QVariantList sessions() const { return m_sessionsVariant; }
 
     Q_INVOKABLE void previousPeriod();
     Q_INVOKABLE void nextPeriod();
@@ -168,6 +175,7 @@ Q_SIGNALS:
     void protectWeekendStreakChanged();
     void todayChanged();
     void notesChanged();
+    void sessionsChanged();
 
 private:
     /// Moves the shown period by `steps` periods.
@@ -184,6 +192,10 @@ private:
     StatsPeriod toStatsPeriod(Period p) const;
     /// Rebuilds `notes` from the shown period's sessions (after each statsChanged).
     void rebuildNotes();
+    /// Rebuilds `sessions` from the shown period's sessions (after each statsChanged).
+    void rebuildSessions();
+    /// How a session's start is named in a list: short (`label`) and whole (`when`).
+    void describeStart(qint64 startedAtMs, QString *label, QString *when) const;
 
     SessionRepository *m_repository = nullptr;
     Environment m_env;
@@ -214,4 +226,5 @@ private:
     qint64 m_todayWorkSeconds = 0;
     int m_todayCompletedSessions = 0;
     QVariantList m_notesVariant;
+    QVariantList m_sessionsVariant;
 };
