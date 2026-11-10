@@ -92,6 +92,33 @@ class SyncAccountTest : public QObject
         QTRY_VERIFY(!b.account->verificationCode().isEmpty());
     }
 
+    /// A and B hold the key; C waits for it and shows the code of B, the device seen last.
+    void thirdDeviceWaits(Client &a, Client &b, Client &c)
+    {
+        twoDevices(a, b);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
+        a.account->refreshDevices();
+        QVERIFY(asked.wait(5000));
+        a.account->approveDevice(b.account->deviceId());
+        QTRY_COMPARE_WITH_TIMEOUT(b.account->phase(), SyncAccount::Phase::Ready, 5000);
+
+        server->deviceLimit = 4;
+        signIn(c, SyncAccount::Phase::WaitingForKey, QStringLiteral("C"));
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->verificationCode(),
+                                  SyncCrypto::verificationCode(c.account->publicKey(), b.account->publicKey()), 5000);
+    }
+
+    /// When `on` last saw the device of `of`, by the list it holds (invalid if it is not there).
+    static QDateTime lastSeen(const Client &on, const Client &of)
+    {
+        const auto devices = on.account->devices();
+        const auto it = std::find_if(devices.cbegin(), devices.cend(), [&](const SyncAccount::Device &d) { return d.id == of.account->deviceId(); });
+        return it == devices.cend() ? QDateTime() : it->lastSeen;
+    }
+
 private Q_SLOTS:
     void init()
     {
@@ -453,6 +480,88 @@ private Q_SLOTS:
         const auto devices = b.account->devices();
         QVERIFY(std::none_of(devices.cbegin(), devices.cend(), [&](const SyncAccount::Device &d) { return d.id == a.account->deviceId(); }));
         QVERIFY(std::any_of(devices.cbegin(), devices.cend(), [&](const SyncAccount::Device &d) { return d.id == c.account->deviceId(); }));
+    }
+
+    void approverStaysWhileItCanStillApprove()
+    {
+        Client a(*server);
+        Client b(*server);
+        Client c(*server);
+        thirdDeviceWaits(a, b, c);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        const QString codeOfB = c.account->verificationCode();
+        QSignalSpy codeChanged(c.account.get(), &SyncAccount::verificationCodeChanged);
+        QSignalSpy rejected(c.account.get(), &SyncAccount::keyRejected);
+
+        // A syncs, so now it is the device seen last; B is still there and can still approve.
+        // C reads the list again after its minute: the code the user is comparing must not move.
+        server->seen(a.account->deviceId());
+        QTRY_VERIFY_WITH_TIMEOUT(lastSeen(c, a) > lastSeen(c, b), 5000);
+        QCOMPARE(c.account->verificationCode(), codeOfB);
+        QCOMPARE(codeChanged.size(), 0);
+
+        // The user found the same code on B and approves there: C takes the key B sends.
+        QSignalSpy asked(b.account.get(), &SyncAccount::approvalRequested);
+        b.account->refreshDevices();
+        QVERIFY(asked.wait(5000));
+        QCOMPARE(asked.first().at(0).toString(), c.account->deviceId());
+        QCOMPARE(asked.first().at(3).toString(), codeOfB);
+        b.account->approveDevice(c.account->deviceId());
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::Ready, 5000);
+        QCOMPARE(rejected.size(), 0);
+        QVERIFY(c.account->dataKey() == a.account->dataKey());
+    }
+
+    void approverThatCanNoLongerApproveIsReplaced_data()
+    {
+        QTest::addColumn<bool>("newKey");
+        QTest::newRow("another public key") << true;
+        QTest::newRow("no longer ready") << false;
+    }
+    void approverThatCanNoLongerApproveIsReplaced()
+    {
+        QFETCH(bool, newKey);
+        Client a(*server);
+        Client b(*server);
+        Client c(*server);
+        thirdDeviceWaits(a, b, c);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        const QString codeOfB = c.account->verificationCode();
+        server->seen(a.account->deviceId());
+        QTRY_VERIFY_WITH_TIMEOUT(lastSeen(c, a) > lastSeen(c, b), 5000);
+        QCOMPARE(c.account->verificationCode(), codeOfB);
+
+        // B is still listed, but no longer as the device the code was shown for: the code it
+        // covered is worth nothing now, and the device seen last is chosen again.
+        if (newKey) {
+            server->device(b.account->deviceId())->publicKey = SyncCrypto::generateKeyPair().publicKey;
+        } else {
+            server->device(b.account->deviceId())->ready = false;
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->verificationCode(),
+                                  SyncCrypto::verificationCode(c.account->publicKey(), a.account->publicKey()), 5000);
+    }
+
+    void waitingAgainChoosesTheApproverAgain()
+    {
+        Client a(*server);
+        Client b(*server);
+        Client c(*server);
+        thirdDeviceWaits(a, b, c);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        server->seen(a.account->deviceId());
+
+        // A wait started over (as after a refused key) does not hold on to the approver of the
+        // wait before it.
+        c.account->waitForKey();
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->verificationCode(),
+                                  SyncCrypto::verificationCode(c.account->publicKey(), a.account->publicKey()), 5000);
     }
 
     void forgedSenderIsRejected_data()
