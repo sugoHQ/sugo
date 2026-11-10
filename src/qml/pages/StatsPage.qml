@@ -610,6 +610,159 @@ QQC2.Page {
                     }
                 }
             }
+
+            // Every session of the period, newest first, each of which can be deleted (one
+            // started by mistake). A fixed height that scrolls, so the page does not move.
+            Panel {
+                Layout.fillWidth: true
+                title: i18n("Sessions")
+                headerExtra: Text {
+                    opacity: StatsModel.sessions.length > 0 ? 1 : 0
+                    text: StatsModel.sessions.length > 0
+                          ? i18np("%1 session", "%1 sessions", StatsModel.sessions.length) : " "
+                    color: Theme.subtle
+                    font.pixelSize: Theme.fontCaption
+                    font.features: { "tnum": 1 }
+                }
+
+                ListView {
+                    id: sessionsList
+                    objectName: "sessionsList"
+                    Layout.fillWidth: true
+                    implicitHeight: Theme.statsSessionRows * Theme.statsSessionRowHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: StatsModel.sessions
+                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+                    // The column of times and days is as wide as its longest label.
+                    readonly property real labelWidth: Math.ceil(sessionLabelMetrics.advanceWidth)
+
+                    TextMetrics {
+                        id: sessionLabelMetrics
+                        font.pixelSize: Theme.fontBody
+                        font.features: { "tnum": 1 }
+                        text: StatsModel.sessions.reduce((longest, s) => s.label.length > longest.length ? s.label : longest, "")
+                    }
+
+                    Text {
+                        visible: sessionsList.count === 0
+                        height: Theme.statsSessionRowHeight
+                        verticalAlignment: Text.AlignVCenter
+                        text: i18n("No sessions in this period.")
+                        color: Theme.muted
+                        font.pixelSize: Theme.fontBody
+                    }
+
+                    delegate: RowLayout {
+                        id: sessionRow
+                        required property var modelData
+                        width: ListView.view.width - (sessionsList.contentHeight > sessionsList.height ? Theme.spaceMd : 0)
+                        height: Theme.statsSessionRowHeight
+                        spacing: Theme.spaceMd + Theme.hairline * 2
+                        readonly property bool isWork: modelData.kind === "work"
+                        readonly property string details: modelData.note.length > 0
+                                                          ? i18nc("a session: its timer · its task note", "%1 · %2",
+                                                                  modelData.timer, modelData.note)
+                                                          : modelData.timer
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: i18nc("a session in the list: kind, duration, timer and note", "%1, %2: %3",
+                                               modelData.kindName, modelData.duration, details)
+                        Accessible.description: modelData.when
+
+                        HoverHandler {
+                            id: sessionHover
+                        }
+
+                        Text {
+                            text: sessionRow.modelData.label
+                            color: Theme.subtle
+                            font.pixelSize: Theme.fontBody
+                            font.features: { "tnum": 1 }
+                            Layout.preferredWidth: sessionsList.labelWidth
+                        }
+                        // Focus in the accent colour, breaks quieter.
+                        Rectangle {
+                            implicitWidth: Theme.spaceSm
+                            implicitHeight: Theme.spaceSm
+                            radius: width / 2
+                            color: sessionRow.isWork ? Theme.accent : Theme.subtle
+                        }
+                        Text {
+                            text: sessionRow.modelData.kindName
+                            color: Theme.foreground
+                            font.pixelSize: Theme.fontBody
+                        }
+                        Text {
+                            text: sessionRow.details
+                            color: Theme.dim
+                            font.pixelSize: Theme.fontBody
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                        }
+                        Text {
+                            text: sessionRow.modelData.completed
+                                  ? sessionRow.modelData.duration
+                                  : i18nc("an interrupted session: its duration", "%1, interrupted", sessionRow.modelData.duration)
+                            color: Theme.muted
+                            font.pixelSize: Theme.fontCaption
+                            font.features: { "tnum": 1 }
+                            horizontalAlignment: Text.AlignRight
+                        }
+                        // Shown on hover or keyboard focus, but always taking its place.
+                        SButton {
+                            id: deleteButton
+                            kind: "ghost"
+                            iconOnly: true
+                            iconName: "trash"
+                            text: i18n("Delete session")
+                            implicitHeight: Theme.iconButton
+                            opacity: sessionHover.hovered || hovered || visualFocus ? 1 : 0
+                            onClicked: page.askDeleteSession(sessionRow.modelData)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The session the dialog asks about.
+    property var sessionToDelete: null
+
+    function askDeleteSession(session: var): void {
+        sessionToDelete = session;
+        deleteSessionDialog.open();
+    }
+
+    // What deleting a session did, in a toast (the settings page shows its own).
+    Connections {
+        target: DataManager
+        enabled: page.visible
+        function onOperationFailed(message) {
+            applicationWindow().showPassiveNotification(message);
+        }
+        function onOperationSucceeded(message) {
+            applicationWindow().showPassiveNotification(message);
+        }
+    }
+
+    ConfirmDialog {
+        id: deleteSessionDialog
+        title: i18n("Delete this session?")
+        text: page.sessionToDelete
+              ? i18nc("@info deleting a session: %1 kind, %2 duration, %3 date and time",
+                      "%1 of %2, started %3. It no longer counts in the statistics. This cannot be undone.",
+                      page.sessionToDelete.kindName, page.sessionToDelete.duration, page.sessionToDelete.when)
+              : ""
+        confirmText: i18n("Delete")
+        confirmKind: "danger"
+        onConfirmed: {
+            deleteSessionDialog.close();
+            if (page.sessionToDelete) {
+                DataManager.deleteSession(page.sessionToDelete.sessionId);
+            }
+            page.sessionToDelete = null;
         }
     }
 }
