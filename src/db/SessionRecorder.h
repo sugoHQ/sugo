@@ -108,6 +108,7 @@ private:
     bool m_reopenedUnsaved = false;  ///< The next ended phase replaces the last unsaved one instead.
     qint64 m_lastEndedStartMs = -1;  ///< Start of the phase that ended last, to know its row once a retry stores it.
     SessionKind m_lastEndedKind = SessionKind::Work;
+    TimerPreset m_lastEndedTimer; ///< m_active of that phase: a phase taken up again keeps its name and category.
     QList<SessionRecord> m_unsaved; ///< Ended sessions the database refused, oldest first.
     QTimer m_retryTimer;
 };

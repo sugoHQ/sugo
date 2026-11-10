@@ -32,6 +32,7 @@ SessionRecorder::SessionRecorder(TimerEngine *engine, PresetModel *presets, Sess
     , m_presets(presets)
     , m_repository(repository)
     , m_active(presets->currentPreset())
+    , m_lastEndedTimer(m_active)
 {
     connect(engine, &TimerEngine::phaseStarted, this, &SessionRecorder::onPhaseStarted);
     connect(engine, &TimerEngine::sessionEnded, this, &SessionRecorder::onSessionEnded);
@@ -116,6 +117,9 @@ void SessionRecorder::onPhaseStarted(TimerEngine::Phase)
 
 void SessionRecorder::onPhaseReopened(TimerEngine::Phase)
 {
+    // The phase that started by itself meanwhile took the timer as it is now: the session goes on
+    // under the name and category it was stored with.
+    m_active = m_lastEndedTimer;
     m_reopenedId = m_lastSessionId > 0 ? m_lastSessionId : 0;
     m_reopenedUnsaved = m_reopenedId == 0 && isSaveFailing();
 }
@@ -151,6 +155,7 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     if (reopenedId <= 0) {
         m_lastEndedStartMs = record.startedAtMs;
         m_lastEndedKind = record.kind;
+        m_lastEndedTimer = m_active;
     }
 
     if (reopenedId > 0) {

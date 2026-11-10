@@ -184,6 +184,21 @@ private Q_SLOTS:
         QCOMPARE(all().at(0).presetName, QStringLiteral("Deep work"));
     }
 
+    void aCrashRightAfterSwitchingTimersBringsBackTheNewOne()
+    {
+        const QString deep = presets->create({{QStringLiteral("name"), QStringLiteral("Deep work")},
+                                              {QStringLiteral("workSeconds"), 50 * 60}});
+        presets->setCurrentUuid(deep);
+        engine->start();
+        elapse(20); // then the crash, before any heartbeat: no keepForQuit()
+
+        startRun();
+        presets->setCurrentUuid(PresetModel::DefaultUuid);
+        QVERIFY(keeper->restore());
+        QCOMPARE(presets->currentUuid(), deep);
+        QCOMPARE(engine->totalSeconds(), 50 * 60);
+    }
+
     void stoppingItIsReported()
     {
         engine->start();
@@ -246,6 +261,18 @@ private Q_SLOTS:
         QVERIFY(!keeper->restore());
         QCOMPARE(all().size(), 1);
         QCOMPARE(all().at(0).presetName, QStringLiteral("Gone"));
+    }
+
+    void quittingJustAfterTheDeadlineRecordsTheFinishedPhase()
+    {
+        engine->start();
+        clock.advanceSeconds(25 * 60); // the time is up, and the quit comes before the next tick
+        QVERIFY(!keeper->keepForQuit()); // the short break waits: nothing under way to keep
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 25 * 60);
+        QVERIFY(!QFile::exists(path()));
     }
 
     void aWorkTakenUpAgainIsNotKept()

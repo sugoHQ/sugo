@@ -83,7 +83,13 @@ void SessionKeeper::attach(TimerEngine *engine, PresetModel *presets, SessionRec
     // The timer as it was when the phase began: editing it meanwhile does not change the session's
     // name or category (as SessionRecorder).
     captureTimer();
-    connect(engine, &TimerEngine::phaseStarted, this, &SessionKeeper::captureTimer);
+    // phaseStarted comes after the state and phase changes that saved the new phase: it is saved
+    // again with its own timer, or a crash before the next heartbeat would bring it back under
+    // the timer that ran before.
+    connect(engine, &TimerEngine::phaseStarted, this, [this]() {
+        captureTimer();
+        save();
+    });
     for (const auto signal : {&TimerEngine::stateChanged, &TimerEngine::phaseChanged, &TimerEngine::totalChanged,
                               &TimerEngine::cyclesChanged}) {
         connect(engine, signal, this, &SessionKeeper::save);
@@ -154,7 +160,13 @@ bool SessionKeeper::write()
 
 bool SessionKeeper::keepForQuit()
 {
-    if (!m_engine || !m_restoreDone || m_path.isEmpty() || !m_engine->isActive() || m_engine->continuesEndedSession()) {
+    if (!m_engine || !m_restoreDone || m_path.isEmpty()) {
+        return false;
+    }
+    // A phase whose time ran out before the next tick has ended: it is recorded as completed, not
+    // kept with no time left (the next start would drop it).
+    m_engine->refresh();
+    if (!m_engine->isActive() || m_engine->continuesEndedSession()) {
         return false;
     }
     m_heartbeat.stop();
