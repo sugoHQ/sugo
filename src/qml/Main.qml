@@ -1591,14 +1591,17 @@ QQC2.ApplicationWindow {
                     replaceExit: Transition {}
                 }
 
-                // Shown on every page: nothing recorded now will survive a restart, or the last
+                // Shown on every page: nothing recorded now will survive a restart, or the stored
+                // timers could not be read (timer changes are not saved), or the last
                 // changes are still waiting to be stored, or (until dismissed) the database found
                 // at startup was damaged or not Sugo's and a new one was started. Laid over the
                 // top of the page, so the page does not move when it comes or goes.
                 Rectangle {
                     id: dataWarning
                     objectName: "dataWarning"
-                    readonly property bool storageFailing: DataManager !== null && (DataManager.usingTemporaryDatabase === true || DataManager.saveFailing === true)
+                    readonly property bool storageFailing: DataManager !== null
+                        && (DataManager.usingTemporaryDatabase === true || DataManager.timersUnreadable === true
+                            || DataManager.saveFailing === true)
                     property bool movedAsideDismissed: false
                     readonly property bool movedAside: DataManager !== null && DataManager.movedAsideDatabasePath.length > 0 && !movedAsideDismissed
                     readonly property bool shown: storageFailing || movedAside
@@ -1629,6 +1632,9 @@ QQC2.ApplicationWindow {
                             }
                             if (DataManager.usingTemporaryDatabase === true) {
                                 return i18n("Your data cannot be saved: the database could not be opened. Sugo is using a temporary database.");
+                            }
+                            if (DataManager.timersUnreadable === true) {
+                                return i18n("Your timers could not be read, so Sugo is using the built-in timer for now. Timer changes are not saved until Sugo is started again.");
                             }
                             if (DataManager.saveFailing === true) {
                                 return i18n("Your latest sessions or timer changes could not be saved yet. Sugo keeps them and tries again; do not quit until this message is gone.");
