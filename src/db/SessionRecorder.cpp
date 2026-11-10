@@ -47,6 +47,14 @@ bool SessionRecorder::store(const SessionRecord &record)
     if (!m_repository->insert(record, &id)) {
         return false;
     }
+    // The phase that ended last, stored only now by a retry: a phase taken up again updates this row.
+    if (record.startedAtMs == m_lastEndedStartMs && record.kind == m_lastEndedKind) {
+        m_lastSessionId = id;
+        if (m_reopenedUnsaved) {
+            m_reopenedUnsaved = false;
+            m_reopenedId = id;
+        }
+    }
     Q_EMIT sessionRecorded();
     if (record.kind == SessionKind::Work && record.completed) {
         SessionRecord stored = record;
@@ -75,6 +83,7 @@ void SessionRecorder::forgetHistory()
     m_lastSessionId = -1;
     m_reopenedId = 0;
     m_reopenedUnsaved = false;
+    m_lastEndedStartMs = -1;
     m_retryTimer.stop();
     if (isSaveFailing()) {
         m_unsaved.clear();
@@ -121,6 +130,10 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     record.presetUuid = m_active.uuid;
     record.presetName = m_active.name;
     record.category = m_active.category;
+    if (reopenedId <= 0) {
+        m_lastEndedStartMs = record.startedAtMs;
+        m_lastEndedKind = record.kind;
+    }
 
     if (reopenedId > 0) {
         // The same session, longer: its row gets the new end. If that fails, the row keeps the

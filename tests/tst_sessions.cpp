@@ -592,6 +592,37 @@ private Q_SLOTS:
         QCOMPARE(again.note, QStringLiteral("Report"));
     }
 
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain_data()
+    {
+        QTest::addColumn<bool>("retryBeforeReopening");
+        QTest::newRow("stored before it is taken up again") << true;
+        QTest::newRow("stored while it goes on") << false;
+    }
+
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain()
+    {
+        QFETCH(bool, retryBeforeReopening);
+        recorder->setRetryIntervalForTesting(30);
+        failSessionInserts(true);
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(recorder->isSaveFailing());
+        if (retryBeforeReopening) {
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+            QVERIFY(engine->continueFinished());
+        } else {
+            QVERIFY(engine->continueFinished());
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+        }
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1); // one session, not the first end and the longer one
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+    }
+
     void breakThatStartedByItselfGivesWayUnrecorded()
     {
         engine->setAutoStartMode(TimerEngine::AutoStartMode::All);
