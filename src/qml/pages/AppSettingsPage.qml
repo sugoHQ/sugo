@@ -214,6 +214,8 @@ QQC2.Page {
     /// The timer a Shift+click counts from: the last one chosen or unchosen.
     property string selectionAnchor: ""
     readonly property bool selectingTimers: selectedTimers.length > 0
+    /// The Timers category is shown with some timers chosen.
+    readonly property bool choosingTimers: category === "timers" && selectingTimers
 
     function clearTimerSelection(): void {
         selectedTimers = [];
@@ -274,6 +276,17 @@ QQC2.Page {
             setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
         }
     }
+    /// A click on a timer's box: chooses or lets go of it, or with Shift all those between.
+    function timerBoxClicked(timer: var, modifiers: int): void {
+        if (!timerSelectable(timer) && !timerSelected(timer.uuid)) {
+            return;
+        }
+        if ((modifiers & Qt.ShiftModifier) !== 0 && selectionAnchor.length > 0) {
+            selectTimerRange(timer.uuid);
+        } else {
+            setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
+        }
+    }
     /// Timers deleted meanwhile (here, on another page, by Sugo Sync) leave the selection.
     function pruneTimerSelection(): void {
         const kept = selectedTimers.filter(uuid => PresetModel.indexOf(uuid) >= 0);
@@ -297,10 +310,18 @@ QQC2.Page {
             return uuids.map(uuid => PresetModel.get(uuid).name || "");
         }
         title: i18np("Delete this timer?", "Delete %1 timers?", uuids.length)
+        // At most three names, so a long selection keeps the dialog inside the window.
+        readonly property int namesShown: 3
+        readonly property string listedNames: names.slice(0, namesShown)
+            .map(name => i18nc("a timer's name, in a list", "“%1”", name))
+            .join(i18nc("between the names of a list", ", "))
         text: uuids.length === 1
               ? i18n("Delete “%1”? Statistics already recorded with it are kept.", names[0] || "")
-              : i18n("Delete %1? Statistics already recorded with them are kept.",
-                     names.map(name => i18nc("a timer's name, in a list", "“%1”", name)).join(i18nc("between the names of a list", ", ")))
+              : uuids.length <= namesShown
+                ? i18n("Delete %1? Statistics already recorded with them are kept.", listedNames)
+                : i18np("Delete %2 and 1 more? Statistics already recorded with them are kept.",
+                        "Delete %2 and %1 more? Statistics already recorded with them are kept.",
+                        uuids.length - namesShown, listedNames)
         confirmText: i18n("Delete")
         confirmKind: "danger"
         onConfirmed: {
@@ -982,7 +1003,7 @@ QQC2.Page {
         // From the keyboard; the mouse goes through rowMouse, which knows Ctrl and Shift.
         onClicked: page.timerRowClicked(timer, Qt.NoModifier)
 
-        readonly property bool pointed: rowMouse.containsMouse || selectBox.hovered
+        readonly property bool pointed: rowMouse.containsMouse || boxMouse.containsMouse
         readonly property bool selected: page.timerSelected(timer.uuid)
         // The box shows while timers are chosen, or under the pointer.
         readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed)
@@ -1046,16 +1067,27 @@ QQC2.Page {
                     anchors.fill: parent
                     visible: !timerRow.timer.builtin
                     opacity: timerRow.showBox ? 1 : 0
-                    enabled: timerRow.selected || !page.timerLocked(timerRow.timer.uuid)
-                    hoverEnabled: true
+                    // The running timer's box stays enabled, faded, so its tooltip can say why.
+                    readonly property bool locked: !timerRow.selected && page.timerLocked(timerRow.timer.uuid)
                     focusPolicy: Qt.NoFocus
                     checkable: true
                     checked: timerRow.selected
                     Accessible.name: i18n("Select “%1”", timerRow.timer.name)
-                    QQC2.ToolTip.visible: hovered && !enabled
+                    QQC2.ToolTip.visible: boxMouse.containsMouse && locked
                     QQC2.ToolTip.text: i18n("This timer is running. Stop it to delete it.")
                     QQC2.ToolTip.delay: Theme.toolTipDelay
-                    onClicked: page.setTimerSelected(timerRow.timer.uuid, checked)
+                    // From assistive tools; the mouse goes through boxMouse, which knows Shift.
+                    onClicked: {
+                        checked = Qt.binding(() => timerRow.selected);
+                        page.timerBoxClicked(timerRow.timer, Qt.NoModifier);
+                    }
+                    MouseArea {
+                        id: boxMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mouse => page.timerBoxClicked(timerRow.timer, mouse.modifiers)
+                    }
                     contentItem: null
                     background: Rectangle {
                         anchors.centerIn: parent
@@ -1064,8 +1096,8 @@ QQC2.Page {
                         radius: Theme.radiusXs
                         color: selectBox.checked ? Theme.accent : "transparent"
                         border.width: selectBox.checked ? 0 : Theme.hairline * 2
-                        border.color: selectBox.hovered ? Theme.foreground : Theme.subtle
-                        opacity: selectBox.enabled ? 1 : 0.5
+                        border.color: boxMouse.containsMouse && !selectBox.locked ? Theme.foreground : Theme.subtle
+                        opacity: selectBox.locked ? 0.5 : 1
                         LineIcon {
                             anchors.centerIn: parent
                             visible: selectBox.checked
@@ -1194,7 +1226,8 @@ QQC2.Page {
                 SComboBox {
                     id: categoryBox
                     objectName: "settingsCategoryBox"
-                    visible: page.narrow
+                    // While timers are chosen, the count takes its place.
+                    visible: page.narrow && !page.choosingTimers
                     textRole: "text"
                     valueRole: "id"
                     model: page.categories
@@ -1206,9 +1239,9 @@ QQC2.Page {
                     }
                 }
                 Text {
-                    visible: !page.narrow
+                    visible: !page.narrow || page.choosingTimers
                     Layout.fillWidth: true
-                    text: page.category === "timers" && page.selectingTimers
+                    text: page.choosingTimers
                           ? i18np("1 timer chosen", "%1 timers chosen", page.selectedTimers.length)
                           : page.categories[page.categoryIndex()].text
                     color: Theme.foreground
@@ -1218,7 +1251,7 @@ QQC2.Page {
                     Accessible.role: Accessible.Heading
                 }
                 Item {
-                    visible: page.narrow
+                    visible: page.narrow && !page.choosingTimers
                     Layout.fillWidth: true
                 }
                 // The button is taller than the title: it is centred on the row without making it
