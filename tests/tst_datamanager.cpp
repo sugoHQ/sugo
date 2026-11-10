@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QFile>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QFileInfo>
 #include <QDateTime>
 #include <QDir>
@@ -726,96 +723,6 @@ private Q_SLOTS:
         manager->setSessionRecorder(nullptr);
     }
 
-    void exportToCsvQuotesFieldsAndNeutralisesFormulas()
-    {
-        SessionRecord record;
-        record.kind = SessionKind::Work;
-        record.startedAtMs = 1'700'000'000'000;
-        record.endedAtMs = 1'700'000'600'000;
-        record.durationSec = 600;
-        record.plannedSec = 1500;
-        record.completed = true;
-        record.presetName = QStringLiteral("Deep, \"focus\"");
-        record.category = QStringLiteral("=SUM(A1)");
-        record.note = QStringLiteral("line one\nline two");
-        QVERIFY(sessions->insert(record));
-        record.kind = SessionKind::ShortBreak;
-        record.completed = false;
-        record.presetName = QStringLiteral("@cmd");
-        record.category = QStringLiteral("-1+1");
-        record.note = QStringLiteral("+x");
-        QVERIFY(sessions->insert(record));
-
-        QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
-        const QString path = dir.filePath(QStringLiteral("history.csv"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
-        QCOMPARE(succeeded.count(), 1);
-        QCOMPARE(succeeded.first().first().toString(), QStringLiteral("Exported 2 sessions."));
-        QCOMPARE(QFile::permissions(path) & (QFile::ReadGroup | QFile::WriteGroup | QFile::ReadOther | QFile::WriteOther),
-                 QFileDevice::Permissions());
-
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QString csv = QString::fromUtf8(file.readAll());
-        const QStringList lines = csv.split(QStringLiteral("\r\n"));
-        QCOMPARE(lines.first(), QStringLiteral("id,kind,started_at,ended_at,duration_sec,planned_sec,completed,preset_name,category,note"));
-        // The first row's note spans two physical lines: it is one quoted field.
-        QVERIFY(csv.contains(QStringLiteral(",600,1500,1,\"Deep, \"\"focus\"\"\",'=SUM(A1),\"line one\nline two\"\r\n")));
-        QVERIFY(csv.contains(QStringLiteral(",short_break,")));
-        QVERIFY(csv.contains(QStringLiteral(",600,1500,0,'@cmd,'-1+1,'+x\r\n")));
-        QVERIFY(csv.endsWith(QStringLiteral("\r\n")));
-        // The times carry an offset from UTC and name the same instants.
-        const QString started = csv.split(QStringLiteral("\r\n")).at(1).split(QLatin1Char(',')).at(2);
-        QVERIFY(started.contains(QRegularExpression(QStringLiteral("[+-]\\d\\d:\\d\\d$|Z$"))));
-        QCOMPARE(QDateTime::fromString(started, Qt::ISODate).toMSecsSinceEpoch(), qint64(1'700'000'000'000));
-    }
-
-    void exportToJsonKeepsTextAsIs()
-    {
-        SessionRecord record;
-        record.kind = SessionKind::LongBreak;
-        record.startedAtMs = 1'700'000'000'000;
-        record.endedAtMs = 1'700'000'900'000;
-        record.durationSec = 900;
-        record.plannedSec = 900;
-        record.completed = true;
-        record.presetName = QStringLiteral("Pomodoro");
-        record.category = QStringLiteral("Study");
-        record.note = QStringLiteral("=keep");
-        QVERIFY(sessions->insert(record));
-
-        const QString path = dir.filePath(QStringLiteral("history.JSON"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        QVERIFY(doc.isArray());
-        QCOMPARE(doc.array().size(), 1);
-        const QJsonObject row = doc.array().first().toObject();
-        QCOMPARE(row.value(QStringLiteral("kind")).toString(), QStringLiteral("long_break"));
-        QCOMPARE(row.value(QStringLiteral("duration_sec")).toInt(), 900);
-        QCOMPARE(row.value(QStringLiteral("planned_sec")).toInt(), 900);
-        QCOMPARE(row.value(QStringLiteral("completed")).toBool(), true);
-        QCOMPARE(row.value(QStringLiteral("preset_name")).toString(), QStringLiteral("Pomodoro"));
-        QCOMPARE(row.value(QStringLiteral("category")).toString(), QStringLiteral("Study"));
-        QCOMPARE(row.value(QStringLiteral("note")).toString(), QStringLiteral("=keep"));
-        QCOMPARE(QDateTime::fromString(row.value(QStringLiteral("ended_at")).toString(), Qt::ISODate).toMSecsSinceEpoch(),
-                 qint64(1'700'000'900'000));
-        QVERIFY(row.contains(QStringLiteral("id")));
-    }
-
-    void exportFailsForUnusableTargets()
-    {
-        QSignalSpy failed(manager.get(), &DataManager::operationFailed);
-        QVERIFY(!manager->exportHistory(QUrl(QStringLiteral("https://example.com/history.csv"))));
-        QCOMPARE(failed.count(), 1);
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("history.txt")))));
-        QCOMPARE(failed.count(), 2);
-        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("history.txt"))));
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("missing/dir/history.csv")))));
-        QCOMPARE(failed.count(), 3);
-    }
-
     void presetCountReflectsModelCount()
     {
         QCOMPARE(manager->presetCount(), presetModel->count());
@@ -942,35 +849,6 @@ private Q_SLOTS:
         QVERIFY2(!fileBytes().contains(marker), "a cleared note is still readable in the database file");
     }
 
-    void exportOfAnUnreadableHistoryLeavesTheFileAlone()
-    {
-        QVERIFY(sessions->insert(sampleRecord()));
-        const QString path = dir.filePath(QStringLiteral("previous.csv"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
-        QFile previous(path);
-        QVERIFY(previous.open(QIODevice::ReadOnly));
-        const QByteArray before = previous.readAll();
-        previous.close();
-        QVERIFY(before.contains("Pomodoro"));
-
-        // The sessions can no longer be read: that is a failure, not an empty history.
-        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
-        QVERIFY(query.exec(QStringLiteral("DROP TABLE session")));
-        bool ok = true;
-        QVERIFY(sessions->between(0, 2000, &ok).isEmpty());
-        QVERIFY(!ok);
-        QCOMPARE(sessions->count(), -1);
-
-        QSignalSpy failed(manager.get(), &DataManager::operationFailed);
-        QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(path)));
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("new.json")))));
-        QCOMPARE(failed.count(), 2);
-        QCOMPARE(succeeded.count(), 0);
-        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("new.json"))));
-        QVERIFY(previous.open(QIODevice::ReadOnly));
-        QCOMPARE(previous.readAll(), before);
-    }
 };
 
 QTEST_GUILESS_MAIN(DataManagerTest)

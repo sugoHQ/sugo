@@ -67,8 +67,6 @@ public:
     /// Deletes one session (a phase started by mistake, say) and updates the statistics.
     /// `fromCalendar`: its event goes from the calendar too (sessionDeleted()).
     Q_INVOKABLE bool deleteSession(qint64 sessionId, bool fromCalendar = false);
-    /// Writes every session to a .csv or .json file (chosen by the file's extension).
-    Q_INVOKABLE bool exportHistory(const QUrl &fileUrl);
     /// Opens the folder holding the database in the file manager.
     Q_INVOKABLE void openDatabaseFolder() const;
     Q_INVOKABLE bool backupDatabase(const QUrl &fileUrl);

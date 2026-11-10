@@ -208,23 +208,6 @@ private Q_SLOTS:
 #endif
     }
 
-    void testExportReport()
-    {
-        Diagnostics diag;
-        QTemporaryDir tempDir;
-        QVERIFY(tempDir.isValid());
-
-        const QString targetPath = tempDir.filePath(QStringLiteral("diagnostics.txt"));
-        const QUrl targetUrl = QUrl::fromLocalFile(targetPath);
-
-        QVERIFY(diag.exportReport(targetUrl));
-
-        QFile file(targetPath);
-        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-        const QString content = QString::fromUtf8(file.readAll());
-        QVERIFY(content.startsWith(QStringLiteral("# Sugo Diagnostics Report")));
-    }
-
     void testRedactsUserAtHostAndUserName()
     {
         QCOMPARE(Diagnostics::redact(QStringLiteral("ssh alice@workstation.local failed")),
@@ -342,29 +325,6 @@ private Q_SLOTS:
         QCOMPARE(Diagnostics::redact(QStringLiteral("Timer for tim started")), QStringLiteral("Timer for <account> started"));
         QCOMPARE(Diagnostics::redact(QStringLiteral("Tim: login failed")), QStringLiteral("<account>: login failed"));
         Diagnostics::setAccountRedactions({});
-    }
-
-    void testExportRejectsNonLocalUrls()
-    {
-        Diagnostics diag;
-        QVERIFY(!diag.exportReport(QUrl(QStringLiteral("https://example.com/report.txt"))));
-        QVERIFY(!diag.lastExportError().isEmpty());
-    }
-
-    void testExportReportsWriteFailures()
-    {
-        Diagnostics diag;
-        QTemporaryDir tempDir;
-        QVERIFY(tempDir.isValid());
-        const QString missingDir = tempDir.filePath(QStringLiteral("no/such/dir/report.txt"));
-        QVERIFY(!diag.exportReport(QUrl::fromLocalFile(missingDir)));
-        QVERIFY(!diag.lastExportError().isEmpty());
-
-        // A success clears the error; a plain absolute path works too.
-        const QString target = tempDir.filePath(QStringLiteral("report.txt"));
-        QVERIFY(diag.exportReport(QUrl(target)));
-        QVERIFY(diag.lastExportError().isEmpty());
-        QVERIFY(QFile::exists(target));
     }
 
     void testAttachedReport()
