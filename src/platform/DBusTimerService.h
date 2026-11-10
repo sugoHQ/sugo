@@ -69,6 +69,8 @@ public Q_SLOTS:
     void skip();
     /// Five more minutes for the active phase, or for the one that has just ended.
     void extend();
+    /// `minutes` more (1 to 60), the same way.
+    void extendBy(int minutes);
     QString status() const;
 
     /// Names of the timers, in list order.

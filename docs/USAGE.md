@@ -114,10 +114,10 @@ A *timer* (preset) bundles the durations of a work phase, a short break and a lo
 - **Silence notifications while working**, **play a sound** and **show a notification** when a phase ends can be set per timer.
 - The timer you pick stays selected the next time you start Sugo. You cannot switch timers while one is running.
 
-**+5 min** (next to Stop and Skip, in the tray menu as **Add 5 Minutes**, or **5 More Minutes** on the notification at the end of a phase) gives you five more minutes:
+**More time**: the **+ min** button next to Stop and Skip offers 2, 5 or 10 more minutes (so do **Add Time** in the tray and Dock menus, and in the Timer menu of the macOS menu bar); the notification at the end of a phase offers **5 More Minutes**.
 
-- while a phase runs or is paused, it makes that phase five minutes longer;
-- for ten minutes after a phase ends, as long as you have not done anything else with the timer, it takes the phase that just ended up again for five more minutes, even if the next one has already started by itself. It stays one session: a 25-minute work session continued for five minutes is recorded as one of 30 minutes (the minutes in between count as a pause), the calendar event is updated, and the break comes after it as before.
+- While a phase runs or is paused, it makes that phase longer.
+- For ten minutes after a phase ends, as long as you have not done anything else with the timer, it takes the phase that just ended up again, even if the next one has already started by itself. It stays one session: a 25-minute work session continued for five minutes is recorded as one of 30 minutes (the minutes in between count as a pause), the calendar event is updated, and the break comes after it as before.
 
 Pausing keeps the remaining time; stopping resets the phase. A phase stopped early is recorded as *interrupted* in the statistics if it ran for at least five seconds.
 
@@ -147,7 +147,7 @@ On macOS the same icon and menu are in the **menu bar**.
 The tray icon shows a ring with the minutes left (red while working, green during breaks). Its context menu contains, from the top:
 
 1. **A status line** (not clickable): the phase, the time left and the name of the timer, for example `Work · 12:30 · Pomodoro`.
-2. **Start / Pause / Resume**, and **Stop** and **Skip**, which appear only while a phase is running or paused, and **Add 5 Minutes**, also there for ten minutes after a phase ends.
+2. **Start / Pause / Resume**, and **Stop** and **Skip**, which appear only while a phase is running or paused, and **Add Time** (2, 5 or 10 minutes), also there for ten minutes after a phase ends.
 3. **Timer**: a submenu with all your timers; pick one to switch to it. It is disabled while a timer is running.
 4. **Statistics** and **Settings**, which open the window on that page.
 5. **Show Window / Hide Window** and **Quit**.
@@ -266,6 +266,7 @@ Up to Sugo 1.0.2 the service and the interface were `io.github.mineraleyt.sugo`:
 | `qdbus stream.sugo.app /Timer stop` | Stop and reset |
 | `qdbus stream.sugo.app /Timer skip` | Skip to the next phase |
 | `qdbus stream.sugo.app /Timer extend` | Five more minutes for the phase, or for the one that has just ended |
+| `qdbus stream.sugo.app /Timer extendBy 10` | The same with any number of minutes from 1 to 60 |
 | `qdbus stream.sugo.app /Timer status` | Print `state:phase:seconds` |
 | `qdbus stream.sugo.app /Timer presets` | List the names of the timers, one per line |
 | `qdbus stream.sugo.app /Timer selectPreset "Deep work"` | Choose a timer by name (not case-sensitive) or uuid |
@@ -297,6 +298,7 @@ On macOS, opening a `sugo://` link sends Sugo a command. Open it from Terminal o
 | `open sugo://stop` | Stop and reset |
 | `open sugo://skip` | Skip to the next phase |
 | `open sugo://extend` | Five more minutes for the phase, or for the one that has just ended |
+| `open sugo://extend/10` | The same with any number of minutes from 1 to 60 |
 | `open sugo://show` | Show the window |
 | `open sugo://preset/Deep%20work` | Choose a timer by name (spaces written as `%20`) or uuid |
 | `open sugo://start/Deep%20work` | Choose a timer and start it |

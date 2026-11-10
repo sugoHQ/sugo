@@ -140,7 +140,7 @@ private Q_SLOTS:
         QAction *start = actionNamed(menu(), QStringLiteral("Start"));
         QAction *stop = actionNamed(menu(), QStringLiteral("Stop"));
         QAction *skip = actionNamed(menu(), QStringLiteral("Skip"));
-        QAction *extend = actionNamed(menu(), QStringLiteral("Add 5 Minutes"));
+        QAction *extend = actionNamed(menu(), QStringLiteral("Add Time"));
         QVERIFY(start && stop && skip && extend);
         QVERIFY(!stop->isVisible()); // nothing to stop while idle
         QVERIFY(!skip->isVisible());
@@ -155,9 +155,13 @@ private Q_SLOTS:
         QVERIFY(stop->isVisible());
         QVERIFY(skip->isVisible());
         QVERIFY(extend->isVisible());
+        QVERIFY(extend->menu());
+        QAction *tenMinutes = actionNamed(extend->menu(), QStringLiteral("10 Minutes"));
+        QVERIFY(tenMinutes);
+        QCOMPARE(extend->menu()->actions().size(), 3);
         const int total = engine->totalSeconds();
-        extend->trigger();
-        QCOMPARE(engine->totalSeconds(), total + TimerEngine::kExtendSeconds);
+        tenMinutes->trigger();
+        QCOMPARE(engine->totalSeconds(), total + 10 * 60);
 
         start->trigger();
         QVERIFY(engine->isPaused());

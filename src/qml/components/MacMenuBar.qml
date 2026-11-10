@@ -65,6 +65,25 @@ Item {
                 enabled: TimerEngine.active && !!menus.app && !menus.app.dialogOpen
                 onTriggered: menus.app.requestEndPhase(false)
             }
+            Platform.Menu {
+                title: i18nc("@title:menu", "Add Time")
+                enabled: TimerEngine.extendable && !!menus.app && !menus.app.dialogOpen
+                Platform.MenuItem {
+                    text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 2)
+                    role: Platform.MenuItem.NoRole
+                    onTriggered: TimerEngine.extend(2 * 60)
+                }
+                Platform.MenuItem {
+                    text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 5)
+                    role: Platform.MenuItem.NoRole
+                    onTriggered: TimerEngine.extend(5 * 60)
+                }
+                Platform.MenuItem {
+                    text: i18ncp("@action:inmenu", "%1 Minute", "%1 Minutes", 10)
+                    role: Platform.MenuItem.NoRole
+                    onTriggered: TimerEngine.extend(10 * 60)
+                }
+            }
             Platform.MenuSeparator {}
             Platform.MenuItem {
                 text: i18nc("@action:inmenu", "New Timer")

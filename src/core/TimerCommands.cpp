@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "TimerCommands.h"
 
+#include <algorithm>
+
 #include "Localization.h"
 #include "PresetModel.h"
 #include "TimerEngine.h"
@@ -72,9 +74,10 @@ TimerCommands::Result TimerCommands::skip()
     return simple([](TimerEngine *engine) { engine->skip(); });
 }
 
-TimerCommands::Result TimerCommands::extend()
+TimerCommands::Result TimerCommands::extend(int minutes)
 {
-    return simple([](TimerEngine *engine) { engine->extend(TimerEngine::kExtendSeconds, TimerEngine::ExtendSource::Command); });
+    const int seconds = std::clamp(minutes, 1, 60) * 60;
+    return simple([seconds](TimerEngine *engine) { engine->extend(seconds, TimerEngine::ExtendSource::Command); });
 }
 
 QString TimerCommands::resolvePreset(const QString &nameOrUuid) const
@@ -228,8 +231,10 @@ TimerCommands::UrlCommand TimerCommands::parseUrl(const QUrl &url)
     }
     for (const auto &[word, action] : simpleCommands) {
         if (name == word) {
-            // Only start takes an argument (the timer to start).
-            if (argument.isEmpty() || action == Action::Start) {
+            // Only start (the timer to start) and extend (whole minutes) take an argument.
+            bool minutes = false;
+            const int value = argument.toInt(&minutes);
+            if (argument.isEmpty() || action == Action::Start || (action == Action::Extend && minutes && value >= 1 && value <= 60)) {
                 command = {action, argument};
             }
             return command;
@@ -257,7 +262,7 @@ TimerCommands::Result TimerCommands::run(const UrlCommand &command)
     case Action::Skip:
         return skip();
     case Action::Extend:
-        return extend();
+        return command.argument.isEmpty() ? extend() : extend(command.argument.toInt());
     case Action::Show:
         return {};
     case Action::SelectPreset:

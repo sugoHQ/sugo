@@ -6,9 +6,10 @@
 
 #include <functional>
 
+#include "TimerEngine.h"
+
 class PresetModel;
 class QUrl;
-class TimerEngine;
 
 /**
  * The commands other programs may give the timer, shared by every way in: the D-Bus /Timer
@@ -42,7 +43,7 @@ public:
     struct UrlCommand {
         enum class Action { Invalid, Start, Pause, Resume, Toggle, Stop, Skip, Extend, Show, SelectPreset };
         Action action = Action::Invalid;
-        QString argument; ///< The timer's name or uuid (SelectPreset, or Start with a timer).
+        QString argument; ///< The timer's name or uuid (SelectPreset, or Start with a timer), or Extend's minutes.
     };
 
     TimerCommands(TimerEngine *engine, PresetModel *presets);
@@ -64,8 +65,9 @@ public:
     Result resume();
     Result stop();
     Result skip();
-    /// Five more minutes for the active phase, or for the one that has just ended (TimerEngine::extend()).
-    Result extend();
+    /// More time, `minutes` (1 to 60), for the active phase, or for the one that has just ended
+    /// (TimerEngine::extend()).
+    Result extend(int minutes = TimerEngine::kExtendSeconds / 60);
 
     /// Chooses the timer by exact uuid, else by name (case-insensitive, first match).
     Result selectPreset(const QString &nameOrUuid);
@@ -85,7 +87,8 @@ public:
     /**
      * Reads a sugo:// link: `sugo://<command>` with command start, pause, resume, toggle, stop,
      * skip, extend or show (any case, a trailing slash allowed, `sugo:toggle` too), `sugo://start/<timer>`
-     * and `sugo://preset/<timer>`, with the timer's name (percent-encoded) or uuid.
+     * and `sugo://preset/<timer>`, with the timer's name (percent-encoded) or uuid, and
+     * `sugo://extend/<minutes>` (1 to 60; plain extend is 5).
      */
     static UrlCommand parseUrl(const QUrl &url);
     /// Runs a parsed link. Show only reports success: showing the window is the caller's job,
