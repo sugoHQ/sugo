@@ -693,7 +693,7 @@ QQC2.Page {
                         id: usageStatsRow
                         objectName: "welcomeUsageStatsRow"
                         title: i18n("Share anonymous usage statistics")
-                        description: i18n("Helps us see which features to improve. Nothing about you is sent.")
+                        description: i18n("Optional, used only to improve Sugo. Never your name, notes or files.")
                         opacity: setupStep.reveal(8)
                         transform: Translate { y: setupStep.rise(8) }
                         SButton {
