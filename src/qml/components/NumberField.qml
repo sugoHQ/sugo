@@ -6,8 +6,8 @@ import stream.sugo.app
 
 /**
  * A small number field with its unit ("25 min"): type the number, or use the arrow keys or the
- * mouse wheel. `valueModified()` follows a change by the user. A number being typed counts as soon
- * as it is in range; `commit()` takes whatever is typed (brought into range) and shows it back.
+ * mouse wheel. A number being typed counts as soon as it is in range; `commit()` takes whatever is
+ * typed (brought into range) and shows it back.
  */
 QQC2.Control {
     id: field
@@ -19,13 +19,11 @@ QQC2.Control {
     property string unit
     /// Shown instead of the number for `from` (e.g. "Never" for 0), if set.
     property string fromText
-    signal valueModified()
 
     function setValue(v: int): void {
         const clamped = Math.max(from, Math.min(to, v));
         if (clamped !== value) {
             value = clamped;
-            valueModified();
         }
         input.text = Qt.binding(() => field.displayText);
     }
@@ -94,7 +92,6 @@ QQC2.Control {
                 const typed = match ? parseInt(match[1]) : NaN;
                 if (typed >= field.from && typed <= field.to && typed !== field.value) {
                     field.value = typed;
-                    field.valueModified();
                 }
             }
             onActiveFocusChanged: if (activeFocus) selectAll()
