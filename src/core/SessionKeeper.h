@@ -20,7 +20,7 @@ class SessionRecorder;
  *
  * While a phase is active, what it needs to go on (timer, phase, start, planned and remaining
  * time, cycles) is written to a small file next to the database: whenever the timer changes,
- * every kHeartbeatMs while it runs, and at quit, where keepForQuit() takes the place of stopping
+ * every kHeartbeatMs while it is active, and at quit, where keepForQuit() takes the place of stopping
  * the timer. While the timer is idle there is no file. A crash loses at most the last
  * kHeartbeatMs of the countdown; the time Sugo was not running never counts.
  *
@@ -66,6 +66,8 @@ public:
     bool keepForQuit();
 
     bool isRestored() const { return m_notice; }
+    /// The timer holds a session of the last run that was neither resumed nor ended yet.
+    bool holdsRestoredSession() const { return m_tracking; }
 
 public Q_SLOTS:
     /// Writes the timer's state now (or removes the file while the timer is idle).
@@ -80,6 +82,9 @@ Q_SIGNALS:
     void restoreEnded(TimerEngine::Phase phase, const QString &result);
 
 private:
+    /// Writes the file (or removes it while there is nothing to keep); true if it was written.
+    bool write();
+    void captureTimer();
     void finishTracking(const QString &result);
     void setNotice(bool shown);
     void removeFile();
@@ -95,4 +100,7 @@ private:
     bool m_tracking = false;            ///< a restored session not resumed or ended yet
     TimerEngine::Phase m_trackedPhase = TimerEngine::Phase::Work;
     bool m_notice = false;
+    QString m_timerUuid;     ///< the timer of the active phase, as it was when the phase began
+    QString m_timerName;
+    QString m_timerCategory;
 };

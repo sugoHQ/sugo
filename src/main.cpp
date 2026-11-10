@@ -754,8 +754,9 @@ int main(int argc, char *argv[])
                                   "Sugo was closed during this session. %1 minutes are left: resume it when you are ready.",
                                   minutes);
             restored.iconName = QStringLiteral("stream.sugo.app");
-            restored.actions.append({i18n("Resume"), [timer](const QString &) {
-                                         if (timer->isPaused()) {
+            restored.actions.append({i18n("Resume"), [timer, keeper](const QString &) {
+                                         // Only the session brought back, while it still waits.
+                                         if (keeper->holdsRestoredSession() && timer->isPaused()) {
                                              timer->resume();
                                          }
                                      }});
