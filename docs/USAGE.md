@@ -119,6 +119,8 @@ A *timer* (preset) bundles the durations of a work phase, a short break and a lo
 - While a phase runs or is paused, it makes that phase longer.
 - For ten minutes after a phase ends, as long as you have not done anything else with the timer, it takes the phase that just ended up again, even if the next one has already started by itself. It stays one session: a 25-minute work session continued for five minutes is recorded as one of 30 minutes (the minutes in between count as a pause), the calendar event is updated, and the break comes after it as before.
 
+During a break, a line under the clock suggests something to do with it (stretch, drink some water, rest your eyes…), a different one each break.
+
 Pausing keeps the remaining time; stopping resets the phase. A phase stopped early is recorded as *interrupted* in the statistics if it ran for at least five seconds.
 
 Skipping a running work session counts it towards the long break. Skipping a work session that has not started yet (for example with the notification's **Skip** button) moves on to the short break without counting it, so the long break is only reached by working.
