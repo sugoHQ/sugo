@@ -1128,6 +1128,28 @@ private Q_SLOTS:
         QCOMPARE(changed.size(), 3);
         QVERIFY(!engine->isExtendable());
     }
+
+    void aPhaseOfAnEarlierRunComesBackPaused()
+    {
+        QSignalSpy restored(engine.get(), &TimerEngine::phaseRestored);
+        const QDateTime started = clock.wallTime().addSecs(-3600);
+        QVERIFY(!engine->restorePaused(Phase::Work, 0, 0, started, 0));
+        QVERIFY(engine->restorePaused(Phase::LongBreak, 15 * 60 * 1000, 6 * 60 * 1000, started, 4));
+        QCOMPARE(engine->state(), State::Paused);
+        QCOMPARE(engine->phase(), Phase::LongBreak);
+        QCOMPARE(engine->remainingSeconds(), 6 * 60);
+        QCOMPARE(engine->completedCycles(), 4);
+        QCOMPARE(engine->phaseStartedAt(), started);
+        QCOMPARE(restored.size(), 1);
+        // Only while idle.
+        QVERIFY(!engine->restorePaused(Phase::Work, 60 * 1000, 30 * 1000, started, 0));
+        QSignalSpy ended(engine.get(), &TimerEngine::sessionEnded);
+        engine->resume();
+        elapse(6 * 60);
+        QCOMPARE(ended.size(), 1);
+        QCOMPARE(ended.at(0).at(1).toDateTime(), started);
+        QCOMPARE(engine->completedCycles(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(TimerEngineTest)

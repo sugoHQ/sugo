@@ -78,7 +78,9 @@ target_sources(sugo_core PRIVATE
     core/FocusSoundController.cpp
     core/DataManager.h
     core/DataManager.cpp
+    core/SessionKeeper.h
     core/SilenceController.h
+    core/SessionKeeper.cpp
     core/SilenceController.cpp
     core/AppSettings.h
     core/AppSettings.cpp

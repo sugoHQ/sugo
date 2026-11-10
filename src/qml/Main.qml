@@ -150,13 +150,19 @@ QQC2.ApplicationWindow {
     ConfirmDialog {
         id: quitDialog
         title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
-        text: root.restarting
+        text: TimerEngine.continuesEndedSession
               ? (TimerEngine.phase === TimerEngine.Phase.Work
-                 ? i18n("A work session is in progress. Restarting ends it now, and it is saved as interrupted.")
-                 : i18n("A break is in progress. Restarting ends it now."))
+                 ? (root.restarting ? i18n("A work session is in progress. Restarting ends it now, as a finished session.")
+                                    : i18n("A work session is in progress. Quitting ends it now, as a finished session."))
+                 : (root.restarting ? i18n("A break is in progress. Restarting ends it now.")
+                                    : i18n("A break is in progress. Quitting ends it now.")))
+              : root.restarting
+              ? (TimerEngine.phase === TimerEngine.Phase.Work
+                 ? i18n("A work session is in progress. It is paused while Sugo restarts, and waits for you afterwards.")
+                 : i18n("A break is in progress. It is paused while Sugo restarts, and waits for you afterwards."))
               : (TimerEngine.phase === TimerEngine.Phase.Work
-                 ? i18n("A work session is in progress. Quitting ends it now, and it is saved as interrupted.")
-                 : i18n("A break is in progress. Quitting ends it now."))
+                 ? i18n("A work session is in progress. Quitting pauses it, and it waits for you the next time Sugo starts.")
+                 : i18n("A break is in progress. Quitting pauses it, and it waits for you the next time Sugo starts."))
         confirmText: root.restarting ? i18n("Restart") : i18n("Quit")
         confirmKind: "danger"
         cancelText: i18n("Keep Running")

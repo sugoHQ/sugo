@@ -123,6 +123,8 @@ Pausing keeps the remaining time; stopping resets the phase. A phase stopped ear
 
 Skipping a running work session counts it towards the long break. Skipping a work session that has not started yet (for example with the notification's **Skip** button) moves on to the short break without counting it, so the long break is only reached by working.
 
+If Sugo ends while a phase is running or paused (you quit it, log out, restart for an update, or it crashes), it keeps the session and brings it back the next time it starts: paused, with the time it had left, as the same session (the time Sugo was closed counts as a pause, never as work or as a break). Press **Resume** to go on, or **Stop** to end it there. A session left for more than 12 hours, or whose timer was deleted meanwhile, is not brought back: it is recorded as interrupted at the moment Sugo ended.
+
 When the computer goes to sleep, a running phase is paused, and it stays paused after the computer wakes up until you resume it: the time asleep never counts as work or as a break.
 
 ---
@@ -335,6 +337,7 @@ While it is on, Sugo sends these events, and nothing else:
 | `app_started` | Once each time Sugo starts (a minute after), and when you turn the statistics on | The Sugo version and channel (stable or nightly); Linux or macOS; the package (AppImage, Flatpak, macOS app, or built from source / a distribution's package); the Qt version; the desktop (KDE, GNOME or other; "none" on macOS); the Linux distribution, if it is one of a [fixed list](#which-distributions) (otherwise just "other"; "none" on macOS); how many timers you have (1, 2-3 or 4 or more); the colour scheme (system, light or dark); whether these are on: calendar sync, focus sound, tray icon, start at login, Sugo Sync, keeping the screen awake, pausing when the screen locks, the one-minute warning, asking for a note after a session, control by other programs; and whether Sugo could open its database or had to work without saving |
 | `session_ended` | Each time a phase ends | Work, short break or long break; its planned length in minutes; whether it ran to the end or was stopped or skipped |
 | `timer_extended` | Each time you add time to a phase | Work, short break or long break; how many minutes; whether the phase was still under way or had just ended; where you asked (the window, the notification, the tray or Dock menu, or a D-Bus command or `sugo://` link) |
+| `session_restored` | When a session Sugo brought back from its last run is resumed or ended, or could not be brought back | Work, short break or long break; whether you resumed it, stopped it, or it was too old (or its timer gone) to come back |
 | `stats_enabled` | When you turn the statistics on | Whether you did it in the welcome tour or in Settings |
 | `onboarding_finished` | When the welcome tour ends, if the statistics are on by then | Whether you finished it or skipped it, and on which step |
 | `update_install` | When the AppImage or the macOS app installs an update you asked for | Whether it worked, or the stage where it failed (writing the file, downloading, checking it, installing) |

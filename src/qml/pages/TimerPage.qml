@@ -440,6 +440,30 @@ QQC2.Page {
         }
     }
 
+    // A session an earlier run of Sugo left under way, brought back paused: say why, and offer to go on.
+    MessageSlot {
+        objectName: "restoredSessionMessage"
+        anchors.bottom: clockColumn.top
+        anchors.bottomMargin: Theme.spaceXl
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        width: page.trackWidth
+        lines: 2
+        shown: SessionKeeper.restored && TimerEngine.paused
+        text: i18n("Sugo was closed during this session, so it was paused.")
+        SButton {
+            kind: "ghost"
+            text: i18n("Resume")
+            onClicked: TimerEngine.resume()
+        }
+        SButton {
+            kind: "ghost"
+            iconOnly: true
+            iconName: "close"
+            text: i18n("Dismiss")
+            onClicked: SessionKeeper.dismiss()
+        }
+    }
+
     // The controls, and under them what today brought.
     ColumnLayout {
         id: dock

@@ -302,7 +302,7 @@ bool TimerEngine::continueFinished(int seconds, ExtendSource source)
     m_startMonoMs = reopen.startMonoMs;
     m_deadlineMs = m_clock->monotonicMs() + added;
     m_warnedOneMinute = added <= 60 * 1000;
-    m_reopened = true;
+    setReopened(true);
     const State previous = m_state;
     m_state = stateFor(reopen.phase);
     setPhase(reopen.phase);
@@ -322,6 +322,14 @@ void TimerEngine::dropReopen()
     m_reopenExpiry.stop();
 }
 
+void TimerEngine::setReopened(bool reopened)
+{
+    if (m_reopened != reopened) {
+        m_reopened = reopened;
+        Q_EMIT continuesEndedSessionChanged();
+    }
+}
+
 void TimerEngine::updateExtendable()
 {
     if (m_holdExtendable) {
@@ -333,6 +341,31 @@ void TimerEngine::updateExtendable()
         m_extendableKey = key;
         Q_EMIT extendableChanged();
     }
+}
+
+bool TimerEngine::restorePaused(Phase phase, qint64 plannedMs, qint64 remainingMs, const QDateTime &startedAt, int cycles)
+{
+    if (m_state != State::Idle || m_completing || plannedMs <= 0 || remainingMs <= 0 || remainingMs > plannedMs
+        || plannedMs > maxDurationMs(phase) || !startedAt.isValid()) {
+        return false;
+    }
+    m_ticker.stop();
+    dropReopen();
+    setReopened(false);
+    setCycles(std::clamp(cycles, 0, std::max(0, m_cyclesBeforeLong)));
+    m_plannedMs = plannedMs;
+    m_remainingAtPauseMs = remainingMs;
+    m_startWall = startedAt;
+    // Only the end-time guard of emitSessionEnded() reads it: as if the phase began that long ago.
+    m_startMonoMs = m_clock->monotonicMs() - std::max<qint64>(0, startedAt.msecsTo(m_clock->wallTime()));
+    m_warnedOneMinute = remainingMs <= 60 * 1000;
+    m_state = State::Paused;
+    setPhase(phase);
+    Q_EMIT stateChanged();
+    notifyTime(true);
+    updateExtendable();
+    Q_EMIT phaseRestored(phase);
+    return true;
 }
 
 void TimerEngine::refresh()
@@ -369,7 +402,7 @@ void TimerEngine::startPhase(Phase phase, qint64 plannedMs)
 {
     phase = phaseToRun(phase);
     dropReopen();
-    m_reopened = false;
+    setReopened(false);
 
     // The new timing is in place before phaseChanged/stateChanged go out, so a listener never
     // sees the new phase with the old (passed) deadline.
@@ -394,7 +427,7 @@ void TimerEngine::setIdle(Phase next)
 {
     m_ticker.stop();
     dropReopen();
-    m_reopened = false;
+    setReopened(false);
     setPhase(next);
     setState(State::Idle);
     m_warnedOneMinute = false;
