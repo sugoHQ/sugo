@@ -208,6 +208,26 @@ private Q_SLOTS:
 #endif
     }
 
+    void testRedactsTheUserInCalDavPaths()
+    {
+        // Signed in with an e-mail address, or a principal named by id: not the login.
+        QCOMPARE(Diagnostics::redact(QStringLiteral("PROPFIND https://dav.example.org/remote.php/dav/calendars/alice.smith/personal/: 207")),
+                 QStringLiteral("PROPFIND https://dav.example.org/remote.php/dav/calendars/<user>/personal/: 207"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("current-user-principal /remote.php/dav/principals/users/7f3a9c/")),
+                 QStringLiteral("current-user-principal /remote.php/dav/principals/users/<user>/"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("href /principals/alice@example.org/ and /calendars/bob")),
+                 QStringLiteral("href /principals/<user>/ and /calendars/<user>"));
+        // An account word already put in stays as it is.
+        Diagnostics::setAccountRedactions({QStringLiteral("nc-login-42")});
+        QCOMPARE(Diagnostics::redact(QStringLiteral("/dav/calendars/nc-login-42/work/")), QStringLiteral("/dav/calendars/<account>/work/"));
+        // The login only part of the path's user: none of it is left.
+        Diagnostics::setAccountRedactions({QStringLiteral("alice")});
+        QCOMPARE(Diagnostics::redact(QStringLiteral("GET /remote.php/dav/calendars/alice.smith/personal/")),
+                 QStringLiteral("GET /remote.php/dav/calendars/<user>/personal/"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("/principals/users/smith-alice")), QStringLiteral("/principals/users/<user>"));
+        Diagnostics::setAccountRedactions({});
+    }
+
     void testRedactsUserAtHostAndUserName()
     {
         QCOMPARE(Diagnostics::redact(QStringLiteral("ssh alice@workstation.local failed")),
