@@ -38,15 +38,20 @@ void SilenceController::attach(TimerEngine *engine, PresetModel *presets, Notifi
                     m_silenceDeferred = true;
                     m_inhibitor->release();
                 }
+                if (completed) {
+                    // A phase taken up again ("+5 min") and then stopped or skipped is a completed
+                    // session too, but nothing announces it: no phaseFinished follows. That signal
+                    // comes within the call that ended the session or not at all, so on the next
+                    // event-loop turn the wait for it is over, or the silencing would be put off
+                    // for the whole of the next work phase.
+                    QTimer::singleShot(0, this, [this]() {
+                        if (m_phaseEnding) {
+                            phaseEndOver();
+                        }
+                    });
+                }
             });
-    connect(engine, &TimerEngine::phaseFinished, this, [this]() {
-        m_phaseEnding = false;
-        if (m_silenceDeferred) {
-            m_silenceDeferred = false;
-            // Queued, not called: the announcement's own phaseFinished slot may still be to come.
-            QTimer::singleShot(0, this, &SilenceController::update);
-        }
-    });
+    connect(engine, &TimerEngine::phaseFinished, this, &SilenceController::phaseEndOver);
     // `active` follows what the desktop actually granted (or lost).
     connect(inhibitor, &NotificationInhibitor::inhibitedChanged, this, &SilenceController::update);
     // The shortcuts of a macOS Focus can be created, renamed or chosen at any time.
@@ -69,6 +74,16 @@ void SilenceController::attach(TimerEngine *engine, PresetModel *presets, Notifi
 bool SilenceController::available() const
 {
     return m_inhibitor && m_inhibitor->isAvailable();
+}
+
+void SilenceController::phaseEndOver()
+{
+    m_phaseEnding = false;
+    if (m_silenceDeferred) {
+        m_silenceDeferred = false;
+        // Queued, not called: the announcement's own phaseFinished slot may still be to come.
+        QTimer::singleShot(0, this, &SilenceController::update);
+    }
 }
 
 void SilenceController::update()

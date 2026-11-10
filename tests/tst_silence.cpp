@@ -152,6 +152,75 @@ private Q_SLOTS:
         QCOMPARE(inhibitor->calls.last(), QStringLiteral("release"));
     }
 
+    void aReopenedWorkPhaseThatIsStoppedLetsTheNextOneSilence()
+    {
+        // "+5 min" on a work phase that has just ended, then Stop: the engine reports a completed
+        // session, but announces nothing (no phaseFinished). The next work phase is silenced all
+        // the same, as soon as it starts.
+        enableSilenceOnDefaultTimer();
+        engine->start();
+        elapse(25 * 60); // work ends, nothing starts by itself
+        QCOMPARE(engine->state(), State::Idle);
+        QVERIFY(!inhibitor->isInhibited());
+
+        QVERIFY(engine->extend()); // the work phase that just ended goes on
+        QCOMPARE(engine->state(), State::Working);
+        QVERIFY(engine->continuesEndedSession());
+        QVERIFY(inhibitor->isInhibited());
+
+        elapse(60);
+        engine->stop();
+        QCOMPARE(engine->state(), State::Idle);
+        QVERIFY(!inhibitor->isInhibited());
+        QTest::qWait(20); // the user starts again later, not in the same event-loop turn
+
+        engine->start();
+        QVERIFY(inhibitor->isInhibited());
+        QVERIFY(silence->active());
+        QCOMPARE(inhibitor->calls.last(), QStringLiteral("inhibit"));
+    }
+
+    void aReopenedWorkPhaseStoppedAndStartedAtOnceSilencesTheNextOne()
+    {
+        // The same, with Stop and Start in one event-loop turn (a script over D-Bus could): the
+        // silencing may come a turn later, but it comes.
+        enableSilenceOnDefaultTimer();
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(engine->extend());
+        QVERIFY(inhibitor->isInhibited());
+
+        elapse(60);
+        engine->stop();
+        engine->start();
+        QCOMPARE(engine->state(), State::Working);
+        QTRY_VERIFY(inhibitor->isInhibited());
+        QVERIFY(silence->active());
+    }
+
+    void aReopenedWorkPhaseThatIsSkippedOnATimerWithoutBreaksSilencesTheNextOne()
+    {
+        // No breaks: skipping the reopened work phase starts the next work phase, and the state
+        // never leaves Working. That phase must be silenced too.
+        enableSilenceOnDefaultTimer();
+        QVERIFY(presets->update(PresetModel::DefaultUuid, {{QStringLiteral("shortBreakSeconds"), 0},
+                                                          {QStringLiteral("longBreakSeconds"), 0}}));
+        engine->start();
+        elapse(25 * 60); // work ends, the next work phase waits to be started
+        QCOMPARE(engine->state(), State::Idle);
+
+        QVERIFY(engine->extend());
+        QVERIFY(engine->continuesEndedSession());
+        QVERIFY(inhibitor->isInhibited());
+
+        elapse(60);
+        engine->skip(); // a completed session, and the next work phase runs
+        QCOMPARE(engine->state(), State::Working);
+        QVERIFY(!engine->continuesEndedSession());
+        QTRY_VERIFY(inhibitor->isInhibited());
+        QVERIFY(silence->active());
+    }
+
     void workEndWithoutAutoStartReleases()
     {
         enableSilenceOnDefaultTimer();
