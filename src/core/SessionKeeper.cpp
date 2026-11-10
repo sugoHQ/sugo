@@ -80,6 +80,10 @@ void SessionKeeper::attach(TimerEngine *engine, PresetModel *presets, SessionRec
     if (!engine) {
         return;
     }
+    // The timer as it was when the phase began: editing it meanwhile does not change the session's
+    // name or category (as SessionRecorder).
+    captureTimer();
+    connect(engine, &TimerEngine::phaseStarted, this, &SessionKeeper::captureTimer);
     for (const auto signal : {&TimerEngine::stateChanged, &TimerEngine::phaseChanged, &TimerEngine::totalChanged,
                               &TimerEngine::cyclesChanged}) {
         connect(engine, signal, this, &SessionKeeper::save);
@@ -98,30 +102,39 @@ void SessionKeeper::attach(TimerEngine *engine, PresetModel *presets, SessionRec
     });
 }
 
+void SessionKeeper::captureTimer()
+{
+    const TimerPreset preset = m_presets ? m_presets->currentPreset() : TimerPreset();
+    m_timerUuid = preset.uuid;
+    m_timerName = preset.name;
+    m_timerCategory = preset.category;
+}
+
 void SessionKeeper::save()
 {
     if (!m_engine || m_quitting || !m_restoreDone || m_path.isEmpty()) {
         return; // before restore(), the file still holds the last run's session
     }
+    write();
+}
+
+bool SessionKeeper::write()
+{
     if (!m_engine->isActive() || m_engine->continuesEndedSession()) {
         m_heartbeat.stop();
         removeFile();
-        return;
+        return false;
     }
-    if (m_engine->isRunning()) {
-        if (!m_heartbeat.isActive()) {
-            m_heartbeat.start();
-        }
-    } else {
-        m_heartbeat.stop(); // paused: nothing moves
+    // Also while paused: `savedAtMs` says Sugo was still running then (the age limit counts from it).
+    if (!m_heartbeat.isActive()) {
+        m_heartbeat.start();
     }
 
-    const TimerPreset preset = m_presets ? m_presets->currentPreset() : TimerPreset();
     const QJsonObject state{
         {QStringLiteral("format"), kFormat},
-        {QStringLiteral("presetUuid"), preset.uuid},
-        {QStringLiteral("presetName"), preset.name},
-        {QStringLiteral("category"), preset.category},
+        {QStringLiteral("presetUuid"), m_timerUuid},
+        {QStringLiteral("presetName"), m_timerName},
+        {QStringLiteral("category"), m_timerCategory},
         {QStringLiteral("phase"), phaseName(m_engine->phase())},
         {QStringLiteral("plannedMs"), m_engine->plannedMs()},
         {QStringLiteral("remainingMs"), m_engine->remainingMs()},
@@ -134,18 +147,25 @@ void SessionKeeper::save()
     if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(state).toJson(QJsonDocument::Compact)) < 0
         || !file.commit()) {
         qCWarning(lcSessionKeeper) << "Cannot keep the timer's session in" << m_path << ":" << file.errorString();
+        return false;
     }
+    return true;
 }
 
 bool SessionKeeper::keepForQuit()
 {
-    if (!m_engine || !m_engine->isActive() || m_engine->continuesEndedSession()) {
+    if (!m_engine || !m_restoreDone || m_path.isEmpty() || !m_engine->isActive() || m_engine->continuesEndedSession()) {
         return false;
     }
-    save();
-    m_quitting = true; // what the quit does to the timer next must not touch the file
     m_heartbeat.stop();
-    return QFileInfo::exists(m_path);
+    const bool kept = write();
+    if (!kept) {
+        // An older copy would bring back a stale time next start, and the timer now records the
+        // session as interrupted: there must be no file left.
+        removeFile();
+    }
+    m_quitting = true; // what the quit does to the timer next must not touch the file
+    return kept;
 }
 
 bool SessionKeeper::restore()
@@ -203,6 +223,13 @@ bool SessionKeeper::restore()
     if (!m_engine->restorePaused(phase, plannedMs, remainingMs, QDateTime::fromMSecsSinceEpoch(startedAtMs, QTimeZone::UTC),
                                  cycles)) {
         return false;
+    }
+    // The session keeps the timer name and category it began with.
+    m_timerUuid = uuid;
+    m_timerName = state.value(QStringLiteral("presetName")).toString();
+    m_timerCategory = state.value(QStringLiteral("category")).toString();
+    if (m_recorder) {
+        m_recorder->setActiveTimer(m_timerName, m_timerCategory);
     }
     m_tracking = true;
     m_trackedPhase = phase;

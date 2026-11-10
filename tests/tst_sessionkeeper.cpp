@@ -257,6 +257,42 @@ private Q_SLOTS:
         QVERIFY(!keeper->keepForQuit());
     }
 
+    void theSessionKeepsTheTimerNameItBeganWith()
+    {
+        const QString uuid = presets->create({{QStringLiteral("name"), QStringLiteral("Focus")},
+                                              {QStringLiteral("category"), QStringLiteral("Writing")}});
+        presets->setCurrentUuid(uuid);
+        engine->start();
+        elapse(60);
+        QVERIFY(presets->update(uuid, {{QStringLiteral("name"), QStringLiteral("Deep focus")},
+                                       {QStringLiteral("category"), QStringLiteral("Reading")}}));
+        QVERIFY(keeper->keepForQuit());
+
+        startRun();
+        QVERIFY(keeper->restore());
+        QVERIFY(keeper->holdsRestoredSession());
+        engine->stop();
+        QVERIFY(!keeper->holdsRestoredSession());
+        QCOMPARE(all().size(), 1);
+        QCOMPARE(all().at(0).presetName, QStringLiteral("Focus"));
+        QCOMPARE(all().at(0).category, QStringLiteral("Writing"));
+    }
+
+    void aSessionThatCannotBeWrittenIsNotKept()
+    {
+        QFile blocker(dir.filePath(QStringLiteral("blocker")));
+        QVERIFY(blocker.open(QIODevice::WriteOnly)); // a file where the folder should be
+        blocker.close();
+        keeper.reset();
+        keeper = std::make_unique<SessionKeeper>();
+        keeper->attach(engine.get(), presets.get(), recorder.get(), dir.filePath(QStringLiteral("blocker/timer-session.json")));
+        QVERIFY(!keeper->restore());
+        engine->start();
+        elapse(60);
+        QVERIFY(!keeper->keepForQuit()); // so the quit stops the timer and records it
+        QFile::remove(blocker.fileName());
+    }
+
     void anUnreadableFileIsDropped()
     {
         QFile file(path());

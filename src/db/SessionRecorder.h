@@ -51,6 +51,14 @@ public:
     /// sessions still waiting to be stored, so they do not reappear in the replaced history.
     void forgetHistory();
 
+    /// The running phase is one an earlier run began with the timer then named `name` (SessionKeeper):
+    /// it is recorded with that name and category, not the timer's current ones.
+    void setActiveTimer(const QString &name, const QString &category)
+    {
+        m_active.name = name;
+        m_active.category = category;
+    }
+
     /// Stores a session that ended outside the timer (SessionKeeper: one left by an earlier run),
     /// under the same rules as the timer's: kept if it ran at least kMinInterruptedMs (`activeMs`).
     void storeEnded(const SessionRecord &record, qint64 activeMs);
