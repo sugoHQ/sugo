@@ -5,6 +5,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -2486,6 +2489,37 @@ private Q_SLOTS:
         QTRY_COMPARE(m_server->count("DELETE"), 2);
         QTRY_VERIFY(!m_server->stored.contains(path));
         QVERIFY(!m_server->stored.contains(now));
+    }
+
+    void deletedSessionSentBeforeTheAddressesWereAListLeavesItsCalendar()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(17));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        const QByteArray sentTo = m_server->of("PUT").first().path;
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+
+        // As a development build saved it: one address under "url".
+        {
+            Settings::Ptr config = Settings::open(configPath());
+            const QString key = QStringLiteral("CalendarQueue/Sent");
+            QJsonArray sent = QJsonDocument::fromJson(config->value(key).toString().toUtf8()).array();
+            QCOMPARE(sent.size(), 1);
+            QJsonObject entry = sent.at(0).toObject();
+            const QJsonArray urls = entry.take(QStringLiteral("urls")).toArray();
+            QCOMPARE(urls.size(), 1);
+            entry.insert(QStringLiteral("url"), urls.at(0));
+            sent[0] = entry;
+            config->setValue(key, QString::fromUtf8(QJsonDocument(sent).toJson(QJsonDocument::Compact)));
+            Settings::sync(*config);
+        }
+
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(17), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, sentTo);
+        QCOMPARE(m_server->stored.size(), 0);
     }
 
     void deletedSessionReadsAKeyringThatWasNotReadyAtStartup()

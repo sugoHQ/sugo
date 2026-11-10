@@ -641,6 +641,10 @@ void CalendarSync::loadQueue()
         for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
             item.urls.append(url.toString());
         }
+        // Saved by a development build before "urls": one address.
+        if (const QString url = o.value(QLatin1String("url")).toString(); item.urls.isEmpty() && !url.isEmpty()) {
+            item.urls.append(url);
+        }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
         r.kind = SessionKind::Work;
@@ -665,6 +669,10 @@ void CalendarSync::loadQueue()
         item.account = o.value(QLatin1String("account")).toString();
         for (const QJsonValue &url : o.value(QLatin1String("urls")).toArray()) {
             item.urls.append(url.toString());
+        }
+        // Saved by a development build before "urls": one address.
+        if (const QString url = o.value(QLatin1String("url")).toString(); item.urls.isEmpty() && !url.isEmpty()) {
+            item.urls.append(url);
         }
         SessionRecord &r = item.record;
         r.id = o.value(QLatin1String("id")).toInteger();
