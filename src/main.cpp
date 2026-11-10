@@ -715,10 +715,10 @@ int main(int argc, char *argv[])
             QMetaObject::invokeMethod(window, "openPage", Q_ARG(QString, page));
         });
 
-        // The tray menu's Quit: the window's own, which asks first while a phase runs; the window
-        // comes to the front then, so the question is seen.
-        QObject::connect(tray, &TrayController::quitRequested, window, [window, timer, activateWindow]() {
-            if (timer->isActive()) {
+        // The tray menu's Quit: the window's own, which asks first while a phase runs or data is
+        // waiting to be saved; the window comes to the front then, so the question is seen.
+        QObject::connect(tray, &TrayController::quitRequested, window, [window, timer, dataManager, activateWindow]() {
+            if (timer->isActive() || dataManager->saveFailing()) {
                 activateWindow();
             }
             QMetaObject::invokeMethod(window, "requestQuit");
