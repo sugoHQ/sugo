@@ -501,7 +501,7 @@ QQC2.ApplicationWindow {
                 fail(44, "openSettings(\"focus\") did not show the Focus category: " + page.category);
                 return;
             }
-            // "Install Shortcuts" is there, and off in a smoke run (no installer: the real tools
+            // "Install shortcuts" is there, and off in a smoke run (no installer: the real tools
             // must never run).
             const installButton = findItem(focusCard, item => item.objectName === "installFocusShortcutsButton");
             if (!installButton || installButton.enabled) {

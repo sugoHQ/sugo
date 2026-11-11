@@ -682,7 +682,7 @@ QQC2.Page {
                         transform: Translate { y: setupStep.rise(7) }
                         SButton {
                             objectName: "welcomeInstallFocusShortcuts"
-                            text: i18n("Install Focus Shortcuts")
+                            text: i18n("Install Focus shortcuts")
                             enabled: AppSettings.focusShortcutsInstallable && !page.focusShortcutsFound && !focusStatus.busy
                             Accessible.description: focusRow.description
                             onClicked: AppSettings.installFocusShortcuts()

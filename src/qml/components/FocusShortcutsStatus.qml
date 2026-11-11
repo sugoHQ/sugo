@@ -4,7 +4,7 @@ import stream.sugo.app
 
 /**
  * macOS: what the Focus row of the settings and of the welcome tour says. It covers whether the
- * two Focus shortcuts are there and where "Install Shortcuts" (AppSettings.installFocusShortcuts())
+ * two Focus shortcuts are there and where "Install shortcuts" (AppSettings.installFocusShortcuts())
  * got. Every text it can show is in descriptionVariants(), so the row can keep the height of the
  * tallest one.
  */

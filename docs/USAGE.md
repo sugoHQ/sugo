@@ -68,7 +68,7 @@ The Flatpak bundle is attached to each release as `Sugo-<version>-x86_64.flatpak
 
 The first install also downloads the KDE runtime from Flathub, if it is not installed yet.
 
-- **Updating:** the Flatpak does not update itself. **Settings → About → Check for Updates** tells you when a new release is out: download its bundle and install it the same way, over the old one. Your timers, statistics and settings are kept.
+- **Updating:** the Flatpak does not update itself. **Settings → About → Check for updates** tells you when a new release is out: download its bundle and install it the same way, over the old one. Your timers, statistics and settings are kept.
 - **Removing:** `flatpak uninstall --user stream.sugo.app` removes the app; add `--delete-data` to remove your data too.
 - **Permissions:** the sandbox has network access (for the update check, calendar sync, Sugo Sync, and the usage statistics if you turn them on), the notification and screen-saver services (to silence notifications and keep the screen awake), the system tray, and audio. *Start at login* goes through the desktop's background portal, which may ask for your permission the first time.
 - **Your data** lives under `~/.var/app/stream.sugo.app/` instead of the usual folders (see [Data, backup and privacy](#data-backup-and-privacy)).
@@ -324,7 +324,7 @@ Inside the Flatpak the Linux files live under `~/.var/app/stream.sugo.app/`.
 
 **What leaves your computer.** Only this, and only for what you use:
 
-- **Updates**: the AppImage and the macOS app download a small file from GitHub every few hours to see whether a newer Sugo exists (see [Updates](#updates-and-diagnostics); you can turn this off), and the new version itself only when you click **Install update**. The other packages only look when you press **Check for Updates**. Either way the request carries only the program version.
+- **Updates**: the AppImage and the macOS app download a small file from GitHub every few hours to see whether a newer Sugo exists (see [Updates](#updates-and-diagnostics); you can turn this off), and the new version itself only when you click **Install update**. The other packages only look when you press **Check for updates**. Either way the request carries only the program version.
 - **Calendar sync**, if you turn it on, sends the information described [above](#good-to-know) to the server you chose.
 - **Anonymous usage statistics**, only if you turn them on (see below).
 
@@ -356,7 +356,7 @@ The events go in small batches to Sugo's own server (`api.sugo.stream`, the one 
 ## Updates and diagnostics
 
 - **The AppImage and the macOS app update themselves, when you say so.** A minute after Sugo starts, and every six hours, it looks for a newer version on its channel; when there is one, the title bar shows **Install update** (only its icon in a narrow window). Nothing is downloaded before you click it. Sugo then downloads the new version (the AppImage next to itself, the macOS app its disk image), checks that the file is complete and intact (its size and SHA-256 checksum), and only then prepares it. The same button then shows **Restart to update**; the new version starts when you click it (Sugo asks first if a timer is running) or the next time you open Sugo (on macOS, quitting also puts it in place). A failed or damaged download changes nothing. This needs the AppImage or the app to be in a folder you can write to; otherwise Sugo only tells you that a new release is out.
-- **Settings → General → Updates** (AppImage and macOS app) has **Check for updates automatically**: turn it off and Sugo only looks when you ask, with **Settings → About → Check for Updates**.
+- **Settings → General → Updates** (AppImage and macOS app) has **Check for updates automatically**: turn it off and Sugo only looks when you ask, with **Settings → About → Check for updates**.
 - **Settings → General → Updates → Update channel** (AppImage and macOS app) chooses the update channel: **Stable**, the tested releases, or **Nightly**, test builds of what is coming, newer and sometimes with new bugs, published as [pre-releases](https://github.com/sugoHQ/sugo/releases). Going back from Nightly to Stable keeps the nightly build until a newer release comes out.
-- **Settings → About → Check for Updates** tells you whether a newer version exists; the AppImage and the macOS app can install it from there, the other packages link to the release (a Flatpak or a distribution's package is updated the way it was installed). A successful check with nothing new shows a green check on the button for a few seconds.
+- **Settings → About → Check for updates** tells you whether a newer version exists; the AppImage and the macOS app can install it from there, the other packages link to the release (a Flatpak or a distribution's package is updated the way it was installed). A successful check with nothing new shows a green check on the button for a few seconds.
 - **Settings → Advanced → Troubleshooting** copies a report with the version, your environment and the latest log lines. Your home directory, user name, passwords and addresses with credentials are replaced with placeholders. Attach it to a bug report.

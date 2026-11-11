@@ -181,7 +181,7 @@ void ShortcutsFocusInhibitor::sync()
         }
         m_warnedUnavailable = false;
         m_busy = true;
-        // The names may change while the Focus is on (the settings, "Install Shortcuts"): the
+        // The names may change while the Focus is on (the settings, "Install shortcuts"): the
         // release must still run the "off" that goes with this "on".
         m_releaseShortcut = runArgument(m_offShortcut, m_identifiers);
         report();

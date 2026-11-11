@@ -1794,7 +1794,7 @@ QQC2.Page {
                         objectName: "installFocusShortcutsButton"
                         Layout.fillWidth: true
                         kind: focusInstallStatus.found ? "secondary" : "primary"
-                        text: i18n("Install Shortcuts")
+                        text: i18n("Install shortcuts")
                         enabled: AppSettings.focusShortcutsInstallable && !focusInstallStatus.found && !focusInstallStatus.busy
                         Accessible.description: focusInstallStatus.description(AppSettings.focusShortcutsSupported)
                         onClicked: AppSettings.installFocusShortcuts()
@@ -2718,49 +2718,59 @@ QQC2.Page {
                         }
                     }
 
-                    SButton {
-                        visible: updateRow.step === "" || updateRow.step === "downloading"
-                        iconName: page.upToDateShown ? "check" : "download"
-                        text: UpdateChecker.checking ? i18n("Checking for updates…") : i18n("Check for Updates")
-                        labels: [i18n("Checking for updates…"), i18n("Check for Updates")]
-                        enabled: !UpdateChecker.checking && updateRow.step === ""
-                        onClicked: {
-                            page.updateStatusDismissed = false;
-                            UpdateChecker.checkForUpdates();
+                    // What can be done about it, in the column of the controls of the other rows.
+                    RowLayout {
+                        Layout.preferredWidth: Theme.settingsControlWidth
+                        Layout.fillWidth: false
+                        spacing: Theme.spaceSm
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: updateRow.step === "" || updateRow.step === "downloading"
+                            iconName: page.upToDateShown ? "check" : "download"
+                            text: UpdateChecker.checking ? i18n("Checking for updates…") : i18n("Check for updates")
+                            labels: [i18n("Checking for updates…"), i18n("Check for updates")]
+                            enabled: !UpdateChecker.checking && updateRow.step === ""
+                            onClicked: {
+                                page.updateStatusDismissed = false;
+                                UpdateChecker.checkForUpdates();
+                            }
                         }
-                    }
-                    SButton {
-                        visible: updateRow.step === "available"
-                        kind: UpdateChecker.installable ? "ghost" : "primary"
-                        iconName: "external"
-                        text: i18n("View Release")
-                        onClicked: Qt.openUrlExternally(UpdateChecker.releaseUrl)
-                    }
-                    SButton {
-                        visible: updateRow.step === "available" && UpdateChecker.installable
-                        kind: "primary"
-                        text: i18n("Install")
-                        onClicked: UpdateChecker.installUpdate()
-                    }
-                    SButton {
-                        visible: updateRow.step === "ready"
-                        kind: "primary"
-                        text: i18n("Restart Now")
-                        onClicked: applicationWindow().requestRestart()
-                    }
-                    SButton {
-                        visible: updateRow.step === "error"
-                        kind: "ghost"
-                        text: i18n("Open Releases Page")
-                        onClicked: Qt.openUrlExternally("https://github.com/sugoHQ/sugo/releases")
-                    }
-                    SButton {
-                        visible: updateRow.step === "error"
-                        kind: "ghost"
-                        iconOnly: true
-                        iconName: "close"
-                        text: i18n("Dismiss")
-                        onClicked: page.updateStatusDismissed = true
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: updateRow.step === "available"
+                            kind: UpdateChecker.installable ? "secondary" : "primary"
+                            iconName: "external"
+                            text: i18n("View release")
+                            onClicked: Qt.openUrlExternally(UpdateChecker.releaseUrl)
+                        }
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: updateRow.step === "available" && UpdateChecker.installable
+                            kind: "primary"
+                            text: i18n("Install")
+                            onClicked: UpdateChecker.installUpdate()
+                        }
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: updateRow.step === "ready"
+                            kind: "primary"
+                            text: i18n("Restart now")
+                            onClicked: applicationWindow().requestRestart()
+                        }
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: updateRow.step === "error"
+                            text: i18n("Open releases page")
+                            onClicked: Qt.openUrlExternally("https://github.com/sugoHQ/sugo/releases")
+                        }
+                        SButton {
+                            visible: updateRow.step === "error"
+                            kind: "ghost"
+                            iconOnly: true
+                            iconName: "close"
+                            text: i18n("Dismiss")
+                            onClicked: page.updateStatusDismissed = true
+                        }
                     }
                 }
             }

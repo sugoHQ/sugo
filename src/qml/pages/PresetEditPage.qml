@@ -46,7 +46,7 @@ QQC2.Page {
     }
 
     /// The header shows "Timers / <name>".
-    title: isNew ? i18n("New Timer") : storedName
+    title: isNew ? i18n("New timer") : storedName
     background: null
 
     /// What Save would store, as the controls show it now.
@@ -825,7 +825,7 @@ QQC2.Page {
                         objectName: "silenceSetupButton"
                         Layout.fillWidth: true
                         visible: DesktopStyle.macos && !SilenceController.available
-                        text: i18n("Set Up…")
+                        text: i18n("Set up…")
                         iconName: "settings"
                         onClicked: applicationWindow().openSettings("focus")
                     }
