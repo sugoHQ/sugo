@@ -54,8 +54,8 @@ QQC2.Control {
 
     readonly property string displayText: fromText.length > 0 && value === from ? fromText : String(value)
 
-    implicitWidth: Math.max(Theme.space4xl * 1.7, row.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Theme.controlHeightSm
+    implicitWidth: Math.max(Theme.selectMinWidth, row.implicitWidth + leftPadding + rightPadding)
+    implicitHeight: Theme.controlHeight
     leftPadding: Theme.spaceMd + Theme.hairline * 2
     // With the chevron, where SComboBox has its own.
     rightPadding: suggestions.length > 0 ? Theme.spaceMd : Theme.spaceMd + Theme.hairline * 2

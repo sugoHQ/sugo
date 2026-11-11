@@ -9,8 +9,8 @@ import stream.sugo.app
 QQC2.ComboBox {
     id: combo
 
-    /// An SButton with `joinedLeft` follows it (Test, Find calendars): no corners on that side.
-    property bool joinedRight: false
+    /// A LineIcon before the text (a bell for a sound, say), if set.
+    property string iconName
 
     /// The width of the longest entry's text. (ComboBox.WidestText measures the entries only for a
     /// content item that takes typing, which this one does not.)
@@ -24,8 +24,8 @@ QQC2.ComboBox {
     }
 
     implicitWidth: Math.max(Theme.selectMinWidth, widestTextWidth + leftPadding + rightPadding)
-    implicitHeight: Theme.controlHeightSm
-    leftPadding: Theme.spaceMd + Theme.hairline * 2
+    implicitHeight: Theme.controlHeight
+    leftPadding: Theme.spaceMd + Theme.hairline * 2 + (iconName.length > 0 ? Theme.iconSm + Theme.spaceSm : 0)
     rightPadding: Theme.spaceMd * 2 + Theme.iconSm
     font.pixelSize: Theme.fontBody
     hoverEnabled: true
@@ -37,8 +37,6 @@ QQC2.ComboBox {
 
     background: Rectangle {
         radius: Theme.radius
-        topRightRadius: combo.joinedRight ? 0 : radius
-        bottomRightRadius: combo.joinedRight ? 0 : radius
         // hover and pressed are translucent: lay them over the field's colour, not in place of it.
         color: combo.pressed ? Qt.tint(Theme.background, Theme.pressed)
                           : (combo.hovered && !combo.popup.visible ? Qt.tint(Theme.background, Theme.hover) : Theme.background)
@@ -52,6 +50,15 @@ QQC2.ComboBox {
         color: combo.enabled ? Theme.foreground : Theme.subtle
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
+    }
+
+    LineIcon {
+        visible: combo.iconName.length > 0
+        x: Theme.spaceMd + Theme.hairline * 2
+        y: (combo.height - height) / 2
+        name: combo.iconName
+        size: Theme.iconSm
+        color: Theme.muted
     }
 
     indicator: LineIcon {

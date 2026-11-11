@@ -370,17 +370,17 @@ QQC2.ApplicationWindow {
             return width;
         }
 
-        /// The title of the first settings row shown on `page` whose controls fill the column but
-        /// need more room than it has (they would be squeezed, or stick out), with the width they
-        /// need; "" when every row fits.
+        /// The title of the first settings row shown on `page` whose controls, beside its text, take
+        /// more than Theme.settingsControlsMaxWidth (the text would be left too little room), with
+        /// the width they take; "" when every row keeps within it.
         function crowdedSettingRow(page: var): string {
             let crowded = "";
             findItem(page, item => {
                 if (crowded.length === 0 && item.controlColumn !== undefined && item.visible
-                        && item.sideBySide && item.fillsColumn) {
+                        && item.sideBySide) {
                     const needed = rowWidth(item.controlColumn);
-                    if (needed > Theme.settingsControlWidth + 0.5) {
-                        crowded = "\"" + item.title + "\" needs " + needed + " px of " + Theme.settingsControlWidth;
+                    if (needed > Theme.settingsControlsMaxWidth + 0.5) {
+                        crowded = "\"" + item.title + "\" takes " + needed + " px, more than " + Theme.settingsControlsMaxWidth;
                     }
                 }
                 return false;
@@ -543,8 +543,7 @@ QQC2.ApplicationWindow {
                     return;
                 }
             }
-            // Every category's controls fit the column they share, so they start and end at the
-            // same place in every row.
+            // In every category, no row's controls take the room of its text.
             for (const entry of page.categories) {
                 page.category = entry.id;
                 const crowded = crowdedSettingRow(page);
@@ -1187,7 +1186,7 @@ QQC2.ApplicationWindow {
                          + suggestionEntries.length + " entries, chose " + chosenLength + ", got " + workField.value);
                     return true;
                 }
-                // Its controls fit the column they share, as in Settings.
+                // Its rows' controls leave their text its room, as in Settings.
                 const crowdedEditorRow = crowdedSettingRow(editor);
                 if (crowdedEditorRow.length > 0) {
                     fail(67, "Timer page: " + crowdedEditorRow);

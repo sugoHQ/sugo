@@ -20,9 +20,11 @@ QQC2.AbstractButton {
     readonly property alias menu: accentMenu
 
     objectName: "accentColorButton"
-    implicitHeight: Theme.controlHeightSm
-    implicitWidth: leftPadding + Theme.swatchSize + Theme.spaceSm + Theme.iconSm + rightPadding
-    leftPadding: Theme.spaceSm + Theme.hairline
+    implicitHeight: Theme.controlHeight
+    // The dot, the colour's name and the chevron, at least as wide as a drop-down list.
+    implicitWidth: Math.max(Theme.selectMinWidth, leftPadding + Theme.swatchSize + Theme.spaceSm + nameMetrics.advanceWidth(colourName(AppSettings.accentColor))
+                            + Theme.spaceSm + Theme.iconSm + rightPadding)
+    leftPadding: Theme.spaceMd + Theme.hairline * 2
     // The chevron where SComboBox has it.
     rightPadding: Theme.spaceMd
     hoverEnabled: true
@@ -34,6 +36,11 @@ QQC2.AbstractButton {
     QQC2.ToolTip.visible: hovered && !accentMenu.visible
     QQC2.ToolTip.text: colourName(AppSettings.accentColor)
     QQC2.ToolTip.delay: Theme.toolTipDelay
+
+    FontMetrics {
+        id: nameMetrics
+        font.pixelSize: Theme.fontBody
+    }
 
     onClicked: accentMenu.toggle()
     Keys.onDownPressed: accentMenu.open()

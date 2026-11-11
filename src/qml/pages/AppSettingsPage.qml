@@ -833,8 +833,8 @@ QQC2.Page {
         }
     }
 
-    /// A titled group of setting rows, shown when its category is chosen: a small heading over a
-    /// card of rows.
+    /// A titled group of setting rows, shown when its category is chosen: a heading over a card
+    /// of rows.
     component SettingsCard: ColumnLayout {
         id: card
         property string title
@@ -846,17 +846,20 @@ QQC2.Page {
 
         visible: card.available && page.category === card.category
         Layout.fillWidth: true
-        Layout.topMargin: card.title.length > 0 ? Theme.spaceLg : 0
-        spacing: Theme.spaceSm
+        Layout.topMargin: card.title.length > 0 ? Theme.settingsSectionGap : Theme.spaceMd
+        spacing: Theme.spaceMd
 
+        // The heading, in line with the text of the rows under it.
         Text {
             visible: card.title.length > 0
             text: card.title
-            color: Theme.muted
-            font.pixelSize: Theme.fontCaption
-            font.weight: Font.Medium
+            color: Theme.foreground
+            font.pixelSize: Theme.fontSettingsSection
+            font.weight: Font.DemiBold
             Layout.fillWidth: true
+            Layout.leftMargin: Theme.settingsRowPaddingX
             elide: Text.ElideRight
+            Accessible.role: Accessible.Heading
         }
         Rectangle {
             Layout.fillWidth: true
@@ -878,10 +881,9 @@ QQC2.Page {
         }
     }
 
-    /// One setting: title and description on the left, controls on the right, or under the text
-    /// when they would leave it too little room. Controls that fill their width (Layout.fillWidth)
-    /// share a column of Theme.settingsControlWidth, the same in every row; a switch or a short
-    /// text keeps its own width, at the column's right edge.
+    /// One setting: title and description on the left, controls on the right, each as wide as it
+    /// needs and ending at the row's right edge; under the text when they would leave it too
+    /// little room.
     component SettingRow: Item {
         id: row
         property string title
@@ -896,21 +898,10 @@ QQC2.Page {
         /// (smoke checks: both follow the text at once, while the layout catches up later).
         readonly property real descriptionHeight: descriptionText.implicitHeight
         readonly property real descriptionRoom: descriptionText.reservedHeight
-        /// A control fills the column (else the controls keep their own width).
-        readonly property bool fillsColumn: {
-            for (const child of controlBox.children) {
-                if (child.visible && child.Layout.fillWidth) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        /// The width of the controls beside the text.
-        readonly property real controlWidth: fillsColumn ? Theme.settingsControlWidth : controlBox.implicitWidth
         /// The controls sit beside the text (else under it).
         readonly property bool sideBySide: controlBox.children.length > 0
-            && width - controlWidth - grid.columnSpacing >= Theme.settingsRowTextMinWidth
-        /// The controls (smoke checks: the column's edges).
+            && width - controlBox.implicitWidth - grid.columnSpacing >= Theme.settingsRowTextMinWidth
+        /// The controls (smoke checks: their width).
         readonly property alias controlColumn: controlBox
         default property alias controls: controlBox.data
 
@@ -945,7 +936,7 @@ QQC2.Page {
                 // gaps, all counted, or the tallest text would push the row taller.
                 Layout.minimumHeight: row.descriptionVariants.length > 0
                                       ? titleText.implicitHeight + descriptionText.reservedHeight + spacing * 3 : 0
-                spacing: Theme.hairline
+                spacing: Theme.settingsRowTextGap
                 opacity: row.enabled ? 1 : 0.5
                 Item { visible: row.descriptionVariants.length > 0; Layout.fillHeight: true }
                 Text {
@@ -954,12 +945,13 @@ QQC2.Page {
                     visible: text.length > 0
                     text: row.title
                     color: Theme.foreground
-                    font.pixelSize: row.emphasized ? Theme.fontTitle : Theme.fontBody
+                    font.pixelSize: row.emphasized ? Theme.fontSettingsSection : Theme.fontTitle
                     font.weight: row.emphasized ? Font.DemiBold : Font.Normal
                     wrapMode: Text.WordWrap
                 }
                 SmallText {
                     id: descriptionText
+                    font.pixelSize: Theme.fontBody
                     visible: row.description.length > 0
                     text: row.description
                     readonly property real reservedHeight: {
@@ -995,8 +987,7 @@ QQC2.Page {
                 // A row of text only leaves the text the whole width.
                 visible: children.length > 0
                 Layout.alignment: row.sideBySide ? (Qt.AlignRight | Qt.AlignVCenter) : Qt.AlignLeft
-                // Beside the text, the column; under it, a field takes the row's width.
-                Layout.preferredWidth: row.sideBySide ? row.controlWidth : -1
+                // Under the text, a field takes the row's width.
                 Layout.fillWidth: !row.sideBySide
                 spacing: Theme.spaceSm
             }
@@ -1007,10 +998,8 @@ QQC2.Page {
     component CalendarConnectionButtons: RowLayout {
         Layout.fillWidth: true
         spacing: Theme.spaceSm
-        // Two halves of the column, whatever their labels.
         SButton {
             Layout.fillWidth: true
-            Layout.preferredWidth: Theme.settingsControlWidth / 2
             text: i18n("Test")
             toolTipText: i18n("Test connection")
             Accessible.name: i18n("Test connection")
@@ -1030,7 +1019,6 @@ QQC2.Page {
         }
         SButton {
             Layout.fillWidth: true
-            Layout.preferredWidth: Theme.settingsControlWidth / 2
             destructive: true
             text: i18n("Disconnect")
             onClicked: page.requestDisconnect()
@@ -1173,12 +1161,12 @@ QQC2.Page {
             }
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.hairline
+                spacing: Theme.settingsRowTextGap
                 Text {
                     Layout.fillWidth: true
                     text: timerRow.timer.name
                     color: Theme.foreground
-                    font.pixelSize: Theme.fontBody
+                    font.pixelSize: Theme.fontTitle
                     elide: Text.ElideRight
                     maximumLineCount: 1
                 }
@@ -1186,7 +1174,7 @@ QQC2.Page {
                     Layout.fillWidth: true
                     text: timerRow.timer.summary
                     color: Theme.muted
-                    font.pixelSize: Theme.fontCaption
+                    font.pixelSize: Theme.fontBody
                     font.features: { "tnum": 1 }
                     elide: Text.ElideRight
                     maximumLineCount: 1
@@ -1247,7 +1235,7 @@ QQC2.Page {
                 Layout.fillWidth: true
                 text: linkRow.text
                 color: Theme.foreground
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.fontTitle
                 elide: Text.ElideRight
             }
             LineIcon {
@@ -1274,15 +1262,18 @@ QQC2.Page {
         ColumnLayout {
             id: content
             x: page.paddingX
-            y: page.paddingY
+            // Without the title, the first heading's room above it is the page's padding.
+            y: page.paddingY - (categoryHeader.visible ? 0 : Theme.settingsSectionGap)
             width: Math.max(0, flickable.width - page.paddingX * 2)
             spacing: Theme.spaceSm
 
             // The category's title, with what it offers (New timer). A narrow window has no room
-            // for the list of the categories beside the page: they are chosen here instead.
+            // for the list of the categories beside the page: they are chosen here instead. Beside
+            // that list, the other categories need no title: the list says which one is shown, and
+            // the page starts with the heading of its first card.
             RowLayout {
                 id: categoryHeader
-                visible: page.narrow || page.category !== "about"
+                visible: page.narrow || page.category === "timers"
                 Layout.fillWidth: true
                 Layout.bottomMargin: Theme.spaceXs
                 spacing: Theme.spaceMd
@@ -1608,8 +1599,8 @@ QQC2.Page {
                     title: i18n("Phase sound")
                     SComboBox {
                         id: soundBox
+                        iconName: "bell"
                         Layout.fillWidth: true
-                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1628,8 +1619,6 @@ QQC2.Page {
                         onActivated: AppSettings.soundTheme = currentValue
                     }
                     SButton {
-                        joinedLeft: true
-                        iconOnly: true
                         text: i18n("Test")
                         iconName: "play"
                         onClicked: AppSettings.playSoundPreview(soundBox.currentValue, AppSettings.soundVolume)
@@ -1666,8 +1655,8 @@ QQC2.Page {
                     enabled: AppSettings.preAlarmEnabled
                     SComboBox {
                         id: preAlarmBox
+                        iconName: "bell"
                         Layout.fillWidth: true
-                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1684,8 +1673,6 @@ QQC2.Page {
                         onActivated: AppSettings.preAlarmSound = currentValue
                     }
                     SButton {
-                        joinedLeft: true
-                        iconOnly: true
                         text: i18n("Test")
                         enabled: AppSettings.preAlarmEnabled
                         iconName: "play"
@@ -1705,7 +1692,6 @@ QQC2.Page {
                     SComboBox {
                         id: focusModeBox
                         Layout.fillWidth: true
-                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1722,8 +1708,6 @@ QQC2.Page {
                         onActivated: AppSettings.focusSoundMode = currentValue
                     }
                     SButton {
-                        joinedLeft: true
-                        iconOnly: true
                         text: i18n("Preview")
                         iconName: "play"
                         enabled: focusModeBox.currentValue > 0
@@ -1822,6 +1806,7 @@ QQC2.Page {
             SettingsCard {
                 id: calendarCard
                 category: "calendar"
+                title: i18n("Calendar")
                 iconName: "view-calendar"
 
                 SettingRow {
@@ -1888,6 +1873,7 @@ QQC2.Page {
                         id: calServerField
                         enabled: !page.calConnected && !page.calWaiting
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         placeholderText: "https://cloud.example.org"
                         objectName: "calendarServerField"
                         inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
@@ -1956,6 +1942,7 @@ QQC2.Page {
                     STextField {
                         id: calUrlField
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
                         text: CalendarSync ? CalendarSync.calendarUrl : ""
                         Accessible.name: i18n("Calendar address (CalDAV)")
@@ -1977,6 +1964,7 @@ QQC2.Page {
                     title: i18n("Username")
                     STextField {
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                         text: CalendarSync ? CalendarSync.username : ""
                         Accessible.name: i18n("Username")
@@ -1995,6 +1983,7 @@ QQC2.Page {
                         id: calPasswordField
                         property bool dirty: false
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         echoMode: TextInput.Password
                         // The saved password is never read back; dots only show that one is stored.
                         placeholderText: page.calHasPassword ? "••••••••" : ""
@@ -2069,7 +2058,6 @@ QQC2.Page {
                     SComboBox {
                         id: calChoiceBox
                         Layout.fillWidth: true
-                        joinedRight: true
                         textRole: "name"
                         valueRole: "url"
                         model: page.calChoices
@@ -2119,7 +2107,6 @@ QQC2.Page {
                         }
                     }
                     SButton {
-                        joinedLeft: true
                         iconOnly: true
                         iconName: "refresh"
                         enabled: !page.calRefreshing
@@ -2158,6 +2145,7 @@ QQC2.Page {
             RowLayout {
                 visible: page.category === "sync" && page.syncLinked
                 Layout.fillWidth: true
+                Layout.topMargin: Theme.settingsSectionGap
                 spacing: Theme.spaceMd
                 StatusLine {
                     objectName: "syncStatusText"
@@ -2209,6 +2197,7 @@ QQC2.Page {
                     STextField {
                         id: syncDeviceName
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         text: SyncController ? SyncController.deviceName : ""
                         maximumLength: 64
                         Accessible.name: i18n("Device name")
@@ -2311,6 +2300,7 @@ QQC2.Page {
                     STextField {
                         id: syncRecoveryField
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         font.family: Theme.monoFamily
                         placeholderText: "XXXX-XXXX-…"
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText | Qt.ImhSensitiveData
@@ -2488,17 +2478,14 @@ QQC2.Page {
                         : i18n("Save your timers and session history to a file, or bring them back from one.")
                     descriptionVariants: [i18n("Stop the active timer before restoring a backup."),
                                           i18n("Save your timers and session history to a file, or bring them back from one.")]
-                    // Two halves of the column.
                     SButton {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: Theme.settingsControlWidth / 2
                         text: i18n("Back up…")
                         iconName: "download"
                         onClicked: backupDialog.open()
                     }
                     SButton {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: Theme.settingsControlWidth / 2
                         text: i18n("Restore…")
                         iconName: "upload"
                         enabled: !TimerEngine.active
@@ -2511,7 +2498,6 @@ QQC2.Page {
                     SComboBox {
                         id: historyCleanupBox
                         Layout.fillWidth: true
-                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: page.historyCleanupChoices
@@ -2520,8 +2506,6 @@ QQC2.Page {
                     }
                     SButton {
                         id: clearHistoryButton
-                        joinedLeft: true
-                        iconOnly: true
                         destructive: true
                         text: i18n("Clear history…")
                         iconName: "trash"
@@ -2615,6 +2599,7 @@ QQC2.Page {
             RowLayout {
                 visible: page.category === "about"
                 Layout.fillWidth: true
+                Layout.topMargin: Theme.settingsSectionGap
                 Layout.bottomMargin: Theme.spaceSm
                 spacing: Theme.spaceLg
 
@@ -2698,7 +2683,7 @@ QQC2.Page {
                         color: updateRow.step === "error" ? Theme.danger
                              : updateRow.step === "available" || updateRow.step === "ready" ? Theme.foreground
                              : page.upToDateShown && updateRow.step === "" ? Theme.positive : Theme.muted
-                        font.pixelSize: Theme.fontBody
+                        font.pixelSize: Theme.fontTitle
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
@@ -2714,13 +2699,12 @@ QQC2.Page {
                         HoverHandler { id: updateTextHover }
                         FontMetrics {
                             id: statusMetrics
-                            font.pixelSize: Theme.fontBody
+                            font.pixelSize: Theme.fontTitle
                         }
                     }
 
-                    // What can be done about it, in the column of the controls of the other rows.
+                    // What can be done about it, each button as wide as its label.
                     RowLayout {
-                        Layout.preferredWidth: Theme.settingsControlWidth
                         Layout.fillWidth: false
                         spacing: Theme.spaceSm
                         SButton {

@@ -8,7 +8,7 @@ QQC2.TextField {
     id: field
 
     implicitWidth: Theme.space4xl * 4
-    implicitHeight: Theme.controlHeightSm
+    implicitHeight: Theme.controlHeight
     leftPadding: Theme.spaceMd + Theme.hairline * 2
     rightPadding: leftPadding
     color: Theme.foreground

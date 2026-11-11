@@ -647,6 +647,7 @@ QQC2.Page {
                     STextField {
                         id: nameField
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         text: page.shown.name
                         maximumLength: PresetModel.maxNameLength
                         placeholderText: i18n("Name this timer")
@@ -661,6 +662,7 @@ QQC2.Page {
                     STextField {
                         id: categoryField
                         Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsFieldWidth
                         text: page.shown.category
                         maximumLength: PresetModel.maxNameLength
                         placeholderText: i18n("Add a category, e.g. Work or Study")
@@ -673,8 +675,7 @@ QQC2.Page {
                     // The icon in a button like a drop-down list's: a click shows them all.
                     QQC2.AbstractButton {
                         id: iconTile
-                        Layout.fillWidth: true
-                        implicitHeight: Theme.controlHeightSm
+                        implicitHeight: Theme.controlHeight
                         implicitWidth: iconTileRow.implicitWidth + leftPadding + rightPadding
                         leftPadding: Theme.spaceSm
                         rightPadding: Theme.spaceMd
@@ -802,6 +803,7 @@ QQC2.Page {
                     description: i18n("Whether breaks, work phases, or neither start by themselves.")
                     SComboBox {
                         id: autoStartBox
+                        iconName: "repeat"
                         Layout.fillWidth: true
                         Accessible.name: i18n("Start automatically")
                         model: [i18n("Manual"), i18n("Breaks only"), i18n("All phases")]

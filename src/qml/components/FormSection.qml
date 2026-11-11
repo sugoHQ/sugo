@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Layouts
 import stream.sugo.app
 
-/// A group of settings: a small heading, an optional line under it, and its rows in one card.
+/// A group of settings: a heading, an optional line under it, and its rows in one card.
 ColumnLayout {
     id: section
 
@@ -14,20 +14,23 @@ ColumnLayout {
     default property alias rows: rowColumn.data
 
     Layout.fillWidth: true
-    Layout.topMargin: section.title.length > 0 ? Theme.spaceLg : 0
-    spacing: Theme.spaceSm
+    Layout.topMargin: section.title.length > 0 ? Theme.settingsSectionGap : 0
+    spacing: Theme.spaceMd
 
     RowLayout {
         Layout.fillWidth: true
         visible: section.title.length > 0
         spacing: Theme.spaceMd
+        // The heading, in line with the text of the rows under it.
         Text {
             Layout.fillWidth: true
+            Layout.leftMargin: Theme.settingsRowPaddingX
             text: section.title
-            color: Theme.muted
-            font.pixelSize: Theme.fontCaption
-            font.weight: Font.Medium
+            color: Theme.foreground
+            font.pixelSize: Theme.fontSettingsSection
+            font.weight: Font.DemiBold
             elide: Text.ElideRight
+            Accessible.role: Accessible.Heading
         }
         RowLayout {
             id: extraRow
@@ -36,9 +39,10 @@ ColumnLayout {
     }
     Text {
         visible: section.description.length > 0
+        Layout.leftMargin: Theme.settingsRowPaddingX
         text: section.description
         color: Theme.muted
-        font.pixelSize: Theme.fontCaption
+        font.pixelSize: Theme.fontBody
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
