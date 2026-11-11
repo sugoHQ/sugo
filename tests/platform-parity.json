@@ -225,11 +225,11 @@
         "choice: Phase sound",
         "choice: Pre-alarm sound",
         "row: Alert volume",
-        "row: Focus sound",
-        "row: Focus sound volume",
         "row: Phase sound",
         "row: Play a warning one minute before a phase ends",
         "row: Pre-alarm sound",
+        "row: Sound",
+        "row: Volume",
         "setting: preAlarmEnabled",
         "slider: Alert volume",
         "slider: Focus sound volume"

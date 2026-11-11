@@ -250,7 +250,7 @@ Opening KRunner does **not** start Sugo; it starts (hidden in the tray) only whe
 
 ## Scripts and automation
 
-Other programs can control the timer: on Linux through D-Bus (and [KRunner](#krunner)), on macOS by opening `sugo://` links. Both can be turned off in **Settings → Advanced** (*Global Shortcuts and Automation* on Linux, *Shortcuts and Automation* on macOS) with **Allow other programs to control the timer**; a refused command then changes nothing.
+Other programs can control the timer: on Linux through D-Bus (and [KRunner](#krunner)), on macOS by opening `sugo://` links. Both can be turned off in **Settings → Advanced** (*Global shortcuts and automation* on Linux, *Shortcuts and automation* on macOS) with **Allow other programs to control the timer**; a refused command then changes nothing.
 
 ### Linux: D-Bus
 
@@ -284,7 +284,7 @@ Up to Sugo 1.0.2 the service and the interface were `io.github.mineraleyt.sugo`:
 - **phase**: `work`, `short_break` or `long_break` (when idle, the phase that starts next);
 - **seconds**: time left in the phase, in whole seconds.
 
-These commands, and the KRunner ones, can be turned off in **Settings → Global Shortcuts and Automation → Allow other programs to control the timer**. They then answer with the error `stream.sugo.app.Error.ControlDisabled` and change nothing; `status` and `presets` keep working.
+These commands, and the KRunner ones, can be turned off in **Settings → Advanced → Global shortcuts and automation → Allow other programs to control the timer**. They then answer with the error `stream.sugo.app.Error.ControlDisabled` and change nothing; `status` and `presets` keep working.
 
 Changing the timer resets it, so while a phase is running or paused `selectPreset`, `nextPreset`, `previousPreset` and `startPreset` refuse with the error `stream.sugo.app.Error.TimerActive` and change nothing (stop the timer first). Choosing the timer that is already selected is always allowed, and `startPreset` then starts or resumes it. An unknown name or uuid gives `stream.sugo.app.Error.UnknownPreset`.
 
@@ -359,4 +359,4 @@ The events go in small batches to Sugo's own server (`api.sugo.stream`, the one 
 - **Settings → General → Updates** (AppImage and macOS app) has **Check for updates automatically**: turn it off and Sugo only looks when you ask, with **Settings → About → Check for Updates**.
 - **Settings → General → Updates → Update channel** (AppImage and macOS app) chooses the update channel: **Stable**, the tested releases, or **Nightly**, test builds of what is coming, newer and sometimes with new bugs, published as [pre-releases](https://github.com/sugoHQ/sugo/releases). Going back from Nightly to Stable keeps the nightly build until a newer release comes out.
 - **Settings → About → Check for Updates** tells you whether a newer version exists; the AppImage and the macOS app can install it from there, the other packages link to the release (a Flatpak or a distribution's package is updated the way it was installed). A successful check with nothing new shows a green check on the button for a few seconds.
-- **Settings → Advanced → Troubleshooting & Diagnostics** copies a report with the version, your environment and the latest log lines. Your home directory, user name, passwords and addresses with credentials are replaced with placeholders. Attach it to a bug report.
+- **Settings → Advanced → Troubleshooting** copies a report with the version, your environment and the latest log lines. Your home directory, user name, passwords and addresses with credentials are replaced with placeholders. Attach it to a bug report.

@@ -1601,7 +1601,7 @@ QQC2.Page {
 
             SettingsCard {
                 category: "sounds"
-                title: i18n("Sounds")
+                title: i18n("Alerts")
                 iconName: "audio-volume-high"
                 SettingRow {
                     first: true
@@ -1692,8 +1692,15 @@ QQC2.Page {
                         onClicked: AppSettings.playSoundPreview(preAlarmBox.currentValue, AppSettings.soundVolume)
                     }
                 }
+            }
+
+            SettingsCard {
+                category: "sounds"
+                title: i18n("Focus sound")
+                iconName: "media-playback-start"
                 SettingRow {
-                    title: i18n("Focus sound")
+                    first: true
+                    title: i18n("Sound")
                     description: i18n("A background sound that plays during work sessions.")
                     SComboBox {
                         id: focusModeBox
@@ -1724,7 +1731,7 @@ QQC2.Page {
                     }
                 }
                 SettingRow {
-                    title: i18n("Focus sound volume")
+                    title: i18n("Volume")
                     enabled: AppSettings.focusSoundMode > 0
                     SSlider {
                         id: focusVolumeSlider
@@ -1815,7 +1822,6 @@ QQC2.Page {
             SettingsCard {
                 id: calendarCard
                 category: "calendar"
-                title: i18n("Calendar")
                 iconName: "view-calendar"
 
                 SettingRow {
@@ -1835,298 +1841,314 @@ QQC2.Page {
                     }
                 }
 
-                ColumnLayout {
-                    id: calendarBody
-                    Layout.fillWidth: true
-                    spacing: 0
-                    enabled: page.calOn
-                    opacity: page.calOn ? 1 : 0.6
+            }
 
-                    SettingRow {
-                        title: i18n("Calendar service")
-                        SComboBox {
-                            id: calProviderBox
-                            Layout.fillWidth: true
-                            textRole: "text"
-                            valueRole: "value"
-                            model: [
-                                { text: i18n("Nextcloud"), value: "nextcloud" },
-                                { text: i18n("Custom CalDAV"), value: "caldav" }
-                            ]
-                            currentIndex: page.valueIndex(model, page.calProvider)
-                            Accessible.name: i18n("Calendar service")
-                            onActivated: {
-                                page.calInputError = "";
-                                if (CalendarSync) {
-                                    CalendarSync.provider = currentValue;
-                                    // Each service keeps its own settings: if the one just chosen is
-                                    // already signed in, load its calendars.
-                                    if (CalendarSync.hasPassword) {
-                                        CalendarSync.refreshCalendars();
-                                    }
-                                }
-                                currentIndex = Qt.binding(() => page.valueIndex(model, page.calProvider));
-                            }
-                        }
-                    }
+            // The server and the account on it; off while the calendar is.
+            SettingsCard {
+                category: "calendar"
+                title: i18n("Server")
+                iconName: "network-server"
+                enabled: page.calOn
+                opacity: page.calOn ? 1 : 0.6
 
-                    // Nextcloud: the server's address, then the account on it and the browser login.
-                    SettingRow {
-                        visible: !page.calCustom
-                        title: i18n("Server address")
-                        STextField {
-                            id: calServerField
-                            enabled: !page.calConnected && !page.calWaiting
-                            Layout.fillWidth: true
-                            placeholderText: "https://cloud.example.org"
-                            objectName: "calendarServerField"
-                            inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-                            text: CalendarSync ? CalendarSync.serverUrl : ""
-                            Accessible.name: i18n("Server address")
-                            onTextEdited: page.calInputError = ""
-                            onEditingFinished: {
-                                page.calInputError = "";
-                                if (CalendarSync) {
-                                    CalendarSync.serverUrl = text;
-                                }
-                                // Refused: what was typed stays to be corrected, the message says why.
-                                if (page.calInputError.length === 0) {
-                                    text = Qt.binding(() => CalendarSync ? CalendarSync.serverUrl : "");
-                                }
-                            }
-                        }
-                    }
-                    // Who is signed in, or what the login waits for, with room kept so nothing moves;
-                    // the buttons: Log in, the wait (spinner and Cancel), or Test and Disconnect.
-                    SettingRow {
-                        objectName: "calendarAccountRow"
-                        visible: !page.calCustom
-                        title: i18n("Account")
-                        description: page.calConnected
-                            ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
-                            : (page.calWaiting && CalendarSync ? CalendarSync.statusText : i18n("Not connected"))
-                        descriptionVariants: [
-                            i18n("Connected as %1", CalendarSync ? CalendarSync.username : ""),
-                            CalendarSync ? CalendarSync.statusText : "",
-                            i18n("Not connected")
+                SettingRow {
+                    first: true
+                    title: i18n("Calendar service")
+                    SComboBox {
+                        id: calProviderBox
+                        Layout.fillWidth: true
+                        textRole: "text"
+                        valueRole: "value"
+                        model: [
+                            { text: i18n("Nextcloud"), value: "nextcloud" },
+                            { text: i18n("Custom CalDAV"), value: "caldav" }
                         ]
-                        QQC2.BusyIndicator {
-                            Layout.preferredWidth: Theme.controlHeight
-                            Layout.preferredHeight: Theme.controlHeight
-                            visible: page.calWaiting
-                            running: visible && page.visible
-                        }
-                        SButton {
-                            objectName: "calendarLoginButton"
-                            Layout.fillWidth: true
-                            visible: !page.calConnected && !page.calWaiting
-                            text: i18n("Log in")
-                            iconName: "external"
-                            onClicked: {
-                                page.commitCalendarFields();
-                                CalendarSync.startNextcloudLogin();
+                        currentIndex: page.valueIndex(model, page.calProvider)
+                        Accessible.name: i18n("Calendar service")
+                        onActivated: {
+                            page.calInputError = "";
+                            if (CalendarSync) {
+                                CalendarSync.provider = currentValue;
+                                // Each service keeps its own settings: if the one just chosen is
+                                // already signed in, load its calendars.
+                                if (CalendarSync.hasPassword) {
+                                    CalendarSync.refreshCalendars();
+                                }
                             }
-                        }
-                        SButton {
-                            Layout.fillWidth: true
-                            visible: page.calWaiting
-                            text: i18n("Cancel")
-                            onClicked: CalendarSync.cancelLogin()
-                        }
-                        CalendarConnectionButtons {
-                            visible: page.calConnected && !page.calWaiting
+                            currentIndex = Qt.binding(() => page.valueIndex(model, page.calProvider));
                         }
                     }
+                }
 
-                    // Custom CalDAV: address, username, password.
-                    SettingRow {
-                        visible: page.calCustom
-                        title: i18n("Calendar address (CalDAV)")
-                        description: i18n("Use the CalDAV address of the calendar. A subscription link ending in .ics is read-only and cannot receive events.")
-                        STextField {
-                            id: calUrlField
-                            Layout.fillWidth: true
-                            inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-                            text: CalendarSync ? CalendarSync.calendarUrl : ""
-                            Accessible.name: i18n("Calendar address (CalDAV)")
-                            onTextEdited: page.calInputError = ""
-                            onEditingFinished: {
-                                page.calInputError = "";
-                                if (CalendarSync) {
-                                    CalendarSync.calendarUrl = text;
-                                }
-                                // Refused: what was typed stays to be corrected, the message says why.
-                                if (page.calInputError.length === 0) {
-                                    text = Qt.binding(() => CalendarSync ? CalendarSync.calendarUrl : "");
-                                }
+                // Nextcloud: the server's address, then the account on it and the browser login.
+                SettingRow {
+                    visible: !page.calCustom
+                    title: i18n("Server address")
+                    STextField {
+                        id: calServerField
+                        enabled: !page.calConnected && !page.calWaiting
+                        Layout.fillWidth: true
+                        placeholderText: "https://cloud.example.org"
+                        objectName: "calendarServerField"
+                        inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
+                        text: CalendarSync ? CalendarSync.serverUrl : ""
+                        Accessible.name: i18n("Server address")
+                        onTextEdited: page.calInputError = ""
+                        onEditingFinished: {
+                            page.calInputError = "";
+                            if (CalendarSync) {
+                                CalendarSync.serverUrl = text;
+                            }
+                            // Refused: what was typed stays to be corrected, the message says why.
+                            if (page.calInputError.length === 0) {
+                                text = Qt.binding(() => CalendarSync ? CalendarSync.serverUrl : "");
                             }
                         }
                     }
-                    SettingRow {
-                        visible: page.calCustom
-                        title: i18n("Username")
-                        STextField {
-                            Layout.fillWidth: true
-                            inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                            text: CalendarSync ? CalendarSync.username : ""
-                            Accessible.name: i18n("Username")
-                            onEditingFinished: {
-                                if (CalendarSync) {
-                                    CalendarSync.username = text;
-                                }
-                                text = Qt.binding(() => CalendarSync ? CalendarSync.username : "");
-                            }
+                }
+                // Who is signed in, or what the login waits for, with room kept so nothing moves;
+                // the buttons: Log in, the wait (spinner and Cancel), or Test and Disconnect.
+                SettingRow {
+                    objectName: "calendarAccountRow"
+                    visible: !page.calCustom
+                    title: i18n("Account")
+                    description: page.calConnected
+                        ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
+                        : (page.calWaiting && CalendarSync ? CalendarSync.statusText : i18n("Not connected"))
+                    descriptionVariants: [
+                        i18n("Connected as %1", CalendarSync ? CalendarSync.username : ""),
+                        CalendarSync ? CalendarSync.statusText : "",
+                        i18n("Not connected")
+                    ]
+                    QQC2.BusyIndicator {
+                        Layout.preferredWidth: Theme.controlHeight
+                        Layout.preferredHeight: Theme.controlHeight
+                        visible: page.calWaiting
+                        running: visible && page.visible
+                    }
+                    SButton {
+                        objectName: "calendarLoginButton"
+                        Layout.fillWidth: true
+                        visible: !page.calConnected && !page.calWaiting
+                        text: i18n("Log in")
+                        iconName: "external"
+                        onClicked: {
+                            page.commitCalendarFields();
+                            CalendarSync.startNextcloudLogin();
                         }
                     }
-                    SettingRow {
-                        visible: page.calCustom
-                        title: i18n("Password")
-                        STextField {
-                            id: calPasswordField
-                            property bool dirty: false
-                            Layout.fillWidth: true
-                            echoMode: TextInput.Password
-                            // The saved password is never read back; dots only show that one is stored.
-                            placeholderText: page.calHasPassword ? "••••••••" : ""
-                            Accessible.name: i18n("Password")
-                            onTextEdited: dirty = true
-                            onEditingFinished: {
-                                // Left empty, it keeps the stored password: only Disconnect, which
-                                // asks first, forgets it.
-                                if (dirty && text.length > 0 && CalendarSync) {
-                                    CalendarSync.setPassword(text);
-                                }
-                                dirty = false;
-                                text = "";
-                            }
-                        }
+                    SButton {
+                        Layout.fillWidth: true
+                        visible: page.calWaiting
+                        text: i18n("Cancel")
+                        onClicked: CalendarSync.cancelLogin()
                     }
-                    // As for Nextcloud: test the connection, or forget this service's login.
-                    SettingRow {
-                        visible: page.calCustom && page.calConfigured
-                        title: i18n("Connection")
-                        CalendarConnectionButtons {}
+                    CalendarConnectionButtons {
+                        visible: page.calConnected && !page.calWaiting
                     }
-                    // No keyring answered when the password was saved: it is in the settings file.
-                    // Shown with the other rows of a signed-in account, so it comes with them; once
-                    // shown it stays while the account does (the password saved again into the
-                    // keyring changes its text, not the layout).
-                    SettingRow {
-                        id: calKeyringRow
-                        objectName: "calendarPasswordOutsideKeyring"
-                        readonly property bool outside: page.calPasswordOutsideKeyring
-                        readonly property bool configured: page.calConfigured
-                        property bool seen: outside
-                        onOutsideChanged: if (outside) seen = true
-                        onConfiguredChanged: if (!configured) seen = outside
-                        visible: configured && seen
-                        readonly property string outsideText: DesktopStyle.macos
-                            ? i18n("The Keychain could not be used, so the password is kept in Sugo's settings file, readable only by your account. Sugo moves it to the Keychain the next time it starts with one available.")
-                            : i18n("No system keyring was available, so the password is kept in Sugo's settings file, readable only by your account. Install or unlock one (for example KWallet or GNOME Keyring) and Sugo moves it there at its next start.")
-                        readonly property string insideText: DesktopStyle.macos
-                            ? i18n("The password is now kept in the Keychain.")
-                            : i18n("The password is now kept in the system keyring.")
-                        title: outside ? i18n("Password not in the keyring") : i18n("Password in the keyring")
-                        description: outside ? outsideText : insideText
-                        descriptionVariants: [outsideText, insideText]
-                    }
-                    // Calendar choice, with a refresh button to reload the list from the server.
-                    SettingRow {
-                        visible: page.calChoices.length > 0 || page.calConfigured
-                        title: i18n("Calendar")
-                        // The last event sent and those waiting; one line kept for it, so nothing moves.
-                        description: {
-                            const lastSent = page.calLastSuccess.length > 0 ? i18n("Last event sent: %1", page.calLastSuccess) : "";
-                            const waiting = page.calPending > 0
-                                ? i18np("%1 event waiting to be sent", "%1 events waiting to be sent", page.calPending) : "";
-                            return lastSent.length > 0 && waiting.length > 0
-                                ? i18nc("last event sent · events waiting", "%1 · %2", lastSent, waiting)
-                                : lastSent + waiting;
-                        }
-                        descriptionVariants: [i18n("Last event sent: %1", page.calLastSuccess)]
-                        SComboBox {
-                            id: calChoiceBox
-                            Layout.fillWidth: true
-                            joinedRight: true
-                            textRole: "name"
-                            valueRole: "url"
-                            model: page.calChoices
-                            currentIndex: page.calChoiceIndex()
-                            Accessible.name: i18n("Calendar")
-                            onActivated: {
-                                const item = page.calChoices[currentIndex];
-                                if (CalendarSync && item) {
-                                    CalendarSync.selectCalendar(item.url, item.name);
-                                }
-                                currentIndex = Qt.binding(() => page.calChoiceIndex());
-                            }
-                            enabled: page.calChoices.length > 0
-                            delegate: QQC2.ItemDelegate {
-                                id: calEntry
-                                required property var modelData
-                                required property int index
-                                width: ListView.view ? ListView.view.width : calChoiceBox.width
-                                implicitHeight: Theme.controlHeight
-                                // The style's padding leaves the row too little room: the text would sit low.
-                                verticalPadding: 0
-                                highlighted: calChoiceBox.highlightedIndex === index
-                                hoverEnabled: true
-                                background: Rectangle {
-                                    radius: Theme.radiusSm
-                                    color: calEntry.highlighted || calEntry.hovered ? Theme.hover : "transparent"
-                                }
-                                contentItem: RowLayout {
-                                    spacing: Theme.spaceSm
-                                    Rectangle {
-                                        visible: !!calEntry.modelData.color
-                                        implicitWidth: Theme.spaceMd + Theme.hairline
-                                        implicitHeight: implicitWidth
-                                        radius: width / 2
-                                        color: calEntry.modelData.color || Theme.background
-                                        border.width: Theme.hairline
-                                        border.color: Theme.border
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: calEntry.modelData.name
-                                        elide: Text.ElideRight
-                                        color: Theme.foreground
-                                        font.pixelSize: Theme.fontBody
-                                    }
-                                }
-                            }
-                        }
-                        SButton {
-                            joinedLeft: true
-                            iconOnly: true
-                            iconName: "refresh"
-                            enabled: !page.calRefreshing
-                            text: i18n("Find calendars")
-                            onClicked: {
-                                page.commitCalendarFields();
-                                page.calAction = "refresh";
-                                CalendarSync.refreshCalendars();
-                                // Nothing was started (e.g. not signed in yet): a later request's
-                                // result must not be taken for this one's.
-                                if (!page.calWorking) {
-                                    page.calAction = "";
-                                }
-                            }
-                        }
-                    }
+                }
 
-                    SettingRow {
-                        title: i18n("Include the task note in the event description")
-                        description: i18n("Notes are sent to your calendar server.")
-                        SSwitch {
-                            checked: CalendarSync ? CalendarSync.includeNote : false
-                            Accessible.name: i18n("Include the task note in the event description")
-                            onToggled: {
-                                if (CalendarSync) {
-                                    CalendarSync.includeNote = checked;
-                                }
-                                checked = Qt.binding(() => CalendarSync ? CalendarSync.includeNote : false);
+                // Custom CalDAV: address, username, password.
+                SettingRow {
+                    visible: page.calCustom
+                    title: i18n("Calendar address (CalDAV)")
+                    description: i18n("Use the CalDAV address of the calendar. A subscription link ending in .ics is read-only and cannot receive events.")
+                    STextField {
+                        id: calUrlField
+                        Layout.fillWidth: true
+                        inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
+                        text: CalendarSync ? CalendarSync.calendarUrl : ""
+                        Accessible.name: i18n("Calendar address (CalDAV)")
+                        onTextEdited: page.calInputError = ""
+                        onEditingFinished: {
+                            page.calInputError = "";
+                            if (CalendarSync) {
+                                CalendarSync.calendarUrl = text;
                             }
+                            // Refused: what was typed stays to be corrected, the message says why.
+                            if (page.calInputError.length === 0) {
+                                text = Qt.binding(() => CalendarSync ? CalendarSync.calendarUrl : "");
+                            }
+                        }
+                    }
+                }
+                SettingRow {
+                    visible: page.calCustom
+                    title: i18n("Username")
+                    STextField {
+                        Layout.fillWidth: true
+                        inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                        text: CalendarSync ? CalendarSync.username : ""
+                        Accessible.name: i18n("Username")
+                        onEditingFinished: {
+                            if (CalendarSync) {
+                                CalendarSync.username = text;
+                            }
+                            text = Qt.binding(() => CalendarSync ? CalendarSync.username : "");
+                        }
+                    }
+                }
+                SettingRow {
+                    visible: page.calCustom
+                    title: i18n("Password")
+                    STextField {
+                        id: calPasswordField
+                        property bool dirty: false
+                        Layout.fillWidth: true
+                        echoMode: TextInput.Password
+                        // The saved password is never read back; dots only show that one is stored.
+                        placeholderText: page.calHasPassword ? "••••••••" : ""
+                        Accessible.name: i18n("Password")
+                        onTextEdited: dirty = true
+                        onEditingFinished: {
+                            // Left empty, it keeps the stored password: only Disconnect, which
+                            // asks first, forgets it.
+                            if (dirty && text.length > 0 && CalendarSync) {
+                                CalendarSync.setPassword(text);
+                            }
+                            dirty = false;
+                            text = "";
+                        }
+                    }
+                }
+                // As for Nextcloud: test the connection, or forget this service's login.
+                SettingRow {
+                    visible: page.calCustom && page.calConfigured
+                    title: i18n("Connection")
+                    CalendarConnectionButtons {}
+                }
+                // No keyring answered when the password was saved: it is in the settings file.
+                // Shown with the other rows of a signed-in account, so it comes with them; once
+                // shown it stays while the account does (the password saved again into the
+                // keyring changes its text, not the layout).
+                SettingRow {
+                    id: calKeyringRow
+                    objectName: "calendarPasswordOutsideKeyring"
+                    readonly property bool outside: page.calPasswordOutsideKeyring
+                    readonly property bool configured: page.calConfigured
+                    property bool seen: outside
+                    onOutsideChanged: if (outside) seen = true
+                    onConfiguredChanged: if (!configured) seen = outside
+                    visible: configured && seen
+                    readonly property string outsideText: DesktopStyle.macos
+                        ? i18n("The Keychain could not be used, so the password is kept in Sugo's settings file, readable only by your account. Sugo moves it to the Keychain the next time it starts with one available.")
+                        : i18n("No system keyring was available, so the password is kept in Sugo's settings file, readable only by your account. Install or unlock one (for example KWallet or GNOME Keyring) and Sugo moves it there at its next start.")
+                    readonly property string insideText: DesktopStyle.macos
+                        ? i18n("The password is now kept in the Keychain.")
+                        : i18n("The password is now kept in the system keyring.")
+                    title: outside ? i18n("Password not in the keyring") : i18n("Password in the keyring")
+                    description: outside ? outsideText : insideText
+                    descriptionVariants: [outsideText, insideText]
+                }
+            }
+
+            // Where the events go, and what they say.
+            SettingsCard {
+                category: "calendar"
+                title: i18n("Events")
+                iconName: "view-calendar"
+                enabled: page.calOn
+                opacity: page.calOn ? 1 : 0.6
+
+                // Calendar choice, with a refresh button to reload the list from the server.
+                SettingRow {
+                    id: calendarChoiceRow
+                    first: true
+                    visible: page.calChoices.length > 0 || page.calConfigured
+                    title: i18n("Calendar")
+                    // The last event sent and those waiting; one line kept for it, so nothing moves.
+                    description: {
+                        const lastSent = page.calLastSuccess.length > 0 ? i18n("Last event sent: %1", page.calLastSuccess) : "";
+                        const waiting = page.calPending > 0
+                            ? i18np("%1 event waiting to be sent", "%1 events waiting to be sent", page.calPending) : "";
+                        return lastSent.length > 0 && waiting.length > 0
+                            ? i18nc("last event sent · events waiting", "%1 · %2", lastSent, waiting)
+                            : lastSent + waiting;
+                    }
+                    descriptionVariants: [i18n("Last event sent: %1", page.calLastSuccess)]
+                    SComboBox {
+                        id: calChoiceBox
+                        Layout.fillWidth: true
+                        joinedRight: true
+                        textRole: "name"
+                        valueRole: "url"
+                        model: page.calChoices
+                        currentIndex: page.calChoiceIndex()
+                        Accessible.name: i18n("Calendar")
+                        onActivated: {
+                            const item = page.calChoices[currentIndex];
+                            if (CalendarSync && item) {
+                                CalendarSync.selectCalendar(item.url, item.name);
+                            }
+                            currentIndex = Qt.binding(() => page.calChoiceIndex());
+                        }
+                        enabled: page.calChoices.length > 0
+                        delegate: QQC2.ItemDelegate {
+                            id: calEntry
+                            required property var modelData
+                            required property int index
+                            width: ListView.view ? ListView.view.width : calChoiceBox.width
+                            implicitHeight: Theme.controlHeight
+                            // The style's padding leaves the row too little room: the text would sit low.
+                            verticalPadding: 0
+                            highlighted: calChoiceBox.highlightedIndex === index
+                            hoverEnabled: true
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: calEntry.highlighted || calEntry.hovered ? Theme.hover : "transparent"
+                            }
+                            contentItem: RowLayout {
+                                spacing: Theme.spaceSm
+                                Rectangle {
+                                    visible: !!calEntry.modelData.color
+                                    implicitWidth: Theme.spaceMd + Theme.hairline
+                                    implicitHeight: implicitWidth
+                                    radius: width / 2
+                                    color: calEntry.modelData.color || Theme.background
+                                    border.width: Theme.hairline
+                                    border.color: Theme.border
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: calEntry.modelData.name
+                                    elide: Text.ElideRight
+                                    color: Theme.foreground
+                                    font.pixelSize: Theme.fontBody
+                                }
+                            }
+                        }
+                    }
+                    SButton {
+                        joinedLeft: true
+                        iconOnly: true
+                        iconName: "refresh"
+                        enabled: !page.calRefreshing
+                        text: i18n("Find calendars")
+                        onClicked: {
+                            page.commitCalendarFields();
+                            page.calAction = "refresh";
+                            CalendarSync.refreshCalendars();
+                            // Nothing was started (e.g. not signed in yet): a later request's
+                            // result must not be taken for this one's.
+                            if (!page.calWorking) {
+                                page.calAction = "";
+                            }
+                        }
+                    }
+                }
+
+                SettingRow {
+                    first: !calendarChoiceRow.visible
+                    title: i18n("Include the task note in the event description")
+                    description: i18n("Notes are sent to your calendar server.")
+                    SSwitch {
+                        checked: CalendarSync ? CalendarSync.includeNote : false
+                        Accessible.name: i18n("Include the task note in the event description")
+                        onToggled: {
+                            if (CalendarSync) {
+                                CalendarSync.includeNote = checked;
+                            }
+                            checked = Qt.binding(() => CalendarSync ? CalendarSync.includeNote : false);
                         }
                     }
                 }
@@ -2532,7 +2554,7 @@ QQC2.Page {
                 category: "advanced"
                 // D-Bus and KRunner on Linux, sugo:// links on macOS.
                 available: AppSettings.externalControlSupported
-                title: DesktopStyle.macos ? i18n("Shortcuts and Automation") : i18n("Global Shortcuts and Automation")
+                title: DesktopStyle.macos ? i18n("Shortcuts and automation") : i18n("Global shortcuts and automation")
                 iconName: "configure-shortcuts"
                 SettingRow {
                     first: true
@@ -2558,7 +2580,7 @@ QQC2.Page {
 
             SettingsCard {
                 category: "advanced"
-                title: i18n("Troubleshooting & Diagnostics")
+                title: i18n("Troubleshooting")
                 iconName: "tools-report-bug"
                 SettingRow {
                     first: true
@@ -2760,7 +2782,7 @@ QQC2.Page {
 
             SettingsCard {
                 category: "about"
-                title: i18n("License & credits")
+                title: i18n("License and credits")
                 iconName: "license"
                 ColumnLayout {
                     Layout.fillWidth: true
