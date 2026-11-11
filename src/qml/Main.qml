@@ -524,12 +524,18 @@ QQC2.ApplicationWindow {
                 page.commitCalendarFields();
                 const stored = CalendarSync.serverUrl;
                 const crowded = crowdedSettingRow(page);
+                // The notice of a password kept outside the keyring is there to show.
+                const keyringNotice = findItem(page, item => item.objectName === "calendarPasswordOutsideKeyring");
                 CalendarSync.serverUrl = "";
                 CalendarSync.enabled = false;
                 page.category = "general";
                 if (!focused || stored !== "https://cloud.example.org") {
                     fail(53, "The typed calendar address was not stored before the action: focused=" + focused
                          + " stored=" + stored);
+                    return;
+                }
+                if (!keyringNotice) {
+                    fail(53, "The calendar's notice of a password outside the keyring is missing");
                     return;
                 }
                 if (crowded.length > 0) {
