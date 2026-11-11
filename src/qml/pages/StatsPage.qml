@@ -151,9 +151,9 @@ QQC2.Page {
                 spacing: Theme.spaceMd
                 Text {
                     text: panel.title
-                    color: Theme.muted
-                    font.pixelSize: Theme.fontCaption
-                    font.weight: Font.Medium
+                    color: Theme.foreground
+                    font.pixelSize: Theme.fontTitle
+                    font.weight: Font.DemiBold
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
