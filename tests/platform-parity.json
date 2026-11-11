@@ -29,10 +29,10 @@
       "row: Show an icon in the menu bar": "row: Show an icon in the tray"
     },
     "timer-page": {
-      "button: Set Up…": "switch: Silence notifications while working"
+      "button: Set up…": "switch: Silence notifications while working"
     },
     "new-timer": {
-      "button: Set Up…": "switch: Silence notifications while working"
+      "button: Set up…": "switch: Silence notifications while working"
     }
   },
   "screens": {
@@ -255,7 +255,7 @@
         "setting: protectWeekendStreak"
       ],
       "macos": {
-        "button: Install Shortcuts": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up.",
+        "button: Install shortcuts": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up.",
         "row: Silence notifications with a Focus": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up."
       }
     },
@@ -374,7 +374,7 @@
         "setting: closeToTray": "macOS: closing the window always leaves Sugo running (Dock and menu bar)."
       },
       "macos": {
-        "button: Install Focus Shortcuts": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up.",
+        "button: Install Focus shortcuts": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up.",
         "row: Silence notifications with a Focus": "macOS lets apps silence notifications only through Shortcuts; Linux asks the notification server directly, with nothing to set up."
       }
     },
