@@ -354,6 +354,40 @@ QQC2.ApplicationWindow {
         property int trackCheckStage: 0
         property bool longSetChecked: false
 
+        /// The width `layout`'s visible items ask for, side by side (layouts inside it counted
+        /// the same way: their own implicit width is only updated when they are laid out).
+        function rowWidth(layout: var): real {
+            let width = 0;
+            let shown = 0;
+            for (const child of layout.children) {
+                if (!child.visible) {
+                    continue;
+                }
+                const own = child.layoutDirection !== undefined && child.spacing !== undefined
+                    ? rowWidth(child) : child.implicitWidth;
+                width += own + child.Layout.leftMargin + child.Layout.rightMargin + (shown++ > 0 ? layout.spacing : 0);
+            }
+            return width;
+        }
+
+        /// The title of the first settings row shown on `page` whose controls fill the column but
+        /// need more room than it has (they would be squeezed, or stick out), with the width they
+        /// need; "" when every row fits.
+        function crowdedSettingRow(page: var): string {
+            let crowded = "";
+            findItem(page, item => {
+                if (crowded.length === 0 && item.controlColumn !== undefined && item.visible
+                        && item.sideBySide && item.fillsColumn) {
+                    const needed = rowWidth(item.controlColumn);
+                    if (needed > Theme.settingsControlWidth + 0.5) {
+                        crowded = "\"" + item.title + "\" needs " + needed + " px of " + Theme.settingsControlWidth;
+                    }
+                }
+                return false;
+            });
+            return crowded;
+        }
+
         function findItem(item: var, predicate: var): var {
             if (!item) {
                 return null;
@@ -489,13 +523,7 @@ QQC2.ApplicationWindow {
                 serverField.text = "https://cloud.example.org";
                 page.commitCalendarFields();
                 const stored = CalendarSync.serverUrl;
-                // Signed out, Log in is alone: the field takes the room of the second icon, so
-                // no gap is left between them.
-                const loginButtons = findItem(page, item => item.objectName === "calendarLoginButtons");
-                const gapless = loginButtons && !page.calConnected && !page.calWaiting
-                    && loginButtons.implicitWidth === Theme.controlHeight
-                    && serverField.Layout.preferredWidth
-                       === Theme.space4xl * 5 + Theme.controlHeight + Theme.spaceSm;
+                const crowded = crowdedSettingRow(page);
                 CalendarSync.serverUrl = "";
                 CalendarSync.enabled = false;
                 page.category = "general";
@@ -504,11 +532,23 @@ QQC2.ApplicationWindow {
                          + " stored=" + stored);
                     return;
                 }
-                if (!gapless) {
-                    fail(67, "The calendar address field leaves a gap before Log in");
+                if (crowded.length > 0) {
+                    fail(67, "Settings → Calendar: " + crowded);
                     return;
                 }
             }
+            // Every category's controls fit the column they share, so they start and end at the
+            // same place in every row.
+            for (const entry of page.categories) {
+                page.category = entry.id;
+                const crowded = crowdedSettingRow(page);
+                if (crowded.length > 0) {
+                    page.category = "general";
+                    fail(67, "Settings → " + entry.text + ": " + crowded);
+                    return;
+                }
+            }
+            page.category = "general";
             // Disconnecting the calendar asks first.
             page.requestDisconnect();
             if (!page.disconnectConfirming) {

@@ -122,7 +122,6 @@ QtObject {
     readonly property int switchHeight: 18
     readonly property int switchKnob: 12
     readonly property int sliderWidth: 140
-    readonly property int sliderWidthCompact: 110
     readonly property int sliderTrack: 4
     readonly property int sliderKnob: 14
     readonly property int selectMinWidth: 120
@@ -212,6 +211,9 @@ QtObject {
     readonly property int fontSettingsTitle: 15
     /// A row puts its controls under its text when the text would have less room than this.
     readonly property int settingsRowTextMinWidth: 150
+    /// The column of a row's controls: drop-down lists, fields, sliders and buttons fill it, so
+    /// every row's controls start and end at the same place.
+    readonly property int settingsControlWidth: 224
     readonly property int settingsRowMinHeight: 46
     readonly property int settingsRowPaddingX: 14
     readonly property int settingsRowPaddingY: 10

@@ -879,7 +879,9 @@ QQC2.Page {
     }
 
     /// One setting: title and description on the left, controls on the right, or under the text
-    /// when they would leave it too little room.
+    /// when they would leave it too little room. Controls that fill their width (Layout.fillWidth)
+    /// share a column of Theme.settingsControlWidth, the same in every row; a switch or a short
+    /// text keeps its own width, at the column's right edge.
     component SettingRow: Item {
         id: row
         property string title
@@ -894,9 +896,22 @@ QQC2.Page {
         /// (smoke checks: both follow the text at once, while the layout catches up later).
         readonly property real descriptionHeight: descriptionText.implicitHeight
         readonly property real descriptionRoom: descriptionText.reservedHeight
+        /// A control fills the column (else the controls keep their own width).
+        readonly property bool fillsColumn: {
+            for (const child of controlBox.children) {
+                if (child.visible && child.Layout.fillWidth) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        /// The width of the controls beside the text.
+        readonly property real controlWidth: fillsColumn ? Theme.settingsControlWidth : controlBox.implicitWidth
         /// The controls sit beside the text (else under it).
         readonly property bool sideBySide: controlBox.children.length > 0
-            && width - controlBox.implicitWidth - grid.columnSpacing >= Theme.settingsRowTextMinWidth
+            && width - controlWidth - grid.columnSpacing >= Theme.settingsRowTextMinWidth
+        /// The controls (smoke checks: the column's edges).
+        readonly property alias controlColumn: controlBox
         default property alias controls: controlBox.data
 
         Layout.fillWidth: true
@@ -980,10 +995,45 @@ QQC2.Page {
                 // A row of text only leaves the text the whole width.
                 visible: children.length > 0
                 Layout.alignment: row.sideBySide ? (Qt.AlignRight | Qt.AlignVCenter) : Qt.AlignLeft
-                // Under the text, a field takes the row's width.
+                // Beside the text, the column; under it, a field takes the row's width.
+                Layout.preferredWidth: row.sideBySide ? row.controlWidth : -1
                 Layout.fillWidth: !row.sideBySide
                 spacing: Theme.spaceSm
             }
+        }
+    }
+
+    /// Test and Disconnect for the calendar account, sharing a settings row's column.
+    component CalendarConnectionButtons: RowLayout {
+        Layout.fillWidth: true
+        spacing: Theme.spaceSm
+        // Two halves of the column, whatever their labels.
+        SButton {
+            Layout.fillWidth: true
+            Layout.preferredWidth: Theme.settingsControlWidth / 2
+            text: i18n("Test")
+            toolTipText: i18n("Test connection")
+            Accessible.name: i18n("Test connection")
+            iconName: page.calTestOk ? "check" : "refresh"
+            // Not while any request runs: the test would not run, yet look passed.
+            enabled: !page.calWorking
+            onClicked: {
+                page.commitCalendarFields();
+                page.calAction = "test";
+                CalendarSync.testConnection();
+                // Nothing was started (e.g. not signed in yet): a later request's
+                // result must not be taken for this one's.
+                if (!page.calWorking) {
+                    page.calAction = "";
+                }
+            }
+        }
+        SButton {
+            Layout.fillWidth: true
+            Layout.preferredWidth: Theme.settingsControlWidth / 2
+            destructive: true
+            text: i18n("Disconnect")
+            onClicked: page.requestDisconnect()
         }
     }
 
@@ -1336,6 +1386,7 @@ QQC2.Page {
                     title: i18n("Color scheme")
                     SComboBox {
                         id: colorSchemeBox
+                        Layout.fillWidth: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1351,7 +1402,9 @@ QQC2.Page {
                 SettingRow {
                     title: i18n("Accent color")
                     description: i18n("Buttons, switches and the running time. Breaks stay green (blue with a green accent).")
-                    AccentButton {}
+                    AccentButton {
+                        Layout.fillWidth: true
+                    }
                 }
             }
 
@@ -1402,6 +1455,7 @@ QQC2.Page {
                                           i18n("Tested releases. This nightly build stays until a newer release comes out."),
                                           i18n("Tested releases.")]
                     Segmented {
+                        Layout.fillWidth: true
                         model: [
                             { id: "stable", text: i18n("Stable") },
                             { id: "nightly", text: i18n("Nightly") }
@@ -1446,6 +1500,7 @@ QQC2.Page {
                     enabled: AppSettings.showTrayIcon && AppSettings.trayAvailable
                     SComboBox {
                         id: trayBadgeBox
+                        Layout.fillWidth: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1461,20 +1516,22 @@ QQC2.Page {
                             chosenBadge.play();
                         }
 
-                        // The box shows the badge itself rather than its name, which is in the tooltip
-                        // and the list; the list's badges play while the pointer is on them.
-                        implicitWidth: leftPadding + Theme.iconMd + rightPadding
-                        QQC2.ToolTip.visible: hovered && !popup.visible
-                        QQC2.ToolTip.text: displayText
-                        QQC2.ToolTip.delay: Theme.toolTipDelay
-                        popup.x: width - popup.width
-                        popup.width: Theme.space4xl * 5
-                        contentItem: Item {
+                        // The box shows the badge before its name; the list's badges play while the
+                        // pointer is on them.
+                        implicitWidth: widestTextWidth + Theme.iconMd + Theme.spaceMd + leftPadding + rightPadding
+                        contentItem: RowLayout {
+                            spacing: Theme.spaceMd
                             BadgePreview {
                                 id: chosenBadge
-                                anchors.verticalCenter: parent.verticalCenter
                                 badgeStyle: trayBadgeBox.currentIndex
                                 opacity: trayBadgeBox.enabled ? 1 : 0.5
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: trayBadgeBox.displayText
+                                font: trayBadgeBox.font
+                                color: trayBadgeBox.enabled ? Theme.foreground : Theme.subtle
+                                elide: Text.ElideRight
                             }
                         }
                         delegate: QQC2.ItemDelegate {
@@ -1551,6 +1608,8 @@ QQC2.Page {
                     title: i18n("Phase sound")
                     SComboBox {
                         id: soundBox
+                        Layout.fillWidth: true
+                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1569,7 +1628,8 @@ QQC2.Page {
                         onActivated: AppSettings.soundTheme = currentValue
                     }
                     SButton {
-                        kind: "ghost"
+                        joinedLeft: true
+                        iconOnly: true
                         text: i18n("Test")
                         iconName: "play"
                         onClicked: AppSettings.playSoundPreview(soundBox.currentValue, AppSettings.soundVolume)
@@ -1579,8 +1639,9 @@ QQC2.Page {
                     title: i18n("Alert volume")
                     SSlider {
                         id: soundVolumeSlider
+                        leftPadding: 0
                         objectName: "soundVolumeSlider"
-                        Layout.preferredWidth: page.narrow ? Theme.sliderWidthCompact : Theme.sliderWidth
+                        Layout.fillWidth: true
                         from: 0
                         to: 100
                         value: AppSettings.soundVolume
@@ -1605,6 +1666,8 @@ QQC2.Page {
                     enabled: AppSettings.preAlarmEnabled
                     SComboBox {
                         id: preAlarmBox
+                        Layout.fillWidth: true
+                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1621,7 +1684,8 @@ QQC2.Page {
                         onActivated: AppSettings.preAlarmSound = currentValue
                     }
                     SButton {
-                        kind: "ghost"
+                        joinedLeft: true
+                        iconOnly: true
                         text: i18n("Test")
                         enabled: AppSettings.preAlarmEnabled
                         iconName: "play"
@@ -1633,6 +1697,8 @@ QQC2.Page {
                     description: i18n("A background sound that plays during work sessions.")
                     SComboBox {
                         id: focusModeBox
+                        Layout.fillWidth: true
+                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: [
@@ -1648,13 +1714,22 @@ QQC2.Page {
                         Accessible.name: i18n("Focus sound")
                         onActivated: AppSettings.focusSoundMode = currentValue
                     }
+                    SButton {
+                        joinedLeft: true
+                        iconOnly: true
+                        text: i18n("Preview")
+                        iconName: "play"
+                        enabled: focusModeBox.currentValue > 0
+                        onClicked: FocusSoundController.preview(focusModeBox.currentValue, Math.round(focusVolumeSlider.value))
+                    }
                 }
                 SettingRow {
                     title: i18n("Focus sound volume")
                     enabled: AppSettings.focusSoundMode > 0
                     SSlider {
                         id: focusVolumeSlider
-                        Layout.preferredWidth: page.narrow ? Theme.sliderWidthCompact : Theme.sliderWidth
+                        leftPadding: 0
+                        Layout.fillWidth: true
                         from: 0
                         to: 100
                         value: AppSettings.focusSoundVolume
@@ -1668,12 +1743,6 @@ QQC2.Page {
                         font.pixelSize: Theme.fontBody
                         font.features: { "tnum": 1 }
                         text: i18nc("volume percentage", "%1%", Math.round(focusVolumeSlider.value))
-                    }
-                    SButton {
-                        kind: "ghost"
-                        text: i18n("Preview")
-                        iconName: "play"
-                        onClicked: FocusSoundController.preview(focusModeBox.currentValue, Math.round(focusVolumeSlider.value))
                     }
                 }
             }
@@ -1716,6 +1785,7 @@ QQC2.Page {
                     descriptionVariants: focusInstallStatus.descriptionVariants(AppSettings.focusShortcutsSupported)
                     SButton {
                         objectName: "installFocusShortcutsButton"
+                        Layout.fillWidth: true
                         kind: focusInstallStatus.found ? "secondary" : "primary"
                         text: i18n("Install Shortcuts")
                         enabled: AppSettings.focusShortcutsInstallable && !focusInstallStatus.found && !focusInstallStatus.busy
@@ -1776,6 +1846,7 @@ QQC2.Page {
                         title: i18n("Calendar service")
                         SComboBox {
                             id: calProviderBox
+                            Layout.fillWidth: true
                             textRole: "text"
                             valueRole: "value"
                             model: [
@@ -1799,28 +1870,14 @@ QQC2.Page {
                         }
                     }
 
-                    // Nextcloud: server address and browser login, on one row. Who is signed in (or
-                    // what the login waits for) is the description, with room kept so nothing moves.
+                    // Nextcloud: the server's address, then the account on it and the browser login.
                     SettingRow {
                         visible: !page.calCustom
                         title: i18n("Server address")
-                        // Always a line, so the title never moves when the state changes.
-                        description: page.calConnected
-                            ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
-                            : (page.calWaiting && CalendarSync ? CalendarSync.statusText : i18n("Not connected"))
-                        descriptionVariants: [
-                            i18n("Connected as %1", CalendarSync ? CalendarSync.username : ""),
-                            CalendarSync ? CalendarSync.statusText : "",
-                            i18n("Not connected")
-                        ]
                         STextField {
                             id: calServerField
                             enabled: !page.calConnected && !page.calWaiting
-                            Layout.fillWidth: !page.wide
-                            // With Log in alone, the field takes the room of the second icon: the row
-                            // keeps its width and the field its left edge in every state.
-                            Layout.preferredWidth: Theme.space4xl * 5
-                                                   + (enabled ? Theme.controlHeight + Theme.spaceSm : 0)
+                            Layout.fillWidth: true
                             placeholderText: "https://cloud.example.org"
                             objectName: "calendarServerField"
                             inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
@@ -1838,69 +1895,46 @@ QQC2.Page {
                                 }
                             }
                         }
-                        // Icons only: Log in, the wait (spinner and Cancel), or Test and Disconnect.
-                        Item {
-                            implicitWidth: calLoginButtons.implicitWidth
-                            implicitHeight: Theme.controlHeight
-                            RowLayout {
-                                id: calLoginButtons
-                                objectName: "calendarLoginButtons"
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Theme.spaceSm
-                                QQC2.BusyIndicator {
-                                    Layout.preferredWidth: Theme.controlHeight
-                                    Layout.preferredHeight: Theme.controlHeight
-                                    visible: page.calWaiting
-                                    running: visible && page.visible
-                                }
-                                SButton {
-                                    kind: "ghost"
-                                    iconOnly: true
-                                    visible: !page.calConnected && !page.calWaiting
-                                    text: i18n("Log in")
-                                    iconName: "external"
-                                    onClicked: {
-                                        page.commitCalendarFields();
-                                        CalendarSync.startNextcloudLogin();
-                                    }
-                                }
-                                SButton {
-                                    kind: "ghost"
-                                    iconOnly: true
-                                    visible: page.calWaiting
-                                    text: i18n("Cancel")
-                                    iconName: "close"
-                                    onClicked: CalendarSync.cancelLogin()
-                                }
-                                SButton {
-                                    kind: "ghost"
-                                    iconOnly: true
-                                    visible: page.calConnected && !page.calWaiting
-                                    text: i18n("Test connection")
-                                    iconName: page.calTestOk ? "check" : "refresh"
-                                    // Not while any request runs: the test would not run, yet look passed.
-                                    enabled: !page.calWorking
-                                    onClicked: {
-                                        page.commitCalendarFields();
-                                        page.calAction = "test";
-                                        CalendarSync.testConnection();
-                                        // Nothing was started (e.g. not signed in yet): a later request's
-                                        // result must not be taken for this one's.
-                                        if (!page.calWorking) {
-                                            page.calAction = "";
-                                        }
-                                    }
-                                }
-                                SButton {
-                                    kind: "ghost"
-                                    iconOnly: true
-                                    visible: page.calConnected && !page.calWaiting
-                                    text: i18n("Disconnect")
-                                    iconName: "close"
-                                    onClicked: page.requestDisconnect()
-                                }
+                    }
+                    // Who is signed in, or what the login waits for, with room kept so nothing moves;
+                    // the buttons: Log in, the wait (spinner and Cancel), or Test and Disconnect.
+                    SettingRow {
+                        objectName: "calendarAccountRow"
+                        visible: !page.calCustom
+                        title: i18n("Account")
+                        description: page.calConnected
+                            ? i18n("Connected as %1", CalendarSync ? CalendarSync.username : "")
+                            : (page.calWaiting && CalendarSync ? CalendarSync.statusText : i18n("Not connected"))
+                        descriptionVariants: [
+                            i18n("Connected as %1", CalendarSync ? CalendarSync.username : ""),
+                            CalendarSync ? CalendarSync.statusText : "",
+                            i18n("Not connected")
+                        ]
+                        QQC2.BusyIndicator {
+                            Layout.preferredWidth: Theme.controlHeight
+                            Layout.preferredHeight: Theme.controlHeight
+                            visible: page.calWaiting
+                            running: visible && page.visible
+                        }
+                        SButton {
+                            objectName: "calendarLoginButton"
+                            Layout.fillWidth: true
+                            visible: !page.calConnected && !page.calWaiting
+                            text: i18n("Log in")
+                            iconName: "external"
+                            onClicked: {
+                                page.commitCalendarFields();
+                                CalendarSync.startNextcloudLogin();
                             }
+                        }
+                        SButton {
+                            Layout.fillWidth: true
+                            visible: page.calWaiting
+                            text: i18n("Cancel")
+                            onClicked: CalendarSync.cancelLogin()
+                        }
+                        CalendarConnectionButtons {
+                            visible: page.calConnected && !page.calWaiting
                         }
                     }
 
@@ -1911,8 +1945,7 @@ QQC2.Page {
                         description: i18n("Use the CalDAV address of the calendar. A subscription link ending in .ics is read-only and cannot receive events.")
                         STextField {
                             id: calUrlField
-                            Layout.fillWidth: !page.wide
-                            Layout.preferredWidth: Theme.space4xl * 5
+                            Layout.fillWidth: true
                             inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
                             text: CalendarSync ? CalendarSync.calendarUrl : ""
                             Accessible.name: i18n("Calendar address (CalDAV)")
@@ -1933,8 +1966,7 @@ QQC2.Page {
                         visible: page.calCustom
                         title: i18n("Username")
                         STextField {
-                            Layout.fillWidth: !page.wide
-                            Layout.preferredWidth: Theme.space4xl * 5
+                            Layout.fillWidth: true
                             inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                             text: CalendarSync ? CalendarSync.username : ""
                             Accessible.name: i18n("Username")
@@ -1952,8 +1984,7 @@ QQC2.Page {
                         STextField {
                             id: calPasswordField
                             property bool dirty: false
-                            Layout.fillWidth: !page.wide
-                            Layout.preferredWidth: Theme.space4xl * 5
+                            Layout.fillWidth: true
                             echoMode: TextInput.Password
                             // The saved password is never read back; dots only show that one is stored.
                             placeholderText: page.calHasPassword ? "••••••••" : ""
@@ -1970,58 +2001,11 @@ QQC2.Page {
                             }
                         }
                     }
-                    // Same row as for Nextcloud: test the connection, or forget this service's login.
+                    // As for Nextcloud: test the connection, or forget this service's login.
                     SettingRow {
                         visible: page.calCustom && page.calConfigured
                         title: i18n("Connection")
-                        SButton {
-                            kind: "ghost"
-                            iconOnly: true
-                            text: i18n("Test connection")
-                            iconName: page.calTestOk ? "check" : "refresh"
-                            // Not while any request runs: the test would not run, yet look passed.
-                            enabled: !page.calWorking
-                            onClicked: {
-                                page.commitCalendarFields();
-                                page.calAction = "test";
-                                CalendarSync.testConnection();
-                                // Nothing was started (e.g. not signed in yet): a later request's
-                                // result must not be taken for this one's.
-                                if (!page.calWorking) {
-                                    page.calAction = "";
-                                }
-                            }
-                        }
-                        SButton {
-                            kind: "ghost"
-                            iconOnly: true
-                            text: i18n("Disconnect")
-                            iconName: "close"
-                            onClicked: page.requestDisconnect()
-                        }
-                    }
-                    // No keyring answered when the password was saved: it is in the settings file.
-                    // Shown with the other rows of a signed-in account, so it comes with them; once
-                    // shown it stays while the account does (the password saved again into the
-                    // keyring changes its text, not the layout).
-                    SettingRow {
-                        id: calKeyringRow
-                        objectName: "calendarPasswordOutsideKeyring"
-                        readonly property bool outside: page.calPasswordOutsideKeyring
-                        readonly property bool configured: page.calConfigured
-                        property bool seen: outside
-                        onOutsideChanged: if (outside) seen = true
-                        onConfiguredChanged: if (!configured) seen = outside
-                        visible: configured && seen
-                        readonly property string outsideText: DesktopStyle.macos
-                            ? i18n("The Keychain could not be used, so the password is kept in Sugo's settings file, readable only by your account. Sugo moves it to the Keychain the next time it starts with one available.")
-                            : i18n("No system keyring was available, so the password is kept in Sugo's settings file, readable only by your account. Install or unlock one (for example KWallet or GNOME Keyring) and Sugo moves it there at its next start.")
-                        readonly property string insideText: DesktopStyle.macos
-                            ? i18n("The password is now kept in the Keychain.")
-                            : i18n("The password is now kept in the system keyring.")
-                        title: outside ? i18n("Password not in the keyring") : i18n("Password in the keyring")
-                        description: outside ? outsideText : insideText
-                        descriptionVariants: [outsideText, insideText]
+                        CalendarConnectionButtons {}
                     }
                     // Calendar choice, with a refresh button to reload the list from the server.
                     SettingRow {
@@ -2039,8 +2023,8 @@ QQC2.Page {
                         descriptionVariants: [i18n("Last event sent: %1", page.calLastSuccess)]
                         SComboBox {
                             id: calChoiceBox
-                            Layout.fillWidth: !page.wide
-                            Layout.preferredWidth: Theme.space4xl * 5
+                            Layout.fillWidth: true
+                            joinedRight: true
                             textRole: "name"
                             valueRole: "url"
                             model: page.calChoices
@@ -2090,14 +2074,11 @@ QQC2.Page {
                             }
                         }
                         SButton {
-                            kind: "ghost"
+                            joinedLeft: true
                             iconOnly: true
                             iconName: "refresh"
                             enabled: !page.calRefreshing
                             text: i18n("Find calendars")
-                            QQC2.ToolTip.text: i18n("Find calendars")
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.delay: Theme.toolTipDelay
                             onClicked: {
                                 page.commitCalendarFields();
                                 page.calAction = "refresh";
@@ -2182,8 +2163,7 @@ QQC2.Page {
                     description: i18n("How this computer appears in your list of devices.")
                     STextField {
                         id: syncDeviceName
-                        Layout.fillWidth: !page.wide
-                        Layout.preferredWidth: Theme.space4xl * 5
+                        Layout.fillWidth: true
                         text: SyncController ? SyncController.deviceName : ""
                         maximumLength: 64
                         Accessible.name: i18n("Device name")
@@ -2201,6 +2181,7 @@ QQC2.Page {
                                : page.syncSignInText
                     descriptionVariants: [page.syncSignInText, page.syncNoKeyringText, page.syncSignedOutRemotelyText]
                     SButton {
+                        Layout.fillWidth: true
                         id: syncSignInButton
                         objectName: "syncSignInButton"
                         kind: "primary"
@@ -2284,8 +2265,7 @@ QQC2.Page {
                     description: i18n("No other device at hand? Enter the recovery code you saved when you first signed in.")
                     STextField {
                         id: syncRecoveryField
-                        Layout.fillWidth: !page.wide
-                        Layout.preferredWidth: Theme.space4xl * 5
+                        Layout.fillWidth: true
                         font.family: Theme.monoFamily
                         placeholderText: "XXXX-XXXX-…"
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText | Qt.ImhSensitiveData
@@ -2353,6 +2333,7 @@ QQC2.Page {
                         // A device waiting for this one: the approval again, also after "Not Now"
                         // (one that has never shown up yet has no code to compare).
                         SButton {
+                            Layout.fillWidth: true
                             visible: !deviceRow.modelData.current && deviceRow.modelData.pending === true
                                      && page.syncDate(deviceRow.modelData.lastSeen).length > 0
                             kind: "primary"
@@ -2361,7 +2342,7 @@ QQC2.Page {
                             onClicked: SyncController.reviewDevice(deviceRow.modelData.id)
                         }
                         SButton {
-                            kind: "ghost"
+                            Layout.fillWidth: true
                             visible: !deviceRow.modelData.current
                             text: i18n("Disconnect…")
                             destructive: true
@@ -2390,7 +2371,7 @@ QQC2.Page {
                     title: i18n("Recovery code")
                     description: i18n("With it, a new device opens your timers when none of your other devices is at hand. Without any device and without the code, the synced timers cannot be opened again.")
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
                         visible: SyncController !== null && SyncController.recoveryCodeShowable
                         text: i18n("Show")
                         Accessible.name: i18n("Show recovery code")
@@ -2400,7 +2381,7 @@ QQC2.Page {
                         }
                     }
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
                         text: i18n("Create a new one…")
                         Accessible.name: i18n("Create a new recovery code")
                         // It needs the timers' key: not while the keyring has not given it.
@@ -2413,7 +2394,7 @@ QQC2.Page {
                     title: i18n("Sign out")
                     description: i18n("This computer stops syncing. Your timers stay on it.")
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
                         objectName: "syncSignOutButton"
                         text: i18n("Sign out…")
                         destructive: true
@@ -2462,13 +2443,17 @@ QQC2.Page {
                         : i18n("Save your timers and session history to a file, or bring them back from one.")
                     descriptionVariants: [i18n("Stop the active timer before restoring a backup."),
                                           i18n("Save your timers and session history to a file, or bring them back from one.")]
+                    // Two halves of the column.
                     SButton {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsControlWidth / 2
                         text: i18n("Back up…")
                         iconName: "download"
                         onClicked: backupDialog.open()
                     }
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.settingsControlWidth / 2
                         text: i18n("Restore…")
                         iconName: "upload"
                         enabled: !TimerEngine.active
@@ -2480,6 +2465,8 @@ QQC2.Page {
                     description: i18n("Remove recorded sessions and their statistics.")
                     SComboBox {
                         id: historyCleanupBox
+                        Layout.fillWidth: true
+                        joinedRight: true
                         textRole: "text"
                         valueRole: "value"
                         model: page.historyCleanupChoices
@@ -2487,8 +2474,9 @@ QQC2.Page {
                         Accessible.name: i18n("Sessions to remove")
                     }
                     SButton {
-                        kind: "ghost"
                         id: clearHistoryButton
+                        joinedLeft: true
+                        iconOnly: true
                         destructive: true
                         text: i18n("Clear history…")
                         iconName: "trash"
@@ -2537,7 +2525,7 @@ QQC2.Page {
                     title: i18n("Global shortcuts")
                     description: i18n("Assign keys to Sugo's commands in Plasma's System Settings.")
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
                         text: i18n("Open Shortcut Settings")
                         iconName: "external"
                         onClicked: AppSettings.openShortcutsSettings()
@@ -2554,6 +2542,7 @@ QQC2.Page {
                     title: i18n("Diagnostic report")
                     description: i18n("Generate a redacted report with system information and recent logs to share when reporting an issue.")
                     SButton {
+                        Layout.fillWidth: true
                         labels: [i18n("Copied"), i18n("Copy to Clipboard")]
                         text: page.diagnosticsCopied ? i18n("Copied") : i18n("Copy to Clipboard")
                         iconName: page.diagnosticsCopied ? "check" : "copy"
@@ -2567,7 +2556,7 @@ QQC2.Page {
                     title: i18n("Reset settings")
                     description: i18n("Put the settings back to what they were when you first started Sugo. Your timers, session history and calendar account are kept.")
                     SButton {
-                        kind: "ghost"
+                        Layout.fillWidth: true
                         destructive: true
                         text: i18n("Reset Settings…")
                         iconName: "undo"

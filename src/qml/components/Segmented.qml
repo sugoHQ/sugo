@@ -23,9 +23,11 @@ Rectangle {
     border.color: Theme.border
     Accessible.role: Accessible.PageTabList
 
+    // Wider than its choices (a settings row's column), the choices share the width.
     RowLayout {
         id: row
-        anchors.centerIn: parent
+        anchors.fill: parent
+        anchors.margins: segmented.inset
         spacing: Theme.hairline * 2
 
         Repeater {
@@ -36,6 +38,7 @@ Rectangle {
                 required property var modelData
                 readonly property bool on: segmented.current === modelData.id
                 implicitHeight: segmented.implicitHeight - segmented.inset * 2
+                Layout.fillWidth: true
                 leftPadding: Theme.spaceMd + Theme.hairline * 2
                 rightPadding: leftPadding
                 hoverEnabled: true

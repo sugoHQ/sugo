@@ -9,6 +9,9 @@ import stream.sugo.app
 QQC2.ComboBox {
     id: combo
 
+    /// An SButton with `joinedLeft` follows it (Test, Find calendars): no corners on that side.
+    property bool joinedRight: false
+
     /// The width of the longest entry's text. (ComboBox.WidestText measures the entries only for a
     /// content item that takes typing, which this one does not.)
     readonly property real widestTextWidth: {
@@ -34,6 +37,8 @@ QQC2.ComboBox {
 
     background: Rectangle {
         radius: Theme.radius
+        topRightRadius: combo.joinedRight ? 0 : radius
+        bottomRightRadius: combo.joinedRight ? 0 : radius
         // hover and pressed are translucent: lay them over the field's colour, not in place of it.
         color: combo.pressed ? Qt.tint(Theme.background, Theme.pressed)
                           : (combo.hovered && !combo.popup.visible ? Qt.tint(Theme.background, Theme.hover) : Theme.background)

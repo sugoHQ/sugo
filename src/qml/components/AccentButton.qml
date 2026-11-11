@@ -4,8 +4,8 @@ import QtQuick.Controls as QQC2
 import stream.sugo.app
 
 /**
- * The "Accent color" setting: a button like a drop-down list's that shows only a dot of the
- * current colour. It opens a menu under it, right edges together, with every colour of
+ * The "Accent color" setting: a button like a drop-down list's that shows a dot of the current
+ * colour, and its name when it is given the room. It opens a menu under it, right edges together, with every colour of
  * AppSettings.accentColors: its dot, its name and a check on the chosen one.
  */
 QQC2.AbstractButton {
@@ -23,7 +23,8 @@ QQC2.AbstractButton {
     implicitHeight: Theme.controlHeightSm
     implicitWidth: leftPadding + Theme.swatchSize + Theme.spaceSm + Theme.iconSm + rightPadding
     leftPadding: Theme.spaceSm + Theme.hairline
-    rightPadding: Theme.spaceSm
+    // The chevron where SComboBox has it.
+    rightPadding: Theme.spaceMd
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
     text: i18n("Accent color")
@@ -58,7 +59,20 @@ QQC2.AbstractButton {
             border.width: Theme.hairline
             border.color: Theme.borderStrong
         }
+        // The colour's name, when the button is wide enough for all of it (a settings row's column).
+        Text {
+            anchors.left: dot.right
+            anchors.leftMargin: Theme.spaceSm
+            anchors.right: chevron.left
+            anchors.rightMargin: Theme.spaceSm
+            anchors.verticalCenter: parent.verticalCenter
+            text: button.colourName(AppSettings.accentColor)
+            visible: width >= implicitWidth
+            color: button.enabled ? Theme.foreground : Theme.subtle
+            font.pixelSize: Theme.fontBody
+        }
         LineIcon {
+            id: chevron
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             name: "chevron-down"
