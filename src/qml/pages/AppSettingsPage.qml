@@ -2526,7 +2526,7 @@ QQC2.Page {
                     description: i18n("Assign keys to Sugo's commands in Plasma's System Settings.")
                     SButton {
                         Layout.fillWidth: true
-                        text: i18n("Open Shortcut Settings")
+                        text: i18n("Open shortcut settings")
                         iconName: "external"
                         onClicked: AppSettings.openShortcutsSettings()
                     }
@@ -2543,8 +2543,8 @@ QQC2.Page {
                     description: i18n("Generate a redacted report with system information and recent logs to share when reporting an issue.")
                     SButton {
                         Layout.fillWidth: true
-                        labels: [i18n("Copied"), i18n("Copy to Clipboard")]
-                        text: page.diagnosticsCopied ? i18n("Copied") : i18n("Copy to Clipboard")
+                        labels: [i18n("Copied"), i18n("Copy to clipboard")]
+                        text: page.diagnosticsCopied ? i18n("Copied") : i18n("Copy to clipboard")
                         iconName: page.diagnosticsCopied ? "check" : "copy"
                         onClicked: {
                             Diagnostics.copyToClipboard();
@@ -2558,7 +2558,7 @@ QQC2.Page {
                     SButton {
                         Layout.fillWidth: true
                         destructive: true
-                        text: i18n("Reset Settings…")
+                        text: i18n("Reset settings…")
                         iconName: "undo"
                         onClicked: resetSettingsDialog.open()
                     }
