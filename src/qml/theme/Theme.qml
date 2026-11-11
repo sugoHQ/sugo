@@ -125,7 +125,6 @@ QtObject {
     readonly property int sliderTrack: 4
     readonly property int sliderKnob: 14
     readonly property int selectMinWidth: 120
-    readonly property int fieldWidthWide: 220
     readonly property int swatchSize: 14
     readonly property int phaseDot: 6
     /// The dot on the title bar's update icon: something is waiting in Settings › About.

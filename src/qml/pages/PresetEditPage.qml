@@ -646,8 +646,7 @@ QQC2.Page {
                     title: i18n("Name")
                     STextField {
                         id: nameField
-                        Layout.preferredWidth: Theme.fieldWidthWide
-                        Layout.fillWidth: !nameRow.sideBySide
+                        Layout.fillWidth: true
                         text: page.shown.name
                         maximumLength: PresetModel.maxNameLength
                         placeholderText: i18n("Name this timer")
@@ -661,8 +660,7 @@ QQC2.Page {
                     title: i18n("Category")
                     STextField {
                         id: categoryField
-                        Layout.preferredWidth: Theme.fieldWidthWide
-                        Layout.fillWidth: !categoryRow.sideBySide
+                        Layout.fillWidth: true
                         text: page.shown.category
                         maximumLength: PresetModel.maxNameLength
                         placeholderText: i18n("Add a category, e.g. Work or Study")
@@ -675,6 +673,7 @@ QQC2.Page {
                     // The icon in a button like a drop-down list's: a click shows them all.
                     QQC2.AbstractButton {
                         id: iconTile
+                        Layout.fillWidth: true
                         implicitHeight: Theme.controlHeightSm
                         implicitWidth: iconTileRow.implicitWidth + leftPadding + rightPadding
                         leftPadding: Theme.spaceSm
@@ -694,6 +693,7 @@ QQC2.Page {
                             border.width: Theme.hairline
                             border.color: iconTile.visualFocus ? Theme.focusRing : iconPopup.visible ? Theme.borderStrong : Theme.border
                         }
+                        // The icon at the start, the chevron at the end, as in a drop-down list.
                         contentItem: Item {
                             implicitWidth: iconTileRow.implicitWidth
                             implicitHeight: iconTileRow.implicitHeight
@@ -707,13 +707,19 @@ QQC2.Page {
                                     size: Theme.iconMd
                                     color: Theme.accent
                                 }
-                                LineIcon {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    name: "chevron-down"
-                                    size: Theme.iconSm
-                                    color: Theme.muted
-                                    rotation: iconPopup.visible ? 180 : 0
+                                // The room of the chevron, which sits at the end.
+                                Item {
+                                    width: Theme.iconSm
+                                    height: Theme.iconSm
                                 }
+                            }
+                            LineIcon {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "chevron-down"
+                                size: Theme.iconSm
+                                color: Theme.muted
+                                rotation: iconPopup.visible ? 180 : 0
                             }
                         }
                     }
@@ -726,41 +732,13 @@ QQC2.Page {
                 FormRow {
                     first: true
                     title: i18n("Work")
-                    // A few common lengths, one click away.
-                    Repeater {
-                        model: [15, 25, 45, 50]
-                        delegate: QQC2.AbstractButton {
-                            id: chip
-                            required property int modelData
-                            readonly property bool on: workBox.value === modelData
-                            implicitHeight: Theme.controlHeightSm
-                            leftPadding: Theme.spaceMd
-                            rightPadding: Theme.spaceMd
-                            hoverEnabled: true
-                            focusPolicy: Qt.TabFocus
-                            text: modelData
-                            Accessible.name: i18nc("@action set the work duration", "%1 minutes", modelData)
-                            onClicked: workBox.setValue(modelData)
-                            background: Rectangle {
-                                radius: Theme.radius
-                                color: chip.on ? Theme.selected : (chip.hovered ? Theme.hover : "transparent")
-                                border.width: Theme.hairline
-                                border.color: chip.on ? Theme.borderStrong : Theme.border
-                            }
-                            contentItem: Text {
-                                text: chip.text
-                                color: chip.on ? Theme.foreground : Theme.muted
-                                font.pixelSize: Theme.fontCaption
-                                font.features: { "tnum": 1 }
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                    }
                     NumberField {
                         id: workBox
                         objectName: "workField"
-                        Layout.leftMargin: Theme.spaceSm
+                        Layout.fillWidth: true
+                        // A few common lengths, one click away.
+                        suggestions: [15, 25, 45, 50]
+                        suggestionsText: i18n("Common lengths")
                         from: 1
                         to: PresetModel.maxWorkMinutes
                         value: page.shown.workSeconds / 60
@@ -772,6 +750,7 @@ QQC2.Page {
                     title: i18n("Short break")
                     NumberField {
                         id: shortBox
+                        Layout.fillWidth: true
                         objectName: "shortBreakField"
                         // 0 is no break (the engine goes straight back to work): typed, not dragged.
                         from: 0
@@ -786,6 +765,7 @@ QQC2.Page {
                     title: i18n("Long break")
                     NumberField {
                         id: longBox
+                        Layout.fillWidth: true
                         objectName: "longBreakField"
                         // 0 is no break (the engine goes straight back to work): typed, not dragged.
                         from: 0
@@ -801,6 +781,7 @@ QQC2.Page {
                     description: i18n("How many work sessions come before the long break.")
                     NumberField {
                         id: cyclesBox
+                        Layout.fillWidth: true
                         objectName: "cyclesField"
                         from: 0
                         to: PresetModel.maxCycles
@@ -821,6 +802,7 @@ QQC2.Page {
                     description: i18n("Whether breaks, work phases, or neither start by themselves.")
                     SComboBox {
                         id: autoStartBox
+                        Layout.fillWidth: true
                         Accessible.name: i18n("Start automatically")
                         model: [i18n("Manual"), i18n("Breaks only"), i18n("All phases")]
                         currentIndex: page.shown.autoStartMode
@@ -841,6 +823,7 @@ QQC2.Page {
                     // macOS: until the shortcuts exist, a way to set them up instead of the switch.
                     SButton {
                         objectName: "silenceSetupButton"
+                        Layout.fillWidth: true
                         visible: DesktopStyle.macos && !SilenceController.available
                         text: i18n("Set Up…")
                         iconName: "settings"

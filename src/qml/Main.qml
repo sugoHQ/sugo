@@ -1163,6 +1163,36 @@ QQC2.ApplicationWindow {
                          + " (expected " + (workBefore + 1) + ")");
                     return true;
                 }
+                // The Work field's common lengths: a menu with a check on the value; choosing one
+                // sets the field.
+                const suggestionsMenu = workField.suggestionsMenu;
+                suggestionsMenu.open();
+                const suggestionEntries = [];
+                findItem(suggestionsMenu.contentItem, item => {
+                    if (item.objectName.startsWith("suggestion-")) {
+                        suggestionEntries.push(item);
+                    }
+                    return false;
+                });
+                const otherLength = suggestionEntries.find(item => !item.checked);
+                const chosenLength = otherLength ? Number(otherLength.objectName.split("-")[1]) : NaN;
+                if (otherLength) {
+                    otherLength.triggered();
+                }
+                const lengthChosen = workField.value === chosenLength;
+                suggestionsMenu.close();
+                typedValue(workField, String(workBefore));
+                if (suggestionEntries.length !== workField.suggestions.length || !lengthChosen) {
+                    fail(64, "The Work field's common lengths are not in its menu, or choosing one did not set it: "
+                         + suggestionEntries.length + " entries, chose " + chosenLength + ", got " + workField.value);
+                    return true;
+                }
+                // Its controls fit the column they share, as in Settings.
+                const crowdedEditorRow = crowdedSettingRow(editor);
+                if (crowdedEditorRow.length > 0) {
+                    fail(67, "Timer page: " + crowdedEditorRow);
+                    return true;
+                }
                 // The longest set: its preview lays out on the next tick.
                 const cyclesField = findItem(editor, item => item.objectName === "cyclesField");
                 if (!cyclesField) {

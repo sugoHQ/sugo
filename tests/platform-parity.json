@@ -66,13 +66,10 @@
     },
     "timer-page": {
       "common": [
-        "button: 15 minutes",
-        "button: 25 minutes",
-        "button: 45 minutes",
-        "button: 50 minutes",
         "button: About",
         "button: Advanced",
         "button: Calendar",
+        "button: Common lengths",
         "button: Duplicate",
         "button: Focus",
         "button: General",
@@ -109,14 +106,11 @@
     },
     "new-timer": {
       "common": [
-        "button: 15 minutes",
-        "button: 25 minutes",
-        "button: 45 minutes",
-        "button: 50 minutes",
         "button: About",
         "button: Advanced",
         "button: Calendar",
         "button: Cancel",
+        "button: Common lengths",
         "button: Create Timer",
         "button: Focus",
         "button: General",
