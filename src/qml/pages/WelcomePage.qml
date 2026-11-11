@@ -230,7 +230,7 @@ QQC2.Page {
     /// A card of the interface: neutral, 1 px border.
     component Panel: Rectangle {
         Layout.fillWidth: true
-        radius: Theme.radiusLg
+        radius: Theme.radiusCard
         color: Theme.card
         border.width: Theme.hairline
         border.color: Theme.border

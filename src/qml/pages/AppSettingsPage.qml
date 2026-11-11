@@ -861,7 +861,7 @@ QQC2.Page {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: rowsColumn.implicitHeight
-            radius: Theme.radiusLg
+            radius: Theme.radiusCard
             color: Theme.card
             border.width: Theme.hairline
             border.color: Theme.border

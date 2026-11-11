@@ -45,7 +45,7 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         implicitHeight: rowColumn.implicitHeight
-        radius: Theme.radiusLg
+        radius: Theme.radiusCard
         color: Theme.card
         border.width: Theme.hairline
         border.color: Theme.border

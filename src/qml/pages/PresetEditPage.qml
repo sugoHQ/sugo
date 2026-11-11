@@ -503,7 +503,7 @@ QQC2.Page {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: cycleColumn.implicitHeight + Theme.spaceLg * 2
-                radius: Theme.radiusLg
+                radius: Theme.radiusCard
                 color: Theme.card
                 border.width: Theme.hairline
                 border.color: Theme.border

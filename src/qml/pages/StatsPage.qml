@@ -131,7 +131,7 @@ QQC2.Page {
         /// Panels side by side give their headers the same height, so their rows line up.
         property real headerHeight: 0
         implicitHeight: panelColumn.implicitHeight + Theme.spaceLg * 2
-        radius: Theme.radiusLg
+        radius: Theme.radiusCard
         color: Theme.card
         border.width: Theme.hairline
         border.color: Theme.border
@@ -243,7 +243,7 @@ QQC2.Page {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: figures.implicitHeight
-                radius: Theme.radiusLg
+                radius: Theme.radiusCard
                 color: Theme.card
                 border.width: Theme.hairline
                 border.color: Theme.border

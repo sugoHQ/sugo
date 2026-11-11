@@ -19,9 +19,10 @@ QtObject {
                                  || (AppSettings.colorScheme !== "light" && Qt.styleHints.colorScheme !== Qt.ColorScheme.Light)
 
     // --- Surfaces ----------------------------------------------------------------------------
-    readonly property color background: dark ? "#0e0e10" : "#fbfbfb"
-    readonly property color card: dark ? "#161618" : "#ffffff"
-    readonly property color raised: dark ? "#1c1c1f" : "#ffffff"
+    // Dark: a near-black canvas, cards only a shade lighter (their border draws them).
+    readonly property color background: dark ? "#08080a" : "#fbfbfb"
+    readonly property color card: dark ? "#0f0f11" : "#ffffff"
+    readonly property color raised: dark ? "#18181b" : "#ffffff"
     readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.08)
     readonly property color borderStrong: dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.15)
     readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.04)
@@ -95,6 +96,8 @@ QtObject {
     readonly property int radiusSm: 6
     readonly property int radius: 8
     readonly property int radiusLg: 12
+    /// A card of rows or a panel (Settings, the timer page, Statistics, the welcome tour).
+    readonly property int radiusCard: 14
 
     readonly property int iconSm: 14
     readonly property int icon: 16
