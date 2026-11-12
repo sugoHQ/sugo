@@ -497,8 +497,35 @@ QQC2.ApplicationWindow {
                     && serverField.Layout.preferredWidth
                        === Theme.space4xl * 5 + Theme.controlHeight + Theme.spaceSm;
                 CalendarSync.serverUrl = "";
+                // An address that is refused stays in its field, and Log in then does nothing: it
+                // would use the stored address, not the one on screen. Nothing is stored here, so
+                // a Log in that runs anyway only says the address is missing (no request is made).
+                serverField.forceActiveFocus();
+                serverField.text = "cloud example";
+                const loginButton = loginButtons
+                    ? findItem(loginButtons, item => item.text === i18n("Log in") && item.visible)
+                    : null;
+                if (loginButton) {
+                    loginButton.clicked();
+                }
+                // Choosing the same service again changes nothing: the refused address is still
+                // on screen, and Log in still does nothing.
+                const providerBox = findItem(page, item => item.objectName === "calendarProviderBox");
+                if (providerBox && loginButton) {
+                    providerBox.activated(providerBox.currentIndex);
+                    loginButton.clicked();
+                }
+                const refusedError = page.calInputError;
+                const errorAfterLogin = CalendarSync.lastError;
+                page.resetCalFields();
                 CalendarSync.enabled = false;
                 page.category = "general";
+                if (!loginButton || !providerBox || refusedError.length === 0 || errorAfterLogin !== refusedError) {
+                    fail(69, "Log in ran with a refused calendar address on screen: button=" + !!loginButton
+                         + " service=" + !!providerBox
+                         + " refusal=\"" + refusedError + "\" error=\"" + errorAfterLogin + "\"");
+                    return;
+                }
                 if (!focused || stored !== "https://cloud.example.org") {
                     fail(53, "The typed calendar address was not stored before the action: focused=" + focused
                          + " stored=" + stored);
