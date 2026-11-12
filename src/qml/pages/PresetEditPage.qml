@@ -519,6 +519,9 @@ QQC2.Page {
                             }
                         } else if (longBox.value > 0) {
                             list.push({ work: false, long: true, minutes: longBox.value });
+                        } else if (shortBox.value > 0) {
+                            // No long break: the timer ends the set with the ordinary break.
+                            list.push({ work: false, long: false, minutes: shortBox.value });
                         }
                     }
                     return list;
