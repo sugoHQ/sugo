@@ -508,13 +508,21 @@ QQC2.ApplicationWindow {
                 if (loginButton) {
                     loginButton.clicked();
                 }
+                // Choosing the same service again changes nothing: the refused address is still
+                // on screen, and Log in still does nothing.
+                const providerBox = findItem(page, item => item.objectName === "calendarProviderBox");
+                if (providerBox && loginButton) {
+                    providerBox.activated(providerBox.currentIndex);
+                    loginButton.clicked();
+                }
                 const refusedError = page.calInputError;
                 const errorAfterLogin = CalendarSync.lastError;
                 page.resetCalFields();
                 CalendarSync.enabled = false;
                 page.category = "general";
-                if (!loginButton || refusedError.length === 0 || errorAfterLogin !== refusedError) {
+                if (!loginButton || !providerBox || refusedError.length === 0 || errorAfterLogin !== refusedError) {
                     fail(69, "Log in ran with a refused calendar address on screen: button=" + !!loginButton
+                         + " service=" + !!providerBox
                          + " refusal=\"" + refusedError + "\" error=\"" + errorAfterLogin + "\"");
                     return;
                 }

@@ -1798,8 +1798,11 @@ QQC2.Page {
                             ]
                             currentIndex: page.valueIndex(model, page.calProvider)
                             Accessible.name: i18n("Calendar service")
+                            objectName: "calendarProviderBox"
                             onActivated: {
-                                page.calInputError = "";
+                                // A refusal is cleared with the fields (resetCalFields(), when the
+                                // service changes): the same service chosen again leaves the refused
+                                // address on screen, and the refusal with it.
                                 if (CalendarSync) {
                                     CalendarSync.provider = currentValue;
                                     // Each service keeps its own settings: if the one just chosen is
