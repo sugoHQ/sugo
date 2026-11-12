@@ -1162,6 +1162,23 @@ QQC2.ApplicationWindow {
                          + (blocks ? blocks.childrenRect.width : "missing") + " > " + (preview ? preview.width : "missing"));
                     return true;
                 }
+                // A set without a long break ends with the short one, as the timer runs it: the
+                // preview is laid out on the next tick.
+                const byName = name => findItem(editor, item => item.objectName === name);
+                byName("cyclesField").setValue(4);
+                byName("workField").setValue(25);
+                byName("shortBreakField").setValue(5);
+                byName("longBreakField").setValue(0);
+                return false;
+            }
+            case 7: {
+                const preview = findItem(editor, item => item.objectName === "cyclePreview");
+                const minutes = preview ? preview.phases.map(p => p.minutes).join("/") : "missing";
+                if (minutes !== "25/5/25/5/25/5/25/5" || preview.total !== 120) {
+                    fail(70, "The preview of a set without a long break does not end with the short break: "
+                         + minutes + " = " + (preview ? preview.total : "missing") + " min");
+                    return true;
+                }
                 // Duplicate with unsaved changes asks first, and makes no copy meanwhile.
                 const count = PresetModel.count;
                 editor.duplicate();
