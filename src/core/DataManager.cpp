@@ -463,6 +463,9 @@ bool DataManager::restoreDatabase(const QUrl &fileUrl)
     }
     if (m_presets && m_presetsRepository) {
         m_presets->setPresets(presets, currentUuid);
+        // The model holds the stored timers again: if they could not be read at startup, the
+        // changes from now on (the next line's first) are saved.
+        if (m_presetPersistence) m_presetPersistence->adoptStored();
         // Restoring is the user's choice: Sugo Sync publishes these timers over newer ones elsewhere.
         m_presets->markAllModified();
     }
