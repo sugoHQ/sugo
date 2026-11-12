@@ -15,6 +15,7 @@
 #endif
 
 #include <QLoggingCategory>
+#include <QTimer>
 
 namespace
 {
@@ -308,6 +309,13 @@ void ScreenLockWatcher::attach(TimerEngine *engine, AppSettings *settings)
         connect(m_engine, &TimerEngine::sessionEnded, this, [this](TimerEngine::Phase, const QDateTime &, const QDateTime &, qint64, qint64, bool completed) {
             if (completed) {
                 m_phaseEnding = true;
+                // A phase taken up again ("+5 min") and then stopped or skipped is a completed
+                // session too, but no phaseFinished follows. That signal comes within the call
+                // that ended the session or not at all, so on the next event-loop turn the wait
+                // is over, or the user's next start would not end a lock logind told of.
+                QTimer::singleShot(0, this, [this]() {
+                    m_phaseEnding = false;
+                });
             }
         });
         connect(m_engine, &TimerEngine::phaseFinished, this, [this]() {
