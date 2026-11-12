@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <algorithm>
 #include <QFile>
 #include <QFileInfo>
 #include <QDateTime>
@@ -491,6 +492,41 @@ private Q_SLOTS:
 
         manager->setPresetPersistence(nullptr);
         QVERIFY(!manager->timersUnreadable());
+    }
+
+    void restoreAfterTimersCouldNotBeReadSavesAgain()
+    {
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup.db")));
+        QVERIFY(manager->backupDatabase(backup));
+        // The stored timers cannot be read at startup.
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        PresetPersistence persistence(presetModel.get(), presetRepository.get());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+        manager->setPresetPersistence(&persistence);
+        QVERIFY(manager->timersUnreadable());
+
+        // The restore puts the stored timers in the model: from then on, changes are saved.
+        QSignalSpy failing(manager.get(), &DataManager::saveFailingChanged);
+        QSignalSpy saved(&persistence, &PresetPersistence::saved);
+        QVERIFY(manager->restoreDatabase(backup));
+        QVERIFY(!manager->timersUnreadable());
+        QVERIFY(!persistence.loadFailed());
+        QVERIFY(failing.count() >= 1);
+        QCOMPARE(saved.count(), 1);
+
+        const QString uuid = presetModel->currentUuid();
+        QVERIFY(presetModel->update(uuid, {{QStringLiteral("name"), QStringLiteral("Edited after the restore")}}));
+        bool ok = false;
+        const QList<TimerPreset> stored = presetRepository->loadAll(&ok);
+        QVERIFY(ok);
+        const auto edited = std::find_if(stored.cbegin(), stored.cend(),
+                                         [&uuid](const TimerPreset &p) { return p.uuid == uuid; });
+        QVERIFY(edited != stored.cend());
+        QCOMPARE(edited->name, QStringLiteral("Edited after the restore"));
+        QCOMPARE(saved.count(), 2);
+
+        manager->setPresetPersistence(nullptr);
     }
 
     void sessionsWaitingToBeStoredDoNotReappearAfterClearing()
