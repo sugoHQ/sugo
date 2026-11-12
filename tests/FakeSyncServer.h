@@ -117,6 +117,8 @@ public:
     int maxBlobSize = std::numeric_limits<int>::max();
     int accessExpiresIn = 3600;
     int slowDownNext = 0;      ///< The next n polls of a pending code answer slow_down.
+    int codeExpiresIn = 600;   ///< expires_in of a new sign-in code, in seconds.
+    int pendingExpiresIn = -1; ///< expires_in of authorization_pending and slow_down (-1: none).
     QByteArray retryAfter = "60"; ///< The Retry-After header of a programmed 429.
     /// Every request is answered by closing the connection, like a server out of reach.
     bool offline = false;
@@ -465,7 +467,7 @@ private:
             json.insert(QStringLiteral("verification_uri"), QStringLiteral("https://sugo.stream/link"));
             json.insert(QStringLiteral("verification_uri_complete"), QString(QStringLiteral("https://sugo.stream/link?code=") + c.userCode));
             json.insert(QStringLiteral("interval"), interval);
-            json.insert(QStringLiteral("expires_in"), 600);
+            json.insert(QStringLiteral("expires_in"), codeExpiresIn);
             replyJson(s, 200, json);
             return;
         }
@@ -490,10 +492,16 @@ private:
                         interval += 5;
                         QJsonObject extra;
                         extra.insert(QStringLiteral("interval"), interval);
+                        if (pendingExpiresIn >= 0) {
+                            extra.insert(QStringLiteral("expires_in"), pendingExpiresIn);
+                        }
                         error(s, 400, "slow_down", extra);
                         return;
                     }
                     QJsonObject extra;
+                    if (pendingExpiresIn >= 0) {
+                        extra.insert(QStringLiteral("expires_in"), pendingExpiresIn);
+                    }
                     if (c.limitReached) {
                         extra.insert(QStringLiteral("reason"), QStringLiteral("device_limit_reached"));
                     }
