@@ -81,6 +81,9 @@ QQC2.Page {
     // Why the address just typed was refused (the field keeps it to be corrected); cleared by the
     // next edit.
     property string calInputError: ""
+    // How many addresses were refused so far: tells commitCalendarFields() whether the refusal it
+    // finds was just announced or is an older one, whose toast may be gone.
+    property int calRejections: 0
     // A refused address leaves its field unbound. Once the stored addresses change, or the service
     // (each keeps its own), both fields show what is stored again and the refusal no longer applies.
     function resetCalFields() {
@@ -92,6 +95,7 @@ QQC2.Page {
         target: CalendarSync
         function onInputRejected(message) {
             page.calInputError = message;
+            ++page.calRejections;
             applicationWindow().showPassiveNotification(message);
         }
         function onProviderChanged() {
@@ -139,12 +143,22 @@ QQC2.Page {
     // The calendar fields store what was typed when they lose the focus (editingFinished). A
     // click on a button does not take it from them (SButton takes the focus by Tab only), so each
     // button that uses what they hold calls this first: the focus moves here, the field being
-    // edited stores its text, and the action runs with what is on screen.
+    // edited stores its text, and the action runs with what is on screen. An address on screen
+    // that was refused is not the one stored: then this returns false and the action must not run
+    // (it would use the stored address, not the one shown), and the toast says why again.
     Item {
         id: calFocusSink
     }
-    function commitCalendarFields(): void {
+    function commitCalendarFields(): bool {
+        const rejections = page.calRejections;
         calFocusSink.forceActiveFocus();
+        if (page.calInputError.length === 0) {
+            return true;
+        }
+        if (page.calRejections === rejections) {
+            applicationWindow().showPassiveNotification(page.calInputError);
+        }
+        return false;
     }
 
     // The timers, for the Timers category: one group per category, in the order of the list
@@ -1861,8 +1875,9 @@ QQC2.Page {
                                     text: i18n("Log in")
                                     iconName: "external"
                                     onClicked: {
-                                        page.commitCalendarFields();
-                                        CalendarSync.startNextcloudLogin();
+                                        if (page.commitCalendarFields()) {
+                                            CalendarSync.startNextcloudLogin();
+                                        }
                                     }
                                 }
                                 SButton {
@@ -1882,7 +1897,9 @@ QQC2.Page {
                                     // Not while any request runs: the test would not run, yet look passed.
                                     enabled: !page.calWorking
                                     onClicked: {
-                                        page.commitCalendarFields();
+                                        if (!page.commitCalendarFields()) {
+                                            return;
+                                        }
                                         page.calAction = "test";
                                         CalendarSync.testConnection();
                                         // Nothing was started (e.g. not signed in yet): a later request's
@@ -1982,7 +1999,9 @@ QQC2.Page {
                             // Not while any request runs: the test would not run, yet look passed.
                             enabled: !page.calWorking
                             onClicked: {
-                                page.commitCalendarFields();
+                                if (!page.commitCalendarFields()) {
+                                    return;
+                                }
                                 page.calAction = "test";
                                 CalendarSync.testConnection();
                                 // Nothing was started (e.g. not signed in yet): a later request's
@@ -2099,7 +2118,9 @@ QQC2.Page {
                             QQC2.ToolTip.visible: hovered
                             QQC2.ToolTip.delay: Theme.toolTipDelay
                             onClicked: {
-                                page.commitCalendarFields();
+                                if (!page.commitCalendarFields()) {
+                                    return;
+                                }
                                 page.calAction = "refresh";
                                 CalendarSync.refreshCalendars();
                                 // Nothing was started (e.g. not signed in yet): a later request's
