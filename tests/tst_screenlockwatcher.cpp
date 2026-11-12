@@ -1062,6 +1062,39 @@ private Q_SLOTS:
 #endif
     }
 
+    void aReopenedPhaseThatIsStoppedLetsTheUserEndALockRequest()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("logind exists on Linux only");
+#else
+        // "+5 min" on a work phase that has just ended, then Stop: the engine reports a completed
+        // session but announces nothing (no phaseFinished). Starting the timer later is still the
+        // user's doing: it ends a lock request never unlocked, and the next request pauses Work.
+        const auto lockRequest = [this]() {
+            return QMetaObject::invokeMethod(watcher.get(), "onLogindLockRequested", Qt::DirectConnection);
+        };
+        engine->start();
+        clock->advanceSeconds(engine->remainingSeconds() + 1);
+        engine->refresh();
+        QCOMPARE(engine->state(), TimerEngine::State::Idle); // nothing starts by itself
+
+        QVERIFY(engine->extend()); // the work phase that just ended goes on
+        QCOMPARE(engine->state(), TimerEngine::State::Working);
+        clock->advanceSeconds(60);
+        engine->stop();
+        QCOMPARE(engine->state(), TimerEngine::State::Idle);
+        QTest::qWait(20); // the user comes back later, not in the same event-loop turn
+
+        QVERIFY(lockRequest()); // nothing runs to pause; swaylock will never report the unlock
+        QCOMPARE(engine->state(), TimerEngine::State::Idle);
+        engine->start();
+        QCOMPARE(engine->state(), TimerEngine::State::Working);
+        QVERIFY(lockRequest());
+        QCOMPARE(engine->state(), TimerEngine::State::Paused);
+        QVERIFY(watcher->isPausedByScreenLock());
+#endif
+    }
+
     void otherDesktopScreenSaversPauseTheTimer_data()
     {
         QTest::addColumn<QString>("name");
