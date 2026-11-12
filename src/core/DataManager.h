@@ -27,7 +27,7 @@ class DataManager : public QObject
     /// True while finished sessions or timer changes could not be stored (they are retried).
     Q_PROPERTY(bool saveFailing READ saveFailing NOTIFY saveFailingChanged FINAL)
     /// True when the stored timers could not be read at startup: Sugo runs on the built-in timer
-    /// and saves no timer change until it is started again (PresetPersistence::loadFailed()).
+    /// and saves no timer change until it is started again or a backup is restored (PresetPersistence::loadFailed()).
     Q_PROPERTY(bool timersUnreadable READ timersUnreadable NOTIFY saveFailingChanged FINAL)
     /// Where a damaged or foreign database found at startup was moved to (a new one was started); empty if none was.
     Q_PROPERTY(QString movedAsideDatabasePath READ movedAsideDatabasePath CONSTANT FINAL)
