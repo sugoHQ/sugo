@@ -120,6 +120,12 @@ public:
     QByteArray retryAfter = "60"; ///< The Retry-After header of a programmed 429.
     /// Every request is answered by closing the connection, like a server out of reach.
     bool offline = false;
+    /// The next n requests are carried out, but their answers are lost (the connection closes).
+    int loseAnswers = 0;
+    /// Within the server's grace minute: a spent refresh token whose successor was never used gives
+    /// a new pair and revokes that successor (docs/api.md, "Lost refresh response"). Off, any
+    /// spent token is theft.
+    bool refreshGrace = false;
     /// The blob kinds and their limits; a kind missing here is unknown, 404 to GET and PUT, as
     /// on a Worker older than the kind.
     QHash<QByteArray, int> blobKinds = {
@@ -140,6 +146,7 @@ public:
     QHash<QString, Code> codes;          ///< By device code.
     QHash<QString, QString> refreshTokens;     ///< Valid token → device id.
     QHash<QString, QString> spentRefreshTokens; ///< Used token → device id.
+    QHash<QString, QString> refreshSuccessors;  ///< Used token → the token issued at its use.
     QHash<QString, QString> accessTokens;      ///< Token → device id.
     QHash<QString, Box> boxes;           ///< By receiving device id.
     QHash<QString, Account> accounts;    ///< By user id.
@@ -327,6 +334,14 @@ private:
             }
             if (failure > 0) {
                 fail(s, failure);
+            } else if (loseAnswers > 0) {
+                --loseAnswers;
+                m_muted = true;
+                respond(s, req);
+                m_muted = false;
+                buf.clear();
+                s->abort();
+                return;
             } else {
                 respond(s, req);
             }
@@ -349,6 +364,9 @@ private:
     void reply(QTcpSocket *s, int status, const QByteArray &body = QByteArray(), const QList<QPair<QByteArray, QByteArray>> &headers = {},
                const QByteArray &type = "application/json")
     {
+        if (m_muted) {
+            return;
+        }
         QByteArray out = "HTTP/1.1 " + QByteArray::number(status) + " X\r\n";
         if (!body.isEmpty()) {
             out += "Content-Type: " + type + "\r\n";
@@ -495,6 +513,16 @@ private:
             }
             if (grant == QLatin1String("refresh_token")) {
                 const QString token = body.value(QStringLiteral("refresh_token")).toString();
+                const QString successor = refreshSuccessors.value(token);
+                if (refreshGrace && spentRefreshTokens.contains(token) && refreshTokens.contains(successor)) {
+                    // The answer was lost: the successor is revoked (spent, without a successor of its own).
+                    const QString id = refreshTokens.take(successor);
+                    spentRefreshTokens.insert(successor, id);
+                    const QJsonObject json = issueTokens(id);
+                    refreshSuccessors.insert(token, json.value(QStringLiteral("refresh_token")).toString());
+                    replyJson(s, 200, json);
+                    return;
+                }
                 if (spentRefreshTokens.contains(token)) {
                     dropTokensOf(spentRefreshTokens.value(token)); // reuse: theft
                     error(s, 400, "invalid_grant");
@@ -506,7 +534,9 @@ private:
                 }
                 const QString id = refreshTokens.take(token);
                 spentRefreshTokens.insert(token, id);
-                replyJson(s, 200, issueTokens(id));
+                const QJsonObject json = issueTokens(id);
+                refreshSuccessors.insert(token, json.value(QStringLiteral("refresh_token")).toString());
+                replyJson(s, 200, json);
                 return;
             }
             error(s, 400, "invalid_request");
@@ -723,4 +753,5 @@ private:
     QHash<QTcpSocket *, QByteArray> m_buffers;
     int m_counter = 0;
     int m_clockTicks = 0;
+    bool m_muted = false; ///< The answer being written is lost.
 };

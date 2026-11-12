@@ -25,6 +25,12 @@ constexpr int kTransferTimeoutMs = 30000;
 constexpr qint64 kMaxResponseSize = 8 * 1024 * 1024;
 /// An access token is renewed when it has less than this left.
 constexpr qint64 kAccessMarginMs = 60 * 1000;
+/// The renewal's own transfer timeout, shorter than the others: its retries must all reach the server
+/// within the minute in which it takes back a refresh token whose answer was lost.
+constexpr int kRefreshTimeoutMs = 15000;
+/// No retry of a renewal starts later than this after the first try (the server's grace is 60 s
+/// from when it took the token, never before the first try was sent).
+constexpr qint64 kRefreshRetryWindowMs = 40 * 1000;
 
 QString appVersion()
 {
@@ -348,6 +354,11 @@ void SyncApi::ensureAccessToken(TokenCallback done)
         return;
     }
     m_refreshInFlight = true;
+    sendRefresh(refreshToken, 0, now());
+}
+
+void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 firstSentAt)
+{
     QJsonObject body;
     body.insert(QLatin1String("grant_type"), QStringLiteral("refresh_token"));
     body.insert(QLatin1String("refresh_token"), refreshToken);
@@ -356,9 +367,10 @@ void SyncApi::ensureAccessToken(TokenCallback done)
     r.path = QStringLiteral("/v1/auth/token");
     r.body = jsonBody(body);
     r.auth = false;
-    send(r, QString(), [this](const SyncReply &reply) {
-        m_refreshInFlight = false;
+    r.timeoutMs = kRefreshTimeoutMs;
+    send(r, QString(), [this, refreshToken, attempt, firstSentAt](const SyncReply &reply) {
         if (reply.ok()) {
+            m_refreshInFlight = false;
             SyncError e;
             if (!takeTokens(reply.json)) {
                 e.kind = SyncError::Kind::Format;
@@ -367,6 +379,26 @@ void SyncApi::ensureAccessToken(TokenCallback done)
             finishRefresh(e);
             return;
         }
+        // No answer, or a server error: the server may have taken the token and the answer been
+        // lost. It takes the same token back only within a minute (and gives a new pair), and treats
+        // it as stolen afterwards, so the retries come now, not with the sync's backoff.
+        // A refused redirect (3xx, failing as Network or Server) is an answer: never retried.
+        const bool redirected = reply.http >= 300 && reply.http < 400;
+        const bool lost = !redirected
+            && (reply.error.kind == SyncError::Kind::Network || (reply.error.kind == SyncError::Kind::Server && reply.http >= 500));
+        if (lost && attempt < m_refreshRetryDelaysMs.size()) {
+            const int delay = m_refreshRetryDelaysMs.at(attempt);
+            if (now() - firstSentAt + delay <= kRefreshRetryWindowMs) {
+                const quint64 gen = m_generation;
+                QTimer::singleShot(delay, this, [this, gen, refreshToken, attempt, firstSentAt]() {
+                    if (gen == m_generation) {
+                        sendRefresh(refreshToken, attempt + 1, firstSentAt);
+                    }
+                });
+                return;
+            }
+        }
+        m_refreshInFlight = false;
         if (reply.error.kind == SyncError::Kind::InvalidGrant) {
             dropAccessToken();
             // First: whoever handles it may reset(), and then no waiter runs after the sign-out.
@@ -379,6 +411,11 @@ void SyncApi::ensureAccessToken(TokenCallback done)
         // Network, rate limit, server: the refresh token in memory stays as it is.
         finishRefresh(reply.error);
     });
+}
+
+void SyncApi::setRefreshRetryDelaysMs(const QList<int> &delays)
+{
+    m_refreshRetryDelaysMs = delays;
 }
 
 bool SyncApi::takeTokens(const QJsonObject &json)
@@ -492,7 +529,7 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
     // https never falls back to http.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
     req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setTransferTimeout(request.timeoutMs > 0 ? request.timeoutMs : kTransferTimeoutMs);
 
     QNetworkReply *reply = network()->sendCustomRequest(req, request.verb, request.body);
     m_replies.insert(reply);
