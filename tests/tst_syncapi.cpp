@@ -435,6 +435,34 @@ private Q_SLOTS:
         QCOMPARE(server->count("POST", "/v1/auth/token"), 3); // the first try and two retries
     }
 
+    void renewalRetriesStayWithinTheGrace_data()
+    {
+        QTest::addColumn<qint64>("tryTakesMs");
+        QTest::addColumn<int>("tries");
+        QTest::newRow("quick") << qint64(1000) << 3;
+        QTest::newRow("second retry would start after 40 s") << qint64(20000) << 2;
+        QTest::newRow("first retry would start after 40 s") << qint64(40000) << 1;
+    }
+    void renewalRetriesStayWithinTheGrace()
+    {
+        // The server takes a spent token back only within a minute of its first use: no retry
+        // starts more than 40 s after the first try, however long the tries took.
+        QFETCH(qint64, tryTakesMs);
+        QFETCH(int, tries);
+        link();
+        qint64 clock = 0;
+        api->setNowProvider([&clock]() { return clock; });
+        server->offline = true;
+        server->onRequest = [&](const FakeSyncServer::Request &r) {
+            if (r.path == "/v1/auth/token") {
+                clock += tryTakesMs;
+            }
+        };
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), tries);
+    }
+
     void renewalRateLimitIsNotRetried()
     {
         link();
