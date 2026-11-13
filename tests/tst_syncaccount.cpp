@@ -677,6 +677,21 @@ private Q_SLOTS:
         QCOMPARE(server->count("GET", "/v1/key"), fetched); // the held box, not a new request
     }
 
+    void signOutDropsTheConfirmation()
+    {
+        Client a(*server);
+        Client b(*server);
+        twoDevices(a, b);
+        QSignalSpy confirmed(b.account.get(), &SyncAccount::verificationConfirmedChanged);
+        QVERIFY(b.account->confirmVerificationCode(b.account->verificationCode()));
+        QSignalSpy out(b.account.get(), &SyncAccount::signedOut);
+        b.account->signOut();
+        QVERIFY(out.wait(5000));
+        QVERIFY(!b.account->verificationConfirmed());
+        QCOMPARE(confirmed.size(), 2);
+        QCOMPARE(confirmed.last().first().toBool(), false);
+    }
+
     void keyOfADeviceListedByTheServerIsNotTaken()
     {
         // A compromised server lists a ready device of its own, seen last, and boxes a key it

@@ -1028,10 +1028,14 @@ void SyncAccount::signOutLocally()
     clearSignInCode();
     m_keyTimer.stop();
     m_devices.clear();
+    const bool wasConfirmed = verificationConfirmed();
     m_approver = Device();
     m_verificationCode.clear();
     m_confirmedKey.clear();
     m_heldKey.reset();
+    if (wasConfirmed) {
+        Q_EMIT verificationConfirmedChanged(false); // else the next sign-in would start confirmed
+    }
     m_asked.clear();
     m_ignored.clear();
     m_api->reset();
