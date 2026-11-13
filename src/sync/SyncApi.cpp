@@ -370,24 +370,30 @@ void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 first
     r.auth = false;
     r.timeoutMs = kRefreshTimeoutMs;
     send(r, QString(), [this, refreshToken, attempt, firstSentAt](const SyncReply &reply) {
-        if (reply.ok()) {
+        const quint64 gen = m_generation;
+        if (reply.ok() && takeTokens(reply.json)) {
             m_refreshInFlight = false;
-            SyncError e;
-            if (!takeTokens(reply.json)) {
-                e.kind = SyncError::Kind::Format;
-                e.http = reply.http;
-            }
-            finishRefresh(e);
+            finishRefresh(SyncError());
             return;
         }
-        // No answer, or a server error: the server may have taken the token and the answer been
-        // lost. It takes the same token back within its grace (and gives a new pair), and treats it
-        // as stolen afterwards. The grace is 24 h since sugo-sync#51 but a minute before, so the
-        // retries come now, not with the sync's backoff.
+        if (gen != m_generation) {
+            return; // reset() while the token was saved (a sign-out during the keyring's prompt)
+        }
+        SyncError error = reply.error;
+        if (reply.ok()) { // a success without the tokens
+            error.kind = SyncError::Kind::Format;
+            error.http = reply.http;
+        }
+        // No answer, a server error or an answer that cannot be read (a proxy's page, a cut body):
+        // the server may have taken the token and its answer been lost. It takes the same token
+        // back within its grace (and gives a new pair), and treats it as stolen afterwards. The
+        // grace is 24 h since sugo-sync#51 but a minute before, so the retries come now, not with
+        // the sync's backoff.
         // A refused redirect (3xx, failing as Network or Server) is an answer: never retried.
         const bool redirected = reply.http >= 300 && reply.http < 400;
         const bool lost = !redirected
-            && (reply.error.kind == SyncError::Kind::Network || (reply.error.kind == SyncError::Kind::Server && reply.http >= 500));
+            && (error.kind == SyncError::Kind::Network || error.kind == SyncError::Kind::Format
+                || (error.kind == SyncError::Kind::Server && reply.http >= 500));
         if (lost && attempt < m_refreshRetryDelaysMs.size()) {
             const int delay = m_refreshRetryDelaysMs.at(attempt);
             if (now() - firstSentAt + delay <= kRefreshRetryWindowMs) {
@@ -401,7 +407,7 @@ void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 first
             }
         }
         m_refreshInFlight = false;
-        if (reply.error.kind == SyncError::Kind::InvalidGrant) {
+        if (error.kind == SyncError::Kind::InvalidGrant) {
             dropAccessToken();
             // First: whoever handles it may reset(), and then no waiter runs after the sign-out.
             const quint64 gen = m_generation;
@@ -410,8 +416,8 @@ void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 first
                 return;
             }
         }
-        // Network, rate limit, server: the refresh token in memory stays as it is.
-        finishRefresh(reply.error);
+        // Network, rate limit, server, unreadable: the refresh token in memory stays as it is.
+        finishRefresh(error);
     });
 }
 

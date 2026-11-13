@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QLoggingCategory>
 
+#include <algorithm>
 #include <utility>
 
 #include "PresetModel.h"
@@ -46,6 +47,18 @@ SessionRecorder::SessionRecorder(TimerEngine *engine, PresetModel *presets, Sess
 
 bool SessionRecorder::store(const SessionRecord &record)
 {
+    if (record.id > 0) {
+        // A phase taken up again: its row gets the new end.
+        SessionRecord updated = record;
+        if (!m_repository->updateEnd(updated, &updated.note)) {
+            return false;
+        }
+        Q_EMIT sessionRecorded();
+        if (updated.kind == SessionKind::Work && updated.completed) {
+            Q_EMIT workSessionRecorded(updated);
+        }
+        return true;
+    }
     qint64 id = -1;
     if (!m_repository->insert(record, &id)) {
         return false;
@@ -53,6 +66,9 @@ bool SessionRecorder::store(const SessionRecord &record)
     // The phase that ended last, stored only now by a retry: a phase taken up again updates this row.
     if (record.startedAtMs == m_lastEndedStartMs && record.kind == m_lastEndedKind) {
         m_lastSessionId = id;
+        if (record.kind == SessionKind::Work) {
+            m_lastWorkSessionId = id; // its note goes to this row now
+        }
         if (m_reopenedUnsaved) {
             m_reopenedUnsaved = false;
             m_reopenedId = id;
@@ -124,6 +140,13 @@ void SessionRecorder::forgetSession(qint64 sessionId)
     if (m_reopenedId == sessionId) {
         m_reopenedId = 0;
     }
+    // A new end waiting for the deleted row would be refused forever.
+    const bool wasFailing = isSaveFailing();
+    m_unsaved.removeIf([sessionId](const SessionRecord &r) { return r.id == sessionId; });
+    if (wasFailing && !isSaveFailing()) {
+        m_retryTimer.stop();
+        Q_EMIT saveFailingChanged();
+    }
 }
 
 void SessionRecorder::onPhaseStarted(TimerEngine::Phase)
@@ -175,14 +198,26 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     }
 
     if (reopenedId > 0) {
-        // The same session, longer: its row gets the new end. If that fails, the row keeps the
-        // time it had (a new row would count the session twice).
+        // The same session, longer: its row gets the new end, never a new row (that would count
+        // the session twice). If the database refuses it, the new end waits with the unsaved
+        // sessions and is retried, after them, so no extra time is lost.
         record.id = reopenedId;
-        if (m_repository->updateEnd(record, &record.note)) {
-            m_lastSessionId = reopenedId;
-            Q_EMIT sessionRecorded();
-            if (isWork && completed) {
-                Q_EMIT workSessionRecorded(record);
+        m_lastSessionId = reopenedId;
+        if (isWork) {
+            m_lastWorkSessionId = reopenedId;
+        }
+        storeUnsaved();
+        if (isSaveFailing() || !store(record)) {
+            const bool wasFailing = isSaveFailing();
+            const auto same = std::find_if(m_unsaved.begin(), m_unsaved.end(), [reopenedId](const SessionRecord &r) { return r.id == reopenedId; });
+            if (same != m_unsaved.end()) {
+                *same = record; // the latest end of that row is the one to store
+            } else {
+                m_unsaved.append(record);
+            }
+            m_retryTimer.start();
+            if (!wasFailing) {
+                Q_EMIT saveFailingChanged();
             }
         }
         return;
