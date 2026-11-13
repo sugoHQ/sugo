@@ -445,7 +445,7 @@ private Q_SLOTS:
     }
     void renewalRetriesStayWithinTheGrace()
     {
-        // The server takes a spent token back only within a minute of its first use: no retry
+        // A server before sugo-sync#51 takes a spent token back only within a minute of its first use: no retry
         // starts more than 40 s after the first try, however long the tries took.
         QFETCH(qint64, tryTakesMs);
         QFETCH(int, tries);
