@@ -66,6 +66,9 @@ bool SessionRecorder::store(const SessionRecord &record)
     // The phase that ended last, stored only now by a retry: a phase taken up again updates this row.
     if (record.startedAtMs == m_lastEndedStartMs && record.kind == m_lastEndedKind) {
         m_lastSessionId = id;
+        if (record.kind == SessionKind::Work) {
+            m_lastWorkSessionId = id; // its note goes to this row now
+        }
         if (m_reopenedUnsaved) {
             m_reopenedUnsaved = false;
             m_reopenedId = id;
@@ -200,6 +203,9 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
         // sessions and is retried, after them, so no extra time is lost.
         record.id = reopenedId;
         m_lastSessionId = reopenedId;
+        if (isWork) {
+            m_lastWorkSessionId = reopenedId;
+        }
         storeUnsaved();
         if (isSaveFailing() || !store(record)) {
             const bool wasFailing = isSaveFailing();

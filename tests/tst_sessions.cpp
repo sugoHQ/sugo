@@ -795,6 +795,7 @@ private Q_SLOTS:
         const QList<SessionRecord> r = all();
         QCOMPARE(r.size(), 1); // one session, not the first end and the longer one
         QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), r.at(0).id); // the task note goes to it
     }
 
     void breakThatStartedByItselfGivesWayUnrecorded()
