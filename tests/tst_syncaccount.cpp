@@ -1075,6 +1075,7 @@ private Q_SLOTS:
         QCOMPARE(created.size(), 0);
         QTest::qWait(30 * kUnitMs);
         QVERIFY(!c.account->recoveryCodeShowable());
+        server->onRequest = nullptr; // it holds this function's locals
     }
 
     void signOutStopsTheRegeneration()
