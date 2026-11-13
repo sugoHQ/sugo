@@ -398,6 +398,30 @@ private Q_SLOTS:
         QCOMPARE(show.count(), 1);
     }
 
+    void theTaskNoteIsOfferedForASessionWaitingToBeStored()
+    {
+        // The database refused the session: it has no row yet, an id below -1 stands for it.
+        useTimer();
+        withSettings();
+        notifier->setLastWorkSessionIdProvider([]() { return qint64(-1700000000000); });
+        QSignalSpy submitted(notifier.get(), &PhaseNotifier::taskNoteSubmitted);
+        endWork();
+        const auto &shown = notifications->last();
+        QVERIFY(shown.reply);
+        shown.reply->replied(QStringLiteral("Chapter three"));
+        QCOMPARE(submitted.count(), 1);
+        QCOMPARE(submitted.first().at(0).toLongLong(), -1700000000000);
+    }
+
+    void noTaskNoteForASessionNotRecorded()
+    {
+        useTimer();
+        withSettings();
+        notifier->setLastWorkSessionIdProvider([]() { return qint64(-1); }); // too short, or forgotten
+        endWork();
+        QVERIFY(!notifications->last().reply);
+    }
+
     void noTaskNoteWhenTheOptionIsOff()
     {
         useTimer();
