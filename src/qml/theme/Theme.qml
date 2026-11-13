@@ -29,8 +29,6 @@ QtObject {
     readonly property color selected: dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06)
     readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.07)
     readonly property color scrim: Qt.rgba(0, 0, 0, dark ? 0.6 : 0.3)
-    /// Under what floats over the page: the composer, menus, sheets.
-    readonly property color shadow: Qt.rgba(0, 0, 0, dark ? 0.55 : 0.14)
 
     // --- Text --------------------------------------------------------------------------------
     readonly property color foreground: dark ? "#ececee" : "#18181b"
@@ -39,8 +37,6 @@ QtObject {
     readonly property color dim: theme.alpha(foreground, 0.75)
     readonly property color subtle: dark ? "#5d5d66" : "#a1a1aa"
 
-    /// The main action: the text colour as a fill.
-    readonly property color primary: dark ? "#ececee" : "#18181b"
     readonly property color focusRing: dark ? Qt.rgba(1, 1, 1, 0.5) : Qt.rgba(0, 0, 0, 0.45)
 
     // --- Brand and states --------------------------------------------------------------------

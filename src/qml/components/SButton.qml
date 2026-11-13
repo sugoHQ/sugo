@@ -14,8 +14,6 @@ QQC2.AbstractButton {
     property string kind: "secondary"
     /// A LineIcon name.
     property string iconName
-    /// No longer shown (the interface shows no shortcut hints); kept so that callers still work.
-    property string shortcutText
     property bool large: false
     property bool iconOnly: false
     property string toolTipText: iconOnly ? text : ""

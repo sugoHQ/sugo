@@ -266,6 +266,14 @@ void SyncAccount::pollToken()
             return;
         }
         const SyncError &error = reply.error;
+        if (error.kind == SyncError::Kind::AuthorizationPending || error.kind == SyncError::Kind::SlowDown) {
+            // The code's life left: an approval extends it (to two minutes at least), so the first
+            // expires_in may no longer hold.
+            const QJsonValue left = error.extra.value(QLatin1String("expires_in"));
+            if (left.isDouble()) {
+                m_codeExpiresAt = QDateTime::currentDateTimeUtc().addSecs(std::max<qint64>(0, left.toInteger()));
+            }
+        }
         switch (error.kind) {
         case SyncError::Kind::AuthorizationPending:
             setDeviceLimitReached(error.reason == QLatin1String("device_limit_reached"));

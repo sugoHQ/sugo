@@ -114,17 +114,20 @@ QQC2.ApplicationWindow {
         root.requestActivate();
     }
 
-    /// Quits, after asking when that would cut a running or paused phase short.
+    /// Quits, after asking when that would cut a running or paused phase short, or lose sessions
+    /// or timer changes that could not be saved yet (DataManager.saveFailing).
     function requestQuit(): void {
         if (quitDialog.visible) {
             return;
         }
-        if (TimerEngine.active) {
+        const unsaved = DataManager !== null && DataManager.saveFailing === true;
+        if (TimerEngine.active || unsaved) {
             // Asked with the window closed or minimised (on macOS, where closing only hides the
             // window: Cmd+Q, Sugo › Quit Sugo, Quit in the Dock menu): the question must be seen.
             if (!root.visible || root.visibility === Window.Minimized) {
                 root.bringToFront();
             }
+            quitDialog.unsavedData = unsaved;
             quitDialog.open();
         } else {
             root.quitNow();
@@ -161,8 +164,14 @@ QQC2.ApplicationWindow {
 
     ConfirmDialog {
         id: quitDialog
-        title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
-        text: TimerEngine.continuesEndedSession
+        /// Sessions or timer changes were waiting to be saved when the dialog opened (kept as it
+        /// was then, so the text does not change under the user's eyes).
+        property bool unsavedData: false
+        readonly property string unsavedText: root.restarting
+            ? i18n("Some of your latest sessions or timer changes could not be saved yet. Restarting now loses them.")
+            : i18n("Some of your latest sessions or timer changes could not be saved yet. Quitting now loses them.")
+        readonly property string phaseText: !TimerEngine.active ? ""
+              : TimerEngine.continuesEndedSession
               ? (TimerEngine.phase === TimerEngine.Phase.Work
                  ? (root.restarting ? i18n("A work session is in progress. Restarting ends it now, as a finished session.")
                                     : i18n("A work session is in progress. Quitting ends it now, as a finished session."))
@@ -175,6 +184,8 @@ QQC2.ApplicationWindow {
               : (TimerEngine.phase === TimerEngine.Phase.Work
                  ? i18n("A work session is in progress. Quitting pauses it, and it waits for you the next time Sugo starts.")
                  : i18n("A break is in progress. Quitting pauses it, and it waits for you the next time Sugo starts."))
+        title: root.restarting ? i18n("Restart Sugo?") : i18n("Quit Sugo?")
+        text: unsavedData ? (phaseText.length > 0 ? unsavedText + "\n\n" + phaseText : unsavedText) : phaseText
         confirmText: root.restarting ? i18n("Restart") : i18n("Quit")
         confirmKind: "danger"
         cancelText: i18n("Keep Running")
@@ -486,8 +497,35 @@ QQC2.ApplicationWindow {
                     && serverField.Layout.preferredWidth
                        === Theme.space4xl * 5 + Theme.controlHeight + Theme.spaceSm;
                 CalendarSync.serverUrl = "";
+                // An address that is refused stays in its field, and Log in then does nothing: it
+                // would use the stored address, not the one on screen. Nothing is stored here, so
+                // a Log in that runs anyway only says the address is missing (no request is made).
+                serverField.forceActiveFocus();
+                serverField.text = "cloud example";
+                const loginButton = loginButtons
+                    ? findItem(loginButtons, item => item.text === i18n("Log in") && item.visible)
+                    : null;
+                if (loginButton) {
+                    loginButton.clicked();
+                }
+                // Choosing the same service again changes nothing: the refused address is still
+                // on screen, and Log in still does nothing.
+                const providerBox = findItem(page, item => item.objectName === "calendarProviderBox");
+                if (providerBox && loginButton) {
+                    providerBox.activated(providerBox.currentIndex);
+                    loginButton.clicked();
+                }
+                const refusedError = page.calInputError;
+                const errorAfterLogin = CalendarSync.lastError;
+                page.resetCalFields();
                 CalendarSync.enabled = false;
                 page.category = "general";
+                if (!loginButton || !providerBox || refusedError.length === 0 || errorAfterLogin !== refusedError) {
+                    fail(69, "Log in ran with a refused calendar address on screen: button=" + !!loginButton
+                         + " service=" + !!providerBox
+                         + " refusal=\"" + refusedError + "\" error=\"" + errorAfterLogin + "\"");
+                    return;
+                }
                 if (!focused || stored !== "https://cloud.example.org") {
                     fail(53, "The typed calendar address was not stored before the action: focused=" + focused
                          + " stored=" + stored);
@@ -1124,6 +1162,23 @@ QQC2.ApplicationWindow {
                          + (blocks ? blocks.childrenRect.width : "missing") + " > " + (preview ? preview.width : "missing"));
                     return true;
                 }
+                // A set without a long break ends with the short one, as the timer runs it: the
+                // preview is laid out on the next tick.
+                const byName = name => findItem(editor, item => item.objectName === name);
+                byName("cyclesField").setValue(4);
+                byName("workField").setValue(25);
+                byName("shortBreakField").setValue(5);
+                byName("longBreakField").setValue(0);
+                return false;
+            }
+            case 7: {
+                const preview = findItem(editor, item => item.objectName === "cyclePreview");
+                const minutes = preview ? preview.phases.map(p => p.minutes).join("/") : "missing";
+                if (minutes !== "25/5/25/5/25/5/25/5" || preview.total !== 120) {
+                    fail(70, "The preview of a set without a long break does not end with the short break: "
+                         + minutes + " = " + (preview ? preview.total : "missing") + " min");
+                    return true;
+                }
                 // Duplicate with unsaved changes asks first, and makes no copy meanwhile.
                 const count = PresetModel.count;
                 editor.duplicate();
@@ -1591,14 +1646,17 @@ QQC2.ApplicationWindow {
                     replaceExit: Transition {}
                 }
 
-                // Shown on every page: nothing recorded now will survive a restart, or the last
+                // Shown on every page: nothing recorded now will survive a restart, or the stored
+                // timers could not be read (timer changes are not saved), or the last
                 // changes are still waiting to be stored, or (until dismissed) the database found
                 // at startup was damaged or not Sugo's and a new one was started. Laid over the
                 // top of the page, so the page does not move when it comes or goes.
                 Rectangle {
                     id: dataWarning
                     objectName: "dataWarning"
-                    readonly property bool storageFailing: DataManager !== null && (DataManager.usingTemporaryDatabase === true || DataManager.saveFailing === true)
+                    readonly property bool storageFailing: DataManager !== null
+                        && (DataManager.usingTemporaryDatabase === true || DataManager.timersUnreadable === true
+                            || DataManager.saveFailing === true)
                     property bool movedAsideDismissed: false
                     readonly property bool movedAside: DataManager !== null && DataManager.movedAsideDatabasePath.length > 0 && !movedAsideDismissed
                     readonly property bool shown: storageFailing || movedAside
@@ -1629,6 +1687,15 @@ QQC2.ApplicationWindow {
                             }
                             if (DataManager.usingTemporaryDatabase === true) {
                                 return i18n("Your data cannot be saved: the database could not be opened. Sugo is using a temporary database.");
+                            }
+                            // Both: the sessions waiting must not be hidden behind the timers' message.
+                            // (While the timers are unreadable no timer save is tried, so only
+                            // sessions can be waiting.)
+                            if (DataManager.timersUnreadable === true && DataManager.saveFailing === true) {
+                                return i18n("Your timers could not be read, and your latest sessions could not be saved yet. Sugo keeps trying to save them: do not quit until this message no longer mentions them.");
+                            }
+                            if (DataManager.timersUnreadable === true) {
+                                return i18n("Your timers could not be read, so Sugo is using the built-in timer for now. Timer changes are not saved until Sugo is started again.");
                             }
                             if (DataManager.saveFailing === true) {
                                 return i18n("Your latest sessions or timer changes could not be saved yet. Sugo keeps them and tries again; do not quit until this message is gone.");

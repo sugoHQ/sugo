@@ -5,7 +5,6 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
-#include <QUrl>
 #include <QtQml/qqmlregistration.h>
 
 class AppSettings;
@@ -36,13 +35,6 @@ public:
 
     /// Formats the complete markdown diagnostics report (system + config + logs).
     Q_INVOKABLE QString generateReport() const;
-
-    /// Writes the report to a local file (a file:// URL or an absolute path). Returns false and
-    /// sets lastExportError() if the location is not local or the file cannot be written.
-    Q_INVOKABLE bool exportReport(const QUrl &fileUrl) const;
-
-    /// Why the last exportReport() failed, readable by the user; empty after a success.
-    Q_INVOKABLE QString lastExportError() const { return m_lastExportError; }
 
     /// Copies the full markdown report to the system clipboard.
     Q_INVOKABLE void copyToClipboard() const;
@@ -87,6 +79,5 @@ private:
     AppSettings *m_settings = nullptr;
     DataManager *m_dataManager = nullptr;
     QPointer<SyncController> m_sync;
-    mutable QString m_lastExportError;
     QMetaObject::Connection m_verboseConnection;
 };

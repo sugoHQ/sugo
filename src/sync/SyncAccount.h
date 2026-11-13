@@ -103,7 +103,6 @@ public:
     QString userCode() const { return m_userCode; }
     QUrl verificationUri() const { return m_verificationUri; }
     QUrl verificationUriComplete() const { return m_verificationUriComplete; }
-    QDateTime codeExpiresAt() const { return m_codeExpiresAt; }
     /// The site could not link this device: the account has its most devices.
     bool deviceLimitReached() const { return m_deviceLimitReached; }
 

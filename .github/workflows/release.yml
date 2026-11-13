@@ -147,6 +147,9 @@ jobs:
       ${{ startsWith(github.ref, 'refs/tags/v') && !cancelled()
       && needs.check.result == 'success' && needs.test.result == 'success'
       && needs.build-flatpak.result == 'success' && needs.appimage.result == 'success' }}
+    # The update signing key is a secret of this environment, which only main, testing and v* tags
+    # may use (Settings › Environments): a workflow pushed to another branch cannot read it.
+    environment: update-signing
     runs-on: ubuntu-24.04
     permissions:
       contents: write

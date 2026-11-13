@@ -225,6 +225,34 @@ private Q_SLOTS:
         QVERIFY(!c.hasSyncGroup());
     }
 
+    void approvalExtendsTheCode()
+    {
+        // The code said one second at first; the server then says it lives on (an approval
+        // extends it), and Sugo keeps polling past the first deadline.
+        server->codeExpiresIn = 1;
+        server->pendingExpiresIn = 120;
+        Client c(*server);
+        QSignalSpy expired(c.account.get(), &SyncAccount::signInExpired);
+        c.account->startSignIn(QStringLiteral("Desk"));
+        const QString code = waitForCode(c);
+        QTest::qWait(1500);
+        QCOMPARE(expired.size(), 0);
+        QCOMPARE(c.account->phase(), SyncAccount::Phase::SigningIn);
+        QVERIFY(server->approve(code, kUser).startsWith(QLatin1String("dev_")));
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::WaitingForKey, 5000);
+    }
+
+    void codeEndsWhenTheServerSaysSo()
+    {
+        server->pendingExpiresIn = 0;
+        Client c(*server);
+        QSignalSpy expired(c.account.get(), &SyncAccount::signInExpired);
+        c.account->startSignIn(QStringLiteral("Desk"));
+        QVERIFY(!waitForCode(c).isEmpty());
+        QVERIFY(expired.wait(5000));
+        QCOMPARE(c.account->phase(), SyncAccount::Phase::SignedOut);
+    }
+
     void invalidGrantWhilePolling()
     {
         Client c(*server);
