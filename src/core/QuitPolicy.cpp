@@ -3,8 +3,8 @@
 
 namespace QuitPolicy
 {
-bool needsConfirmation(Origin origin, bool phaseActive)
+bool needsConfirmation(Origin origin, bool phaseActive, bool unsavedData)
 {
-    return origin == Origin::External && phaseActive;
+    return origin == Origin::External && (phaseActive || unsavedData);
 }
 } // namespace QuitPolicy

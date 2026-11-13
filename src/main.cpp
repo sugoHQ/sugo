@@ -104,8 +104,9 @@ namespace
  *   window's requestQuit(), which asks while a phase runs or is paused and then quits with
  *   QCoreApplication::quit(); on macOS that (like a SIGTERM) takes this same way, as Sugo's own
  *   quit. What else arrives is a `quit` Apple event from another program: Quit in the Dock
- *   menu, Activity Monitor, AppleScript. While a phase is active that one is refused and
- *   turned into the window's requestQuit() (QuitPolicy), so the Dock's Quit asks like Cmd+Q;
+ *   menu, Activity Monitor, AppleScript. While a phase is active, or sessions or timer changes
+ *   could not be saved yet, that one is refused and turned into the window's requestQuit()
+ *   (QuitPolicy), so the Dock's Quit asks like Cmd+Q;
  *   the window comes to the front for it. Logging out, restarting or shutting down (a `quit`
  *   event with a reason) go through: refusing them would cancel the logout, and the user chose
  *   to end the session.
@@ -122,11 +123,12 @@ namespace
 class MacApplicationEvents : public QObject
 {
 public:
-    MacApplicationEvents(QQuickWindow *window, TimerEngine *timer, std::function<void()> showWindow,
+    MacApplicationEvents(QQuickWindow *window, TimerEngine *timer, DataManager *data, std::function<void()> showWindow,
                          std::function<void(const QUrl &)> openUrl, bool armed, QObject *parent)
         : QObject(parent)
         , m_window(window)
         , m_timer(timer)
+        , m_data(data)
         , m_showWindow(std::move(showWindow))
         , m_openUrl(std::move(openUrl))
         , m_armed(armed)
@@ -152,7 +154,8 @@ public:
                 }
             } else if (event->type() == QEvent::Quit) {
                 const bool phaseActive = m_timer && m_timer->isActive();
-                if (QuitPolicy::needsConfirmation(macCurrentQuitOrigin(), phaseActive)) {
+                const bool unsavedData = m_data && m_data->saveFailing();
+                if (QuitPolicy::needsConfirmation(macCurrentQuitOrigin(), phaseActive, unsavedData)) {
                     // Not inside applicationShouldTerminate:, which waits for the answer.
                     QTimer::singleShot(0, this, [this]() {
                         if (m_window) {
@@ -183,6 +186,7 @@ private:
 
     QPointer<QQuickWindow> m_window;
     QPointer<TimerEngine> m_timer;
+    QPointer<DataManager> m_data;
     std::function<void()> m_showWindow;
     std::function<void(const QUrl &)> m_openUrl;
     bool m_armed;
@@ -696,7 +700,7 @@ int main(int argc, char *argv[])
             }
         };
         // The Dock icon, links, and quitting from the system (see MacApplicationEvents).
-        auto *macEvents = new MacApplicationEvents(window, timer, [activateWindow]() { activateWindow(); }, openUrl, !background,
+        auto *macEvents = new MacApplicationEvents(window, timer, dataManager, [activateWindow]() { activateWindow(); }, openUrl, !background,
                                                    &services);
         app.installEventFilter(macEvents);
         if (background) {
