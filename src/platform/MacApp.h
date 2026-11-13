@@ -35,4 +35,13 @@ class QWindow;
 /// in its middle, which the title bar takes as its height (its safe area). Does nothing without
 /// the cocoa platform (offscreen runs).
 void macSetUpTitleBar(QWindow *window);
+
+/// Stops Qt from reporting clicks on the menu bar icon (QSystemTrayIcon::activated, which Sugo
+/// does not use on macOS). Qt 6.10 reads the click from NSApp.currentEvent when the icon's menu
+/// starts tracking; on macOS 27 the menu opens from a deferred step and that event is often not a
+/// mouse event, so asking for its click count throws: the menu never opens, and the icon stays
+/// highlighted and ignores clicks for a while. Qt fixed it after 6.11.1 (qt_mac_isMouseEvent in
+/// QCocoaSystemTrayIcon::emitActivated). Call it after the icon is shown with its menu. Does
+/// nothing without the cocoa platform.
+void macStopTrayActivationReports();
 #endif
