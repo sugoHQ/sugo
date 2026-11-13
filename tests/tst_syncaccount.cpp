@@ -652,8 +652,14 @@ private Q_SLOTS:
 
         // The box is there, but the user has not said yet that A shows the same code: B holds it
         // unopened, stores nothing and stops asking the server.
-        const int fetchedAtApproval = server->count("GET", "/v1/key");
-        QTRY_VERIFY_WITH_TIMEOUT(server->count("GET", "/v1/key") > fetchedAtApproval, 5000);
+        // (B may fetch the box before A even hears its PUT answered: wait for a fetch after the PUT.)
+        const QByteArray keyPut = "/v1/devices/" + b.account->deviceId().toUtf8() + "/key";
+        const qint64 putAt = server->of("PUT", keyPut).last().sequence;
+        const auto fetchedAfterPut = [&]() {
+            const auto gets = server->of("GET", "/v1/key");
+            return std::any_of(gets.cbegin(), gets.cend(), [&](const FakeSyncServer::Request &r) { return r.sequence > putAt; });
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(fetchedAfterPut(), 5000);
         const int fetched = server->count("GET", "/v1/key");
         QTest::qWait(30 * kUnitMs);
         QCOMPARE(server->count("GET", "/v1/key"), fetched);
