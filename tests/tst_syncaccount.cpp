@@ -1001,6 +1001,84 @@ private Q_SLOTS:
         QVERIFY(!c.store.secrets->contains(SyncSecrets::itemKey()));
     }
 
+    void quitBeforeTheRegenerationAnswerSendsTheSameCodeAtTheNextStart()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QString oldCode = c.account->recoveryCode();
+        QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
+        // The server stores the copy, its answer is lost, and Sugo quits before the next try.
+        server->loseAnswers = 0;
+        int puts = 0;
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery" && ++puts == 1) {
+                server->loseAnswers = 1;
+            }
+        };
+        c.account->regenerateRecoveryCode();
+        QVERIFY(retrying.wait(5000));
+        server->onRequest = nullptr; // it holds this function's locals
+        const QString kept = c.item().value(QLatin1String("pendingRecoveryCode")).toString();
+        QVERIFY(!kept.isEmpty());
+        QVERIFY(kept != oldCode);
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(kept)));
+
+        c.build(*server);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QVERIFY(created.wait(5000));
+        QCOMPARE(created.first().first().toString(), kept);
+        QCOMPARE(c.item().value(QLatin1String("recoveryCode")).toString(), kept);
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(kept)));
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QCOMPARE(c.account->recoveryCode(), kept);
+    }
+
+    void refusedRegenerationForgetsTheKeptCode()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        server->device(c.account->deviceId())->ready = false; // key_exists: refused for good
+        c.account->regenerateRecoveryCode();
+        QVERIFY(failed.wait(5000));
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        server->device(c.account->deviceId())->ready = true;
+    }
+
+    void refusedCodeTheKeyringKeepsIsNeverSentAgain()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QByteArray copy = server->accounts.value(kUser).recovery;
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        server->device(c.account->deviceId())->ready = false; // key_exists: refused for good
+        c.account->regenerateRecoveryCode(); // the pending code is in the keyring now
+        *c.store.failWrites = true;          // and its removal is refused
+        QVERIFY(failed.wait(5000));
+        QVERIFY(c.item().contains(QLatin1String("pendingRecoveryCode")));
+        server->device(c.account->deviceId())->ready = true;
+
+        // The next start removes it instead of sending it.
+        *c.store.failWrites = false;
+        const int puts = server->count("PUT", "/v1/recovery");
+        c.build(*server);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QTRY_COMPARE(c.account->phase(), SyncAccount::Phase::Ready);
+        QTRY_VERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(created.size(), 0);
+        QCOMPARE(server->accounts.value(kUser).recovery, copy);
+    }
+
     void lostRegenerationAnswerSendsTheSameCodeAgain()
     {
         Client c(*server);

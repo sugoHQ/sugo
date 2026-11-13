@@ -25,6 +25,8 @@ const char kKeyConfirmed[] = "KeyConfirmed";
 /// updated_at of the recovery copy this device wrote last ("pending" while it writes one).
 const char kRecoveryUpdatedAt[] = "RecoveryUpdatedAt";
 const QLatin1String kPendingStamp("pending");
+/// The keyring kept a pending recovery code the server refused (its removal failed): never sent again.
+const char kRecoveryPendingDropped[] = "RecoveryPendingDropped";
 /// The name this computer last signed in with, kept after sign-out (outside the group `Sync`,
 /// which goes) so that signing in again offers it.
 const QLatin1String kLastDeviceName("SyncSignIn/DeviceName");
@@ -702,6 +704,7 @@ void SyncAccount::becomeReady()
     }
     setPhase(Phase::Ready);
     Q_EMIT keyReady();
+    resumePendingRecovery();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -925,6 +928,12 @@ void SyncAccount::regenerateRecoveryCode()
     auto pending = std::make_shared<PendingRecovery>();
     pending->code = SyncCrypto::newRecoveryCode();
     pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    // In the keyring before it is sent: a quit before the answer would lose a code the server may
+    // hold. If the keyring refuses, it is kept in memory only, as before.
+    const SecretBytes kept = pending->code.copy();
+    if (m_secrets->update([&](SyncSecrets::Values &v) { v.pendingRecoveryCode = kept.copy(); })) {
+        m_settings->remove(key(kRecoveryPendingDropped)); // this one is new: it may be sent again
+    }
     // Until the new code is stored, the code in the keyring may not be the server's.
     pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
     writeSetting(kRecoveryUpdatedAt, kPendingStamp);
@@ -932,6 +941,47 @@ void SyncAccount::regenerateRecoveryCode()
     setRecoveryShowable(false);
     m_pendingRecovery = pending;
     sendRecovery();
+}
+
+void SyncAccount::resumePendingRecovery()
+{
+    if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
+        return;
+    }
+    const SecretBytes &code = m_secrets->values().pendingRecoveryCode;
+    if (code.isEmpty()) {
+        return;
+    }
+    if (m_settings->value(key(kRecoveryPendingDropped)).toBool()) {
+        // Refused by the server before: only its removal from the keyring is left to do.
+        dropPendingRecovery();
+        return;
+    }
+    // An earlier run created this code and quit before a certain answer: the server may hold its
+    // copy, so the same code goes again (sealed anew: any copy opens with it).
+    m_regenerating = true;
+    auto pending = std::make_shared<PendingRecovery>();
+    pending->code = code.copy();
+    pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    pending->mayHaveArrived = true;
+    writeSetting(kRecoveryUpdatedAt, kPendingStamp);
+    Settings::sync(*m_settings);
+    setRecoveryShowable(false);
+    m_pendingRecovery = pending;
+    sendRecovery();
+}
+
+void SyncAccount::dropPendingRecovery()
+{
+    const bool removed = m_secrets->update([](SyncSecrets::Values &v) { v.pendingRecoveryCode = SecretBytes(); });
+    // A refused removal is remembered outside the keyring, so the next start does not send it.
+    if (removed) {
+        m_settings->remove(key(kRecoveryPendingDropped));
+    } else {
+        writeSetting(kRecoveryPendingDropped, true);
+    }
+    Settings::sync(*m_settings);
 }
 
 void SyncAccount::sendRecovery()
@@ -963,6 +1013,7 @@ void SyncAccount::sendRecovery()
         m_pendingRecovery.reset();
         m_regenerating = false;
         if (!reply.ok()) {
+            dropPendingRecovery();
             if (!pending->mayHaveArrived) {
                 writeSetting(kRecoveryUpdatedAt, pending->previousStamp); // the server kept the old copy
                 Settings::sync(*m_settings);
@@ -972,7 +1023,10 @@ void SyncAccount::sendRecovery()
             return;
         }
         const QString text = SyncCrypto::formatRecoveryCode(pending->code);
-        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(pending->code); });
+        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) {
+            v.recoveryCode = std::move(pending->code);
+            v.pendingRecoveryCode = SecretBytes();
+        });
         if (!saved) {
             Q_EMIT keyringWriteFailed();
         }

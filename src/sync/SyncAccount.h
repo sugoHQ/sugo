@@ -333,6 +333,10 @@ private:
     /// A new recovery code on its way to the server, sent again until the answer is certain.
     struct PendingRecovery;
     void sendRecovery();
+    /// Sends again a new code an earlier run kept in the keyring without a certain answer.
+    void resumePendingRecovery();
+    /// Removes the pending code from the keyring; a refused removal keeps it from being sent again.
+    void dropPendingRecovery();
     std::shared_ptr<PendingRecovery> m_pendingRecovery;
     QTimer m_recoveryTimer;
 
