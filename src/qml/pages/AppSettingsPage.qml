@@ -2034,7 +2034,10 @@ QQC2.Page {
                         objectName: "calendarPasswordOutsideKeyring"
                         readonly property bool outside: page.calPasswordOutsideKeyring
                         readonly property bool configured: page.calConfigured
-                        property bool seen: outside
+                        // Copied once, not bound: a binding would follow `outside` and show the
+                        // row under the account's rows after all.
+                        property bool seen: false
+                        Component.onCompleted: seen = outside
                         onOutsideChanged: {
                             if (!outside) {
                                 return;
