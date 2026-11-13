@@ -25,6 +25,7 @@ enum class Origin {
 };
 
 /// True when the request must be refused and turned into the window's question: an external
-/// request while a phase runs or is paused.
-bool needsConfirmation(Origin origin, bool phaseActive);
+/// request while a phase runs or is paused, or while sessions or timer changes could not be
+/// saved yet (DataManager::saveFailing()), which quitting would lose.
+bool needsConfirmation(Origin origin, bool phaseActive, bool unsavedData);
 } // namespace QuitPolicy

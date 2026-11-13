@@ -88,7 +88,8 @@ QQC2.ApplicationWindow {
 
     /// Set from C++ (main.cpp, MacApplicationEvents) when macOS quits the application: Sugo's own
     /// quit, logging out or shutting down. The window then lets itself close. The Dock's Quit
-    /// with a phase active does not set it: it is turned into requestQuit().
+    /// with a phase active, or with data not saved yet, does not set it: it is turned into
+    /// requestQuit().
     property bool platformQuitting: false
 
     // The close button hides the window when the program is meant to live in the tray, and
