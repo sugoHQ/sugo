@@ -702,6 +702,7 @@ void SyncAccount::becomeReady()
     }
     setPhase(Phase::Ready);
     Q_EMIT keyReady();
+    resumePendingRecovery();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -925,8 +926,36 @@ void SyncAccount::regenerateRecoveryCode()
     auto pending = std::make_shared<PendingRecovery>();
     pending->code = SyncCrypto::newRecoveryCode();
     pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    // In the keyring before it is sent: a quit before the answer would lose a code the server may
+    // hold. If the keyring refuses, it is kept in memory only, as before.
+    const SecretBytes kept = pending->code.copy();
+    m_secrets->update([&](SyncSecrets::Values &v) { v.pendingRecoveryCode = kept.copy(); });
     // Until the new code is stored, the code in the keyring may not be the server's.
     pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    writeSetting(kRecoveryUpdatedAt, kPendingStamp);
+    Settings::sync(*m_settings);
+    setRecoveryShowable(false);
+    m_pendingRecovery = pending;
+    sendRecovery();
+}
+
+void SyncAccount::resumePendingRecovery()
+{
+    if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
+        return;
+    }
+    const SecretBytes &code = m_secrets->values().pendingRecoveryCode;
+    if (code.isEmpty()) {
+        return;
+    }
+    // An earlier run created this code and quit before a certain answer: the server may hold its
+    // copy, so the same code goes again (sealed anew: any copy opens with it).
+    m_regenerating = true;
+    auto pending = std::make_shared<PendingRecovery>();
+    pending->code = code.copy();
+    pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    pending->mayHaveArrived = true;
     writeSetting(kRecoveryUpdatedAt, kPendingStamp);
     Settings::sync(*m_settings);
     setRecoveryShowable(false);
@@ -963,6 +992,7 @@ void SyncAccount::sendRecovery()
         m_pendingRecovery.reset();
         m_regenerating = false;
         if (!reply.ok()) {
+            m_secrets->update([](SyncSecrets::Values &v) { v.pendingRecoveryCode = SecretBytes(); });
             if (!pending->mayHaveArrived) {
                 writeSetting(kRecoveryUpdatedAt, pending->previousStamp); // the server kept the old copy
                 Settings::sync(*m_settings);
@@ -972,7 +1002,10 @@ void SyncAccount::sendRecovery()
             return;
         }
         const QString text = SyncCrypto::formatRecoveryCode(pending->code);
-        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(pending->code); });
+        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) {
+            v.recoveryCode = std::move(pending->code);
+            v.pendingRecoveryCode = SecretBytes();
+        });
         if (!saved) {
             Q_EMIT keyringWriteFailed();
         }

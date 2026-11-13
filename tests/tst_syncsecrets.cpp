@@ -49,6 +49,28 @@ private Q_SLOTS:
         QVERIFY(back->recoveryCode == v.recoveryCode);
     }
 
+    void pendingRecoveryCodeRoundTrip()
+    {
+        SyncSecrets::Values v = sample();
+        v.pendingRecoveryCode = SyncCrypto::newRecoveryCode();
+        const QByteArray json = SyncSecrets::toJson(v);
+        const std::optional<SyncSecrets::Values> back = SyncSecrets::fromJson(json);
+        QVERIFY(back);
+        QVERIFY(back->pendingRecoveryCode == v.pendingRecoveryCode);
+        QVERIFY(back->recoveryCode == v.recoveryCode);
+        QVERIFY(!SyncSecrets::toJson(sample()).contains("pendingRecoveryCode"));
+
+        // Only a convenience: an unreadable one is dropped, the keys stay.
+        QJsonObject object = QJsonDocument::fromJson(json).object();
+        object.insert(QLatin1String("pendingRecoveryCode"), QStringLiteral("1234"));
+        SyncSecrets::LoadResult result = SyncSecrets::LoadResult::Failed;
+        const std::optional<SyncSecrets::Values> bad = SyncSecrets::fromJson(QJsonDocument(object).toJson(), &result);
+        QVERIFY(bad);
+        QCOMPARE(int(result), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(bad->pendingRecoveryCode.isEmpty());
+        QVERIFY(bad->dataKey == v.dataKey);
+    }
+
     void missingFieldsStayEmpty()
     {
         SyncSecrets::Values v;
