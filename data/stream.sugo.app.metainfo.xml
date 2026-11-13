@@ -39,6 +39,23 @@
     <id>io.github.mineraleyt.sugo</id>
   </replaces>
   <releases>
+    <release version="1.0.5" date="2026-11-13">
+      <description>
+        <p>More time when a phase needs it, a session that survives a restart, signed updates, and many fixes.</p>
+        <ul>
+          <li>Add 2, 5 or 10 minutes to a phase, even right after it ends, from the Focus page, the tray, the notification or the command line</li>
+          <li>A session under way when Sugo quits or crashes comes back, paused, at the next start</li>
+          <li>A suggestion for the break appears under the clock</li>
+          <li>The tray icon turns yellow while the timer is paused, and Quiet in the composer shows clearly whether it is on</li>
+          <li>Statistics list every session of the period, and a session can be deleted together with its calendar event</li>
+          <li>Several timers can be chosen and deleted at once on the Timers page, also from the keyboard</li>
+          <li>Sugo warns before quitting would lose data not saved yet, and says when the stored timers could not be read or the calendar password is not in the keyring</li>
+          <li>AppImage and Flatpak for Linux on ARM (aarch64), and updates are signed and checked before they are installed</li>
+          <li>Sugo Sync: a new device gets the key only after you confirm the code it shows, and a lost answer no longer breaks a token renewal or a new recovery code</li>
+          <li>Fixes to calendar sync, the screen lock, KRunner, backups, notification silencing and the macOS menu bar</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.4" date="2026-11-08">
       <description>
         <p>Anonymous usage statistics, which you choose to share or not, and a round of fixes.</p>
