@@ -89,7 +89,8 @@ struct SyncReply {
  *   refresh token works once). An authenticated request that gets 401 renews once and tries
  *   again once. A renewal that gets no answer (or a server error) is sent again after 2 s and
  *   5 s, with a 15 s timeout: the server takes back a refresh token whose answer was lost only
- *   within a minute, and afterwards treats it as stolen and signs the device out.
+ *   within its grace (a minute before sugo-sync#51, 24 h since), and afterwards treats it as
+ *   stolen and signs the device out.
  * - reset() (sign out, cancel) drops every pending answer: their callbacks are never called.
  */
 class SyncApi : public QObject

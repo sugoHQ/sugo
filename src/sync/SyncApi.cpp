@@ -26,10 +26,11 @@ constexpr qint64 kMaxResponseSize = 8 * 1024 * 1024;
 /// An access token is renewed when it has less than this left.
 constexpr qint64 kAccessMarginMs = 60 * 1000;
 /// The renewal's own transfer timeout, shorter than the others: its retries must all reach the server
-/// within the minute in which it takes back a refresh token whose answer was lost.
+/// while it still takes back a refresh token whose answer was lost. Servers before sugo-sync#51 do so
+/// for a minute (since then for 24 h), and the retries keep to the minute, so they work with both.
 constexpr int kRefreshTimeoutMs = 15000;
-/// No retry of a renewal starts later than this after the first try (the server's grace is 60 s
-/// from when it took the token, never before the first try was sent).
+/// No retry of a renewal starts later than this after the first try (the shortest grace, of servers
+/// before sugo-sync#51, is 60 s from when the server took the token, never before the first try was sent).
 constexpr qint64 kRefreshRetryWindowMs = 40 * 1000;
 
 QString appVersion()
@@ -380,8 +381,9 @@ void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 first
             return;
         }
         // No answer, or a server error: the server may have taken the token and the answer been
-        // lost. It takes the same token back only within a minute (and gives a new pair), and treats
-        // it as stolen afterwards, so the retries come now, not with the sync's backoff.
+        // lost. It takes the same token back within its grace (and gives a new pair), and treats it
+        // as stolen afterwards. The grace is 24 h since sugo-sync#51 but a minute before, so the
+        // retries come now, not with the sync's backoff.
         // A refused redirect (3xx, failing as Network or Server) is an answer: never retried.
         const bool redirected = reply.http >= 300 && reply.http < 400;
         const bool lost = !redirected
