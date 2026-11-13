@@ -1014,7 +1014,14 @@ private Q_SLOTS:
         // A server error, then a try the server stores but whose answer is lost. Before, the code
         // was dropped at the first failure, and a lost answer left the server with a copy nobody
         // could open.
-        server->loseAnswers = 1;
+        // The answer lost is the PUT's own, not that of a request the sign-in left on its way.
+        int putsSeen = 0;
+        int loseAtPut = 2;
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery" && ++putsSeen == loseAtPut) {
+                server->loseAnswers = 1;
+            }
+        };
         server->failures.append({"/v1/recovery", 503, "PUT"});
         const int puts = server->count("PUT", "/v1/recovery");
         c.account->regenerateRecoveryCode();
@@ -1034,13 +1041,14 @@ private Q_SLOTS:
         QTRY_VERIFY(c.account->recoveryCodeShowable());
 
         // A second regeneration is not started while one is on its way.
-        server->loseAnswers = 1;
+        loseAtPut = putsSeen + 1;
         c.account->regenerateRecoveryCode();
         c.account->regenerateRecoveryCode();
         QVERIFY(created.wait(5000));
         QCOMPARE(created.size(), 2);
         QTest::qWait(30 * kUnitMs);
         QCOMPARE(created.size(), 2);
+        server->onRequest = nullptr; // it holds this function's locals
     }
 
     void unreadableRegenerationAnswerSendsTheSameCodeAgain()
@@ -1084,11 +1092,14 @@ private Q_SLOTS:
         QTRY_VERIFY(c.account->recoveryCodeShowable());
 
         // Refused after a try whose answer was lost: the server may hold a copy nobody can open.
-        server->loseAnswers = 1;
         int puts = 0;
         server->onRequest = [&](const FakeSyncServer::Request &req) {
-            if (req.method == "PUT" && req.path == "/v1/recovery" && ++puts == 2) {
-                refuse(true);
+            if (req.method == "PUT" && req.path == "/v1/recovery") {
+                if (++puts == 1) {
+                    server->loseAnswers = 1;
+                } else if (puts == 2) {
+                    refuse(true);
+                }
             }
         };
         c.account->regenerateRecoveryCode();
@@ -1104,7 +1115,7 @@ private Q_SLOTS:
     {
         Client c(*server);
         signIn(c, SyncAccount::Phase::Ready);
-        server->loseAnswers = 1;
+        server->failNext("/v1/recovery", 503, "PUT");
         QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
         QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
         c.account->regenerateRecoveryCode();
