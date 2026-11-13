@@ -2025,14 +2025,29 @@ QQC2.Page {
                     // No keyring answered when the password was saved: it is in the settings file.
                     // Shown with the other rows of a signed-in account, so it comes with them; once
                     // shown it stays while the account does (the password saved again into the
-                    // keyring changes its text, not the layout).
+                    // keyring changes its text, not the layout). A password saved outside the
+                    // keyring while the account's rows are already shown (a custom account's
+                    // password edited) would push them down: the toast says it instead, and the
+                    // row comes with the account's rows the next time they appear.
                     SettingRow {
                         id: calKeyringRow
                         objectName: "calendarPasswordOutsideKeyring"
                         readonly property bool outside: page.calPasswordOutsideKeyring
                         readonly property bool configured: page.calConfigured
-                        property bool seen: outside
-                        onOutsideChanged: if (outside) seen = true
+                        // Copied once, not bound: a binding would follow `outside` and show the
+                        // row under the account's rows after all.
+                        property bool seen: false
+                        Component.onCompleted: seen = outside
+                        onOutsideChanged: {
+                            if (!outside) {
+                                return;
+                            }
+                            if (configured && !seen) {
+                                applicationWindow().showPassiveNotification(outsideText);
+                            } else {
+                                seen = true;
+                            }
+                        }
                         onConfiguredChanged: if (!configured) seen = outside
                         visible: configured && seen
                         readonly property string outsideText: DesktopStyle.macos
