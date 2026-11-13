@@ -113,6 +113,7 @@ private:
     qint64 m_lastEndedStartMs = -1;  ///< Start of the phase that ended last, to know its row once a retry stores it.
     SessionKind m_lastEndedKind = SessionKind::Work;
     TimerPreset m_lastEndedTimer; ///< m_active of that phase: a phase taken up again keeps its name and category.
-    QList<SessionRecord> m_unsaved; ///< Ended sessions the database refused, oldest first.
+    /// Ended sessions the database refused, oldest first; one with an id is a new end of that row.
+    QList<SessionRecord> m_unsaved;
     QTimer m_retryTimer;
 };

@@ -300,6 +300,64 @@ private Q_SLOTS:
         }
     }
 
+    /// Makes the database refuse changes to stored sessions.
+    void failSessionUpdates(bool fail)
+    {
+        QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+        if (fail) {
+            QVERIFY(query.exec(QStringLiteral("CREATE TEMP TRIGGER refuseUpdate BEFORE UPDATE ON session "
+                                              "BEGIN SELECT RAISE(ABORT, 'disk full'); END")));
+        } else {
+            QVERIFY(query.exec(QStringLiteral("DROP TRIGGER refuseUpdate")));
+        }
+    }
+
+    void extraTimeTheDatabaseRefusesIsStoredLater()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        recorder->setRetryIntervalForTesting(30);
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        const qint64 id = all().at(0).id;
+        QCOMPARE(recorded.size(), 1);
+
+        failSessionUpdates(true);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Cannot update session")));
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+        QVERIFY(recorder->isSaveFailing()); // said, not lost
+        QCOMPARE(all().at(0).durationSec, 25 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), id);
+
+        failSessionUpdates(false);
+        QTRY_VERIFY(!recorder->isSaveFailing());
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).id, id);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorded.size(), 2); // the calendar replaces its event
+        QCOMPARE(recorded.at(1).at(0).value<SessionRecord>().id, id);
+    }
+
+    void extraTimeWaitingForADeletedSessionIsDropped()
+    {
+        recorder->setRetryIntervalForTesting(30);
+        engine->start();
+        elapse(25 * 60);
+        const qint64 id = all().at(0).id;
+        failSessionUpdates(true);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Cannot update session")));
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+        QVERIFY(recorder->isSaveFailing());
+        failSessionUpdates(false);
+        QVERIFY(sessions->deleteById(id));
+        recorder->forgetSession(id);
+        QVERIFY(!recorder->isSaveFailing());
+        QTest::qWait(60);
+        QVERIFY(all().isEmpty());
+    }
+
     void sessionsTheDatabaseRefusesAreKeptAndStoredLater()
     {
         QSignalSpy failing(recorder.get(), &SessionRecorder::saveFailingChanged);
