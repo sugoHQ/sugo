@@ -1001,6 +1001,98 @@ private Q_SLOTS:
         QVERIFY(!c.store.secrets->contains(SyncSecrets::itemKey()));
     }
 
+    void lostRegenerationAnswerSendsTheSameCodeAgain()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QString oldCode = c.account->recoveryCode();
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+
+        // A server error, then a try the server stores but whose answer is lost. Before, the code
+        // was dropped at the first failure, and a lost answer left the server with a copy nobody
+        // could open.
+        server->loseAnswers = 1;
+        server->failures.append({"/v1/recovery", 503, "PUT"});
+        const int puts = server->count("PUT", "/v1/recovery");
+        c.account->regenerateRecoveryCode();
+        QVERIFY(created.wait(5000));
+        QCOMPARE(retrying.size(), 1);
+        QCOMPARE(failed.size(), 0);
+
+        // The same copy went three times, and its code is the one shown, stored and on the server.
+        const auto sent = server->of("PUT", "/v1/recovery").mid(puts);
+        QCOMPARE(sent.size(), 3);
+        QCOMPARE(sent.at(1).body, sent.at(0).body);
+        QCOMPARE(sent.at(2).body, sent.at(0).body);
+        const QString newCode = created.first().first().toString();
+        QVERIFY(newCode != oldCode);
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(newCode)));
+        QCOMPARE(c.item().value(QLatin1String("recoveryCode")).toString(), newCode);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+
+        // A second regeneration is not started while one is on its way.
+        server->loseAnswers = 1;
+        c.account->regenerateRecoveryCode();
+        c.account->regenerateRecoveryCode();
+        QVERIFY(created.wait(5000));
+        QCOMPARE(created.size(), 2);
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(created.size(), 2);
+    }
+
+    void regenerationRefusedSaysWhetherTheOldCodeStillWorks()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+
+        // Refused at once (key_exists, as to a device the server does not count as ready): the
+        // server kept its copy, and the old code is shown again.
+        const auto refuse = [&](bool on) { server->device(c.account->deviceId())->ready = !on; };
+        refuse(true);
+        c.account->regenerateRecoveryCode();
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(failed.last().at(1).toBool(), true);
+        refuse(false);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+
+        // Refused after a try whose answer was lost: the server may hold a copy nobody can open.
+        server->loseAnswers = 1;
+        int puts = 0;
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery" && ++puts == 2) {
+                refuse(true);
+            }
+        };
+        c.account->regenerateRecoveryCode();
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(failed.last().at(1).toBool(), false);
+        QCOMPARE(created.size(), 0);
+        QTest::qWait(30 * kUnitMs);
+        QVERIFY(!c.account->recoveryCodeShowable());
+    }
+
+    void signOutStopsTheRegeneration()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        server->loseAnswers = 1;
+        QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        c.account->regenerateRecoveryCode();
+        QVERIFY(retrying.wait(5000));
+        c.account->signOutLocally();
+        const int puts = server->count("PUT", "/v1/recovery");
+        QTest::qWait(60 * kUnitMs);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(created.size(), 0);
+    }
+
     void regenerationNotStoredIsNotShowable()
     {
         Client c(*server);

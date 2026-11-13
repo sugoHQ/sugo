@@ -188,9 +188,13 @@ void SyncController::connectAccount()
     });
     connect(a, &SyncAccount::recoveryCodeWrong, this, [this]() { Q_EMIT message(i18n("That recovery code does not open your timers.")); });
     connect(a, &SyncAccount::recoveryCodeShowableChanged, this, &SyncController::recoveryCodeShowableChanged);
-    connect(a, &SyncAccount::recoveryCodeFailed, this, [this](const SyncError &error) {
-        Q_EMIT message(error.kind == SyncError::Kind::Network ? i18n("Cannot reach Sugo Sync. The old recovery code still works.")
-                                                              : i18n("A new recovery code could not be created."));
+    connect(a, &SyncAccount::recoveryCodeFailed, this, [this](const SyncError &, bool oldCodeWorks) {
+        Q_EMIT message(oldCodeWorks ? i18n("A new recovery code could not be created. The old one still works.")
+                                    : i18n("A new recovery code could not be created, and the old one may no longer work. Create a new one."));
+    });
+    // The new copy may have reached the server: its code is kept and sent again, never dropped.
+    connect(a, &SyncAccount::recoveryCodeRetrying, this, [this](const SyncError &) {
+        Q_EMIT message(i18n("Cannot reach Sugo Sync. Sugo keeps trying and shows the new recovery code once it is saved."));
     });
 
     connect(a, &SyncAccount::approvalRequested, this, [this](const QString &id, const QString &name, const QString &platform, const QString &code) {

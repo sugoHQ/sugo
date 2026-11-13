@@ -13,6 +13,7 @@
 #include <QUrl>
 #include <QVariantMap>
 
+#include <memory>
 #include <optional>
 
 #include "Settings.h"
@@ -183,7 +184,12 @@ public Q_SLOTS:
 
     /// Asks the server whose recovery copy it holds (recoveryCodeShowableChanged()).
     void refreshRecoveryStatus();
-    /// A new recovery code replaces the old one, which stops working: recoveryCodeCreated().
+    /**
+     * A new recovery code replaces the old one, which stops working: recoveryCodeCreated(). Without a
+     * certain answer (no answer, a server error, a rate limit) the same copy is sent again, with the
+     * same code, until there is one: the first try may have reached the server, which would then hold
+     * a copy of a code nobody knows (recoveryCodeRetrying() on the first such failure).
+     */
     void regenerateRecoveryCode();
 
     /// Disconnects this device on the server if it can, then signOutLocally(): signedOut().
@@ -232,8 +238,11 @@ Q_SIGNALS:
     /// The recovery code typed does not open the server's copy.
     void recoveryCodeWrong();
     void recoveryCodeShowableChanged(bool showable);
-    /// regenerateRecoveryCode() failed; the old code still works unless the error was a network one.
-    void recoveryCodeFailed(const SyncError &error);
+    /// regenerateRecoveryCode() was refused for good. `oldCodeWorks`: no try can have replaced the
+    /// server's copy; else it may hold the new copy, whose code is lost.
+    void recoveryCodeFailed(const SyncError &error, bool oldCodeWorks);
+    /// regenerateRecoveryCode() got no certain answer: the new copy is sent again until it gets one.
+    void recoveryCodeRetrying(const SyncError &error);
 
     /// A pending device asks for the key; `verificationCode` must match what it shows.
     void approvalRequested(const QString &id, const QString &name, const QString &platform, const QString &verificationCode);
@@ -320,6 +329,12 @@ private:
     bool m_checkingPending = false;
     QHash<QString, QByteArray> m_asked; ///< Device id → the public key its code was shown for.
     QSet<QString> m_ignored;
+
+    /// A new recovery code on its way to the server, sent again until the answer is certain.
+    struct PendingRecovery;
+    void sendRecovery();
+    std::shared_ptr<PendingRecovery> m_pendingRecovery;
+    QTimer m_recoveryTimer;
 
     bool m_recoveryShowable = false;
     bool m_usingRecoveryCode = false;

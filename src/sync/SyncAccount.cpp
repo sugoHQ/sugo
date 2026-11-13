@@ -9,6 +9,7 @@
 #include <QSysInfo>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -42,6 +43,8 @@ constexpr int kRetrySeconds = 30;
 /// While waiting for the key, the devices are listed again this often: an approver that signed
 /// out (or was disconnected) is replaced by whichever device holds the key now.
 constexpr int kKeyRelistSeconds = 60;
+/// The waits before the tries of a new recovery copy after an uncertain answer; the last repeats.
+constexpr int kRecoveryRetrySeconds[] = {5, 15, 60, 300};
 /// The longest wait between two requests, whatever the server asks (interval, Retry-After): more
 /// would overflow the timers' milliseconds, and the polling would stop without a word.
 constexpr int kMaxWaitSeconds = 3600;
@@ -65,6 +68,8 @@ SyncAccount::SyncAccount(SyncApi *api, SyncSecrets *secrets, Settings::Ptr setti
     connect(&m_pollTimer, &QTimer::timeout, this, &SyncAccount::pollToken);
     m_keyTimer.setSingleShot(true);
     connect(&m_keyTimer, &QTimer::timeout, this, [this]() { runKeyStep(m_keyStep); });
+    m_recoveryTimer.setSingleShot(true);
+    connect(&m_recoveryTimer, &QTimer::timeout, this, &SyncAccount::sendRecovery);
     connect(m_api, &SyncApi::signedOutRemotely, this, &SyncAccount::onSignedOutRemotely);
 }
 
@@ -903,35 +908,70 @@ void SyncAccount::refreshRecoveryStatus()
     });
 }
 
+struct SyncAccount::PendingRecovery {
+    SecretBytes code;
+    QByteArray sealed;
+    QVariant previousStamp; ///< RecoveryUpdatedAt before, back if the server surely kept its copy.
+    int attempt = 0;
+    bool mayHaveArrived = false; ///< A try got no answer or a server error.
+};
+
 void SyncAccount::regenerateRecoveryCode()
 {
     if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
         return;
     }
     m_regenerating = true;
-    auto code = std::make_shared<SecretBytes>(SyncCrypto::newRecoveryCode());
-    const QByteArray sealed = SyncCrypto::sealWithRecovery(dataKey(), *code);
+    auto pending = std::make_shared<PendingRecovery>();
+    pending->code = SyncCrypto::newRecoveryCode();
+    pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
     // Until the new code is stored, the code in the keyring may not be the server's.
-    const QVariant previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
     writeSetting(kRecoveryUpdatedAt, kPendingStamp);
     Settings::sync(*m_settings);
     setRecoveryShowable(false);
-    m_api->putRecovery(sealed, [this, code, previousStamp](const SyncReply &reply) {
-        m_regenerating = false;
-        if (m_phase != Phase::Ready) {
+    m_pendingRecovery = pending;
+    sendRecovery();
+}
+
+void SyncAccount::sendRecovery()
+{
+    const std::shared_ptr<PendingRecovery> pending = m_pendingRecovery;
+    if (!pending || m_phase != Phase::Ready) {
+        return;
+    }
+    m_api->putRecovery(pending->sealed, [this, pending](const SyncReply &reply) {
+        if (m_phase != Phase::Ready || pending != m_pendingRecovery) {
             return;
         }
+        if (!reply.ok() && reply.error.transient()) {
+            // No certain answer: the copy may be on the server already. The same copy goes again,
+            // never a new code, until the server says yes or no.
+            if (reply.error.kind != SyncError::Kind::RateLimited) {
+                pending->mayHaveArrived = true;
+            }
+            if (pending->attempt == 0) {
+                Q_EMIT recoveryCodeRetrying(reply.error);
+            }
+            constexpr int steps = int(std::size(kRecoveryRetrySeconds));
+            const int wait = std::max(kRecoveryRetrySeconds[std::min(pending->attempt, steps - 1)], reply.error.retryAfter);
+            ++pending->attempt;
+            m_recoveryTimer.start(std::clamp(wait, 1, kMaxWaitSeconds) * m_unitMs);
+            return;
+        }
+        m_pendingRecovery.reset();
+        m_regenerating = false;
         if (!reply.ok()) {
-            if (!reply.error.transient()) {
-                writeSetting(kRecoveryUpdatedAt, previousStamp); // the server kept the old copy
+            if (!pending->mayHaveArrived) {
+                writeSetting(kRecoveryUpdatedAt, pending->previousStamp); // the server kept the old copy
                 Settings::sync(*m_settings);
             }
-            Q_EMIT recoveryCodeFailed(reply.error);
+            Q_EMIT recoveryCodeFailed(reply.error, !pending->mayHaveArrived);
             refreshRecoveryStatus();
             return;
         }
-        const QString text = SyncCrypto::formatRecoveryCode(*code);
-        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(*code); });
+        const QString text = SyncCrypto::formatRecoveryCode(pending->code);
+        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(pending->code); });
         if (!saved) {
             Q_EMIT keyringWriteFailed();
         }
@@ -1023,6 +1063,8 @@ void SyncAccount::signOutLocally()
     m_signingOut = false;
     m_usingRecoveryCode = false;
     m_regenerating = false;
+    m_recoveryTimer.stop();
+    m_pendingRecovery.reset();
     m_checkingPending = false;
     setRecoveryShowable(false);
     clearSignInCode();
