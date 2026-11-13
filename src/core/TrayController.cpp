@@ -10,6 +10,9 @@
 #include "TrayPresenter.h"
 
 #include "Localization.h"
+#ifdef Q_OS_MACOS
+#include "MacApp.h"
+#endif
 
 #include <QAction>
 #include <QGuiApplication>
@@ -272,6 +275,10 @@ void TrayController::createItem()
 
     updateTexts();
     m_item->show();
+#ifdef Q_OS_MACOS
+    // Qt 6.10 throws inside the menu's opening on macOS 27 (see the function).
+    macStopTrayActivationReports();
+#endif
 }
 
 void TrayController::destroyItem()
