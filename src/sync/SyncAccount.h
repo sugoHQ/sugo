@@ -186,7 +186,7 @@ public Q_SLOTS:
     void refreshRecoveryStatus();
     /**
      * A new recovery code replaces the old one, which stops working: recoveryCodeCreated(). Without a
-     * certain answer (no answer, a server error, a rate limit) the same copy is sent again, with the
+     * certain answer (no answer, a server error, a rate limit, an unreadable reply) the same copy is sent again, with the
      * same code, until there is one: the first try may have reached the server, which would then hold
      * a copy of a code nobody knows (recoveryCodeRetrying() on the first such failure).
      */

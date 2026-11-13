@@ -937,14 +937,15 @@ void SyncAccount::regenerateRecoveryCode()
 void SyncAccount::sendRecovery()
 {
     const std::shared_ptr<PendingRecovery> pending = m_pendingRecovery;
-    if (!pending || m_phase != Phase::Ready) {
+    if (!pending || m_phase != Phase::Ready || m_signingOut) {
         return;
     }
     m_api->putRecovery(pending->sealed, [this, pending](const SyncReply &reply) {
         if (m_phase != Phase::Ready || pending != m_pendingRecovery) {
             return;
         }
-        if (!reply.ok() && reply.error.transient()) {
+        // An unreadable success (Format: a proxy's page, a cut body) is no certain answer either.
+        if (!reply.ok() && (reply.error.transient() || reply.error.kind == SyncError::Kind::Format)) {
             // No certain answer: the copy may be on the server already. The same copy goes again,
             // never a new code, until the server says yes or no.
             if (reply.error.kind != SyncError::Kind::RateLimited) {
@@ -1048,6 +1049,9 @@ void SyncAccount::signOut()
     }
     // Nothing else may run meanwhile; then, success or not, everything here goes.
     m_keyTimer.stop();
+    m_recoveryTimer.stop(); // a new recovery copy must not replace the server's during the sign-out
+    m_pendingRecovery.reset();
+    m_regenerating = false;
     m_api->reset();
     m_signingOut = true;
     m_api->disconnectDevice(deviceId(), [this](const SyncReply &reply) {

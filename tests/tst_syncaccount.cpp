@@ -1043,6 +1043,28 @@ private Q_SLOTS:
         QCOMPARE(created.size(), 2);
     }
 
+    void unreadableRegenerationAnswerSendsTheSameCodeAgain()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+
+        // The server stores the copy, but its answer cannot be read: the code is not dropped (the
+        // server would hold a copy nobody can open), the same copy goes again.
+        server->garbleAnswers = 1;
+        const int puts = server->count("PUT", "/v1/recovery");
+        c.account->regenerateRecoveryCode();
+        QVERIFY(created.wait(5000));
+        QCOMPARE(failed.size(), 0);
+        const auto sent = server->of("PUT", "/v1/recovery").mid(puts);
+        QCOMPARE(sent.size(), 2);
+        QCOMPARE(sent.at(1).body, sent.at(0).body);
+        const QString newCode = created.first().first().toString();
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(newCode)));
+    }
+
     void regenerationRefusedSaysWhetherTheOldCodeStillWorks()
     {
         Client c(*server);
@@ -1092,6 +1114,35 @@ private Q_SLOTS:
         QTest::qWait(60 * kUnitMs);
         QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
         QCOMPARE(created.size(), 0);
+    }
+
+    void slowSignOutStopsTheRegeneration()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        const QByteArray recovery = server->accounts.value(kUser).recovery;
+        server->failNext("/v1/recovery", 503, "PUT");
+        QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy out(c.account.get(), &SyncAccount::signedOut);
+        c.account->regenerateRecoveryCode();
+        QVERIFY(retrying.wait(5000));
+
+        // The disconnect takes longer than the next try's wait: no try goes out meanwhile.
+        int putsDuringSignOut = -1;
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "DELETE" && putsDuringSignOut < 0) {
+                const int before = server->count("PUT", "/v1/recovery");
+                QTest::qWait(60 * kUnitMs);
+                putsDuringSignOut = server->count("PUT", "/v1/recovery") - before;
+            }
+        };
+        c.account->signOut();
+        QVERIFY(out.wait(5000));
+        server->onRequest = nullptr; // it holds this function's locals
+        QCOMPARE(putsDuringSignOut, 0);
+        QCOMPARE(created.size(), 0);
+        QCOMPARE(server->accounts.value(kUser).recovery, recovery);
     }
 
     void regenerationNotStoredIsNotShowable()
