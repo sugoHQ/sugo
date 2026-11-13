@@ -114,10 +114,16 @@ Uguale su Linux e macOS, nessuno schema URL da registrare, funziona anche su un 
      privata, la chiave pubblica del nuovo) a `PUT /v1/devices/{id}/key`. Il nuovo la ritira con
      `GET /v1/key`, che restituisce anche `from_device_id` e `from_public_key`. Entrambi mostrano lo
      **stesso codice di verifica** di 16 caratteri in Base32 di Crockford (`XXXX-XXXX-XXXX-XXXX`, 80 bit
-     di BLAKE2b delle due chiavi pubbliche): così un server compromesso non può sostituire né la chiave del
-     nuovo dispositivo né quella del mittente. Con 6 cifre (~20 bit) il server poteva generare ~2000 coppie
-     di chiavi per lato finché i due codici coincidevano (paradosso del compleanno); con 80 bit ne servono
-     ~2^40 per lato durante una sola approvazione. Un passo commit-then-reveal (ognuno impegna un hash della
+     di BLAKE2b delle due chiavi pubbliche), e l'utente conferma **su entrambi**: sul dispositivo collegato
+     approvando, sul nuovo con "Same code", accanto al nome del dispositivo che deve approvarlo. Il nuovo
+     apre il box solo dopo quella conferma, e solo se viene dalla chiave pubblica del codice confermato; se
+     il codice passa a un altro dispositivo (la lista viene riletta ogni minuto), la conferma decade. Senza
+     la conferma sul nuovo dispositivo il server poteva elencare un dispositivo suo e consegnargli una `K'`
+     sua senza che l'utente confrontasse niente (così nelle versioni precedenti, che restano esposte finché
+     non si aggiornano: il server non può imporre il passo). Per sostituire una delle due chiavi un server
+     compromesso deve quindi far coincidere i due codici: con 6 cifre (~20 bit) bastavano ~2000 coppie di
+     chiavi per lato (paradosso del compleanno); con 80 bit ne servono ~2^40 per lato durante una sola
+     approvazione. È un costo, non un'impossibilità. Un passo commit-then-reveal (ognuno impegna un hash della
      propria chiave prima di vedere l'altra) toglierebbe del tutto la ricerca, ma cambia il protocollo
      (`sugo-sync`): da fare. (Con un box anonimo,
      `crypto_box_seal`, il server potrebbe consegnare una sua `K'` e poi leggere i preset caricati dal nuovo

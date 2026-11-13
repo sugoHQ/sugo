@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -11,6 +12,8 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariantMap>
+
+#include <optional>
 
 #include "Settings.h"
 #include "SyncApi.h"
@@ -25,14 +28,18 @@ class SyncSecrets;
  * - The first device of an account creates K and the recovery code, and uploads K sealed with
  *   the code (recoveryCodeCreated()).
  * - Any later device waits for a linked device to approve it: both show verificationCode() of
- *   the two public keys, and the linked one sends K in an authenticated crypto_box. While
+ *   the two public keys, and the linked one sends K in an authenticated crypto_box. The user
+ *   confirms on both: on the linked device by approving, here with confirmVerificationCode().
+ *   Until then a key that arrives is held, not opened: else a compromised server could list a
+ *   device of its own and hand this one a key it knows, with nothing for the user to compare. While
  *   waiting, the device list is read again every minute: the approver stays the same while it
  *   is still listed, holds the key and has the public key the code covers (the code does not
  *   change under the user who compares it); else the code and its approver move to the device
  *   holding the key that was seen last (one that signed out does not leave the wait stuck on
  *   a code of its own). The new device takes K only from the device the code was computed
  *   with (a server that hands it a key of its own is caught: keyRejected(), and the key is
- *   not confirmed).
+ *   not confirmed). A confirmation holds only for the approver it was given for: when the
+ *   code moves to another device, it lapses.
  * - A device can also open K with the recovery code (useRecoveryCode()).
  * - K is stored before the server is told (DELETE /v1/key), so it can never be lost between.
  * - The recovery code stays in the keyring of the device that made it; it can be shown again
@@ -109,6 +116,10 @@ public:
     // --- Key ------------------------------------------------------------------------------------------
     /// While waiting for the key: the code both devices show, "XXXX-XXXX-XXXX-XXXX" (empty if no device can approve).
     QString verificationCode() const { return m_verificationCode; }
+    /// The name of the device the code was computed with (empty if none).
+    QString approverName() const { return m_approver.name; }
+    /// The user confirmed that the approver shows verificationCode(): its key will be taken.
+    bool verificationConfirmed() const;
     /// The devices of the last list.
     QList<Device> devices() const { return m_devices; }
     QVariantList devicesAsVariantList() const;
@@ -142,6 +153,12 @@ public Q_SLOTS:
     void setWindowActive(bool active);
     /// Starts waiting for the key again (after keyRejected(), or when another device was linked).
     void waitForKey();
+    /**
+     * The user saw `code` on the approver too. Taken only while it is verificationCode(): a code
+     * the user read before it moved to another device confirms nothing. A key already held is
+     * opened now; else the next one from that approver is. False if not taken.
+     */
+    bool confirmVerificationCode(const QString &code);
 
     /// Sugo-Pending-Devices: lists the devices and asks about each new one (approvalRequested());
     /// with none waiting, lists them again if the list still shows one waiting.
@@ -201,7 +218,9 @@ Q_SIGNALS:
     /// computer was signed out locally.
     void signedOutRemotely();
     void devicesChanged();
+    /// The code, and with it approverName(), changed; verificationConfirmed() is false then.
     void verificationCodeChanged(const QString &code);
+    void verificationConfirmedChanged(bool confirmed);
     /// The key that arrived does not come from the device the code was shown for, or does not
     /// open: refused, not confirmed. Polling stops until waitForKey().
     void keyRejected();
@@ -252,6 +271,8 @@ private:
     void pollKey();
     void receiveKey(const QJsonObject &json);
     void rejectKey();
+    /// The approver the code is shown for; a confirmation of another one lapses.
+    void setApprover(const Device &approver);
     void confirmKey();
     void becomeReady();
     int keyPollSeconds() const { return m_windowActive ? 5 : 30; }
@@ -291,6 +312,8 @@ private:
     QList<Device> m_devices;
     Device m_approver;
     QString m_verificationCode;
+    QByteArray m_confirmedKey; ///< The approver's public key the user confirmed the code of.
+    std::optional<QJsonObject> m_heldKey; ///< A box from the approver, before the user confirmed.
     QElapsedTimer m_keyListTaken; ///< When the devices were last read: paces the re-list while waiting.
 
     // Approval of other devices

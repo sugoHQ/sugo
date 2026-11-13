@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
+#include <utility>
 
 namespace
 {
@@ -373,7 +374,7 @@ void SyncAccount::waitForKey()
 {
     if (m_phase == Phase::WaitingForKey) {
         m_keyTimer.stop();
-        m_approver = Device(); // a wait started over chooses its approver afresh
+        setApprover(Device()); // a wait started over chooses its approver afresh, and confirms it again
         runKeyStep(KeyStep::List);
     }
 }
@@ -486,7 +487,7 @@ void SyncAccount::chooseApprover()
     for (const Device &d : std::as_const(m_devices)) {
         anyReady = anyReady || (!d.current && !d.pending);
     }
-    m_approver = approver ? *approver : Device();
+    setApprover(approver ? *approver : Device());
     const QString code = approver ? SyncCrypto::verificationCode(m_publicKey, approver->publicKey) : QString();
     if (code != m_verificationCode) {
         m_verificationCode = code;
@@ -602,6 +603,13 @@ void SyncAccount::receiveKey(const QJsonObject &json)
         rejectKey();
         return;
     }
+    // ...and only once the user saw the same code there. Until then the box waits here, unopened,
+    // and the server is not asked again: the approver cannot change under the code meanwhile.
+    if (m_confirmedKey != fromKey) {
+        m_keyTimer.stop();
+        m_heldKey = json;
+        return;
+    }
     const QByteArray sealed = QByteArray::fromBase64(json.value(QLatin1String("sealed_key")).toString().toLatin1());
     std::optional<SecretBytes> dataKey = SyncCrypto::openBox(sealed, fromKey, m_secrets->values().deviceKey);
     if (!dataKey || dataKey->size() != SyncCrypto::KeyBytes) {
@@ -615,6 +623,45 @@ void SyncAccount::receiveKey(const QJsonObject &json)
         return;
     }
     confirmKey();
+}
+
+bool SyncAccount::verificationConfirmed() const
+{
+    return !m_approver.publicKey.isEmpty() && m_confirmedKey == m_approver.publicKey;
+}
+
+bool SyncAccount::confirmVerificationCode(const QString &code)
+{
+    if (m_phase != Phase::WaitingForKey || m_approver.id.isEmpty() || code.isEmpty() || code != m_verificationCode) {
+        return false;
+    }
+    if (!verificationConfirmed()) {
+        m_confirmedKey = m_approver.publicKey;
+        Q_EMIT verificationConfirmedChanged(true);
+    }
+    if (m_heldKey) {
+        const QJsonObject json = *std::exchange(m_heldKey, std::nullopt);
+        receiveKey(json);
+    } else if (m_keyStep == KeyStep::PollKey && m_keyTimer.isActive()) {
+        m_keyTimer.stop();
+        pollKey(); // the key may be there already: no need to wait for the next poll
+    }
+    return true;
+}
+
+void SyncAccount::setApprover(const Device &approver)
+{
+    if (approver.id != m_approver.id || approver.publicKey != m_approver.publicKey) {
+        m_heldKey.reset();
+        const bool wasConfirmed = verificationConfirmed();
+        m_confirmedKey.clear();
+        m_approver = approver;
+        if (wasConfirmed) {
+            Q_EMIT verificationConfirmedChanged(false);
+        }
+        return;
+    }
+    m_approver = approver; // the same device: its name or last seen may be newer
 }
 
 void SyncAccount::rejectKey()
@@ -643,7 +690,7 @@ void SyncAccount::confirmKey()
 void SyncAccount::becomeReady()
 {
     m_keyTimer.stop();
-    m_approver = Device();
+    setApprover(Device());
     if (!m_verificationCode.isEmpty()) {
         m_verificationCode.clear();
         Q_EMIT verificationCodeChanged(QString());
@@ -981,8 +1028,14 @@ void SyncAccount::signOutLocally()
     clearSignInCode();
     m_keyTimer.stop();
     m_devices.clear();
+    const bool wasConfirmed = verificationConfirmed();
     m_approver = Device();
     m_verificationCode.clear();
+    m_confirmedKey.clear();
+    m_heldKey.reset();
+    if (wasConfirmed) {
+        Q_EMIT verificationConfirmedChanged(false); // else the next sign-in would start confirmed
+    }
     m_asked.clear();
     m_ignored.clear();
     m_api->reset();

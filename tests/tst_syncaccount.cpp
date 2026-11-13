@@ -102,6 +102,7 @@ class SyncAccountTest : public QObject
         QSignalSpy asked(a.account.get(), &SyncAccount::approvalRequested);
         a.account->refreshDevices();
         QVERIFY(asked.wait(5000));
+        QVERIFY(b.account->confirmVerificationCode(b.account->verificationCode()));
         a.account->approveDevice(b.account->deviceId());
         QTRY_COMPARE_WITH_TIMEOUT(b.account->phase(), SyncAccount::Phase::Ready, 5000);
 
@@ -403,6 +404,7 @@ private Q_SLOTS:
         QCOMPARE(asked.size(), 1);
 
         QSignalSpy bReady(b.account.get(), &SyncAccount::keyReady);
+        QVERIFY(b.account->confirmVerificationCode(b.account->verificationCode()));
         a.account->approveDevice(b.account->deviceId());
         QVERIFY(approved.wait(5000));
         QTRY_COMPARE_WITH_TIMEOUT(bReady.size(), 1, 5000);
@@ -492,6 +494,7 @@ private Q_SLOTS:
         QVERIFY(asked.wait(5000));
         QTRY_COMPARE_WITH_TIMEOUT(asked.size(), 2, 5000); // C goes after the still waiting B
         QCOMPARE(asked.at(1).at(0).toString(), c.account->deviceId());
+        QVERIFY(c.account->confirmVerificationCode(c.account->verificationCode()));
         a.account->approveDevice(c.account->deviceId());
         QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::Ready, 5000);
 
@@ -536,6 +539,7 @@ private Q_SLOTS:
         QVERIFY(asked.wait(5000));
         QCOMPARE(asked.first().at(0).toString(), c.account->deviceId());
         QCOMPARE(asked.first().at(3).toString(), codeOfB);
+        QVERIFY(c.account->confirmVerificationCode(codeOfB));
         b.account->approveDevice(c.account->deviceId());
         QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::Ready, 5000);
         QCOMPARE(rejected.size(), 0);
@@ -632,6 +636,137 @@ private Q_SLOTS:
         QCOMPARE(b.account->phase(), SyncAccount::Phase::WaitingForKey);
         QVERIFY(b.account->dataKey().isEmpty());
         QVERIFY(!b.item().contains(QLatin1String("dataKey")));
+    }
+
+    void keyWaitsForTheCodeToBeConfirmed()
+    {
+        Client a(*server);
+        Client b(*server);
+        twoDevices(a, b);
+        QSignalSpy approved(a.account.get(), &SyncAccount::deviceApproved);
+        QSignalSpy confirmed(b.account.get(), &SyncAccount::verificationConfirmedChanged);
+        a.account->refreshDevices();
+        QTRY_COMPARE(a.account->devices().size(), 2);
+        a.account->approveDevice(b.account->deviceId());
+        QVERIFY(approved.wait(5000));
+
+        // The box is there, but the user has not said yet that A shows the same code: B holds it
+        // unopened, stores nothing and stops asking the server.
+        // (B may fetch the box before A even hears its PUT answered: wait for a fetch after the PUT.)
+        const QByteArray keyPut = "/v1/devices/" + b.account->deviceId().toUtf8() + "/key";
+        const qint64 putAt = server->of("PUT", keyPut).last().sequence;
+        const auto fetchedAfterPut = [&]() {
+            const auto gets = server->of("GET", "/v1/key");
+            return std::any_of(gets.cbegin(), gets.cend(), [&](const FakeSyncServer::Request &r) { return r.sequence > putAt; });
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(fetchedAfterPut(), 5000);
+        const int fetched = server->count("GET", "/v1/key");
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(server->count("GET", "/v1/key"), fetched);
+        QCOMPARE(b.account->phase(), SyncAccount::Phase::WaitingForKey);
+        QVERIFY(b.account->dataKey().isEmpty());
+        QVERIFY(!b.item().contains(QLatin1String("dataKey")));
+        QCOMPARE(server->count("DELETE", "/v1/key"), 0);
+        QVERIFY(!b.account->verificationConfirmed());
+
+        // A code that is not the one shown confirms nothing.
+        QVERIFY(!b.account->confirmVerificationCode(QStringLiteral("AAAA-AAAA-AAAA-AAAA")));
+        QVERIFY(!b.account->confirmVerificationCode(QString()));
+        QCOMPARE(confirmed.size(), 0);
+
+        // The user confirms: the box held is opened at once.
+        QVERIFY(b.account->confirmVerificationCode(b.account->verificationCode()));
+        QCOMPARE(confirmed.size(), 1);
+        QCOMPARE(confirmed.first().first().toBool(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(b.account->phase(), SyncAccount::Phase::Ready, 5000);
+        QVERIFY(b.account->dataKey() == a.account->dataKey());
+        QCOMPARE(server->count("GET", "/v1/key"), fetched); // the held box, not a new request
+    }
+
+    void signOutDropsTheConfirmation()
+    {
+        Client a(*server);
+        Client b(*server);
+        twoDevices(a, b);
+        QSignalSpy confirmed(b.account.get(), &SyncAccount::verificationConfirmedChanged);
+        QVERIFY(b.account->confirmVerificationCode(b.account->verificationCode()));
+        QSignalSpy out(b.account.get(), &SyncAccount::signedOut);
+        b.account->signOut();
+        QVERIFY(out.wait(5000));
+        QVERIFY(!b.account->verificationConfirmed());
+        QCOMPARE(confirmed.size(), 2);
+        QCOMPARE(confirmed.last().first().toBool(), false);
+    }
+
+    void keyOfADeviceListedByTheServerIsNotTaken()
+    {
+        // A compromised server lists a ready device of its own, seen last, and boxes a key it
+        // knows for the new device. Before, the new device took it without the user doing
+        // anything; now it shows the code of that device, which A cannot show, and waits.
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        server->deviceLimit = 4; // A, the server's own and B
+        const SyncCrypto::KeyPair attacker = SyncCrypto::generateKeyPair();
+        QString fakeId;
+        server->addLinkedDevice(kUser, attacker.publicKey, true, &fakeId, QStringLiteral("A"));
+        server->seen(fakeId);
+
+        Client b(*server);
+        signIn(b, SyncAccount::Phase::WaitingForKey, QStringLiteral("B"));
+        QTRY_COMPARE_WITH_TIMEOUT(b.account->verificationCode(), SyncCrypto::verificationCode(b.account->publicKey(), attacker.publicKey), 5000);
+        QCOMPARE(b.account->approverName(), QStringLiteral("A"));
+        QVERIFY(b.account->verificationCode() != SyncCrypto::verificationCode(b.account->publicKey(), a.account->publicKey()));
+
+        const SecretBytes attackerKey = SyncCrypto::newDataKey();
+        server->boxes.insert(b.account->deviceId(), {SyncCrypto::box(attackerKey, b.account->publicKey(), attacker.secretKey), fakeId, attacker.publicKey});
+        const int fetched = server->count("GET", "/v1/key");
+        QTRY_VERIFY_WITH_TIMEOUT(server->count("GET", "/v1/key") > fetched, 5000);
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(b.account->phase(), SyncAccount::Phase::WaitingForKey);
+        QVERIFY(b.account->dataKey().isEmpty());
+        QVERIFY(!b.item().contains(QLatin1String("dataKey")));
+        QCOMPARE(server->count("DELETE", "/v1/key"), 0);
+    }
+
+    void confirmationLapsesWhenTheApproverChanges()
+    {
+        Client a(*server);
+        Client b(*server);
+        Client c(*server);
+        thirdDeviceWaits(a, b, c);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        // The user confirms the code of B; then the list shows B with another key, and the code
+        // moves to A. The confirmation was for B's key only: it lapses, and the server cannot
+        // carry it over to another device by changing the list after the click.
+        const QString codeOfB = c.account->verificationCode();
+        QSignalSpy confirmed(c.account.get(), &SyncAccount::verificationConfirmedChanged);
+        QVERIFY(c.account->confirmVerificationCode(codeOfB));
+        QVERIFY(c.account->verificationConfirmed());
+        server->seen(a.account->deviceId());
+        server->device(b.account->deviceId())->publicKey = SyncCrypto::generateKeyPair().publicKey;
+        const QString codeOfA = SyncCrypto::verificationCode(c.account->publicKey(), a.account->publicKey());
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->verificationCode(), codeOfA, 5000);
+        QVERIFY(!c.account->verificationConfirmed());
+        QCOMPARE(confirmed.size(), 2);
+        QCOMPARE(confirmed.last().first().toBool(), false);
+        QCOMPARE(c.account->approverName(), QStringLiteral("A"));
+
+        // A approves: the key waits for a confirmation of A's code; the old one is refused.
+        QSignalSpy approved(a.account.get(), &SyncAccount::deviceApproved);
+        a.account->refreshDevices();
+        QTRY_VERIFY_WITH_TIMEOUT(std::any_of(a.account->devices().cbegin(), a.account->devices().cend(),
+                                             [&](const SyncAccount::Device &d) { return d.id == c.account->deviceId(); }),
+                                 5000);
+        a.account->approveDevice(c.account->deviceId());
+        QVERIFY(approved.wait(5000));
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(c.account->phase(), SyncAccount::Phase::WaitingForKey);
+        QVERIFY(!c.account->confirmVerificationCode(codeOfB));
+        QVERIFY(c.account->confirmVerificationCode(codeOfA));
+        QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), SyncAccount::Phase::Ready, 5000);
+        QVERIFY(c.account->dataKey() == a.account->dataKey());
     }
 
     void recoveryCode()
