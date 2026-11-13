@@ -28,6 +28,7 @@
 #include <memory>
 
 #include "Localization.h"
+#include "Notifier.h"
 
 #include "AppSettings.h"
 #include "DataManager.h"
@@ -40,6 +41,7 @@
 #include "PresetModel.h"
 #include "PresetPersistence.h"
 #include "PresetRepository.h"
+#include "SessionKeeper.h"
 #include "SessionRecorder.h"
 #include "SessionRepository.h"
 #include "SilenceController.h"
@@ -102,14 +104,16 @@ namespace
  *   window's requestQuit(), which asks while a phase runs or is paused and then quits with
  *   QCoreApplication::quit(); on macOS that (like a SIGTERM) takes this same way, as Sugo's own
  *   quit. What else arrives is a `quit` Apple event from another program: Quit in the Dock
- *   menu, Activity Monitor, AppleScript. While a phase is active that one is refused and
- *   turned into the window's requestQuit() (QuitPolicy), so the Dock's Quit asks like Cmd+Q;
+ *   menu, Activity Monitor, AppleScript. While a phase is active, or sessions or timer changes
+ *   could not be saved yet, that one is refused and turned into the window's requestQuit()
+ *   (QuitPolicy), so the Dock's Quit asks like Cmd+Q;
  *   the window comes to the front for it. Logging out, restarting or shutting down (a `quit`
  *   event with a reason) go through: refusing them would cancel the logout, and the user chose
  *   to end the session.
  *   A quit that goes through sets the window's `platformQuitting` property before Qt closes it
  *   (the window otherwise refuses closing: it hides, or asks), and the running phase is saved
- *   as interrupted by the aboutToQuit -> TimerEngine::stop connection.
+ *   kept for the next start by SessionKeeper (or, if it cannot be, saved as interrupted by
+ *   TimerEngine::stop) at aboutToQuit.
  * - A sugo:// link (`open sugo://toggle`, the Shortcuts app's "Open URLs"): Cocoa's GetURL
  *   event, which Qt delivers as a QFileOpenEvent with a URL, handed to `openUrl`. Opening a link
  *   also activates the application; that must not pop the hidden window up for a command like
@@ -119,11 +123,12 @@ namespace
 class MacApplicationEvents : public QObject
 {
 public:
-    MacApplicationEvents(QQuickWindow *window, TimerEngine *timer, std::function<void()> showWindow,
+    MacApplicationEvents(QQuickWindow *window, TimerEngine *timer, DataManager *data, std::function<void()> showWindow,
                          std::function<void(const QUrl &)> openUrl, bool armed, QObject *parent)
         : QObject(parent)
         , m_window(window)
         , m_timer(timer)
+        , m_data(data)
         , m_showWindow(std::move(showWindow))
         , m_openUrl(std::move(openUrl))
         , m_armed(armed)
@@ -149,7 +154,8 @@ public:
                 }
             } else if (event->type() == QEvent::Quit) {
                 const bool phaseActive = m_timer && m_timer->isActive();
-                if (QuitPolicy::needsConfirmation(macCurrentQuitOrigin(), phaseActive)) {
+                const bool unsavedData = m_data && m_data->saveFailing();
+                if (QuitPolicy::needsConfirmation(macCurrentQuitOrigin(), phaseActive, unsavedData)) {
                     // Not inside applicationShouldTerminate:, which waits for the answer.
                     QTimer::singleShot(0, this, [this]() {
                         if (m_window) {
@@ -180,6 +186,7 @@ private:
 
     QPointer<QQuickWindow> m_window;
     QPointer<TimerEngine> m_timer;
+    QPointer<DataManager> m_data;
     std::function<void()> m_showWindow;
     std::function<void(const QUrl &)> m_openUrl;
     bool m_armed;
@@ -452,6 +459,7 @@ int main(int argc, char *argv[])
     if (calendarSync) {
         QObject::connect(recorder, &SessionRecorder::workSessionRecorded, calendarSync, &CalendarSync::enqueueWorkSession);
         QObject::connect(dataManager, &DataManager::sessionNoteChanged, calendarSync, &CalendarSync::onNoteChanged);
+        QObject::connect(dataManager, &DataManager::sessionDeleted, calendarSync, &CalendarSync::onSessionDeleted);
         // The calendar login and server never appear in a diagnostics report.
         const auto updateRedactions = [calendarSync]() {
             Diagnostics::setAccountRedactions({calendarSync->username(), QUrl(calendarSync->serverUrl()).host(),
@@ -536,6 +544,8 @@ int main(int argc, char *argv[])
                          [telemetry](TimerEngine::Phase phase, const QDateTime &, const QDateTime &, qint64, qint64 plannedMs, bool completed) {
                              telemetry->recordSession(phase, plannedMs, completed);
                          });
+        QObject::connect(timer, &TimerEngine::phaseExtended, telemetry, &Telemetry::recordExtend);
+        QObject::connect(timer, &TimerEngine::phaseReopened, telemetry, &Telemetry::skipNextSession);
         if (updates) {
             QObject::connect(updates, &UpdateChecker::installFinished, telemetry, &Telemetry::recordUpdateInstall);
         }
@@ -600,9 +610,20 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Quitting mid-phase ends it as an interrupted session instead of losing it.
-    // Then the sessions the database refused get one last try (with the timer idle, nothing else would retry them).
-    SessionRecorder::connectQuit(&app, timer, recorder);
+    // The session under way is kept when Sugo ends, and comes back paused at the next start.
+    auto *keeper = engine.singletonInstance<SessionKeeper *>("stream.sugo.app", "SessionKeeper");
+    // Not over a stand-in database: the timers may be missing there, and what it records is lost
+    // at quit, so the session is left in its file for a later start with the real one.
+    if (keeper && databaseOpened) {
+        keeper->attach(timer, presets, recorder, SessionKeeper::defaultPath());
+        QObject::connect(keeper, &SessionKeeper::restoreEnded, telemetry, &Telemetry::recordRestore);
+        keeper->restore();
+    }
+
+    // Quitting mid-phase keeps the session for the next start (or, when it cannot be kept, ends
+    // it as an interrupted session instead of losing it). Then the sessions the database refused
+    // get one last try (with the timer idle, nothing else would retry them).
+    SessionRecorder::connectQuit(&app, timer, recorder, [keeper]() { return keeper && keeper->keepForQuit(); });
     // ... and always hands the notifications back before the process ends.
     QObject::connect(&app, &QCoreApplication::aboutToQuit, silence, &SilenceController::shutdown);
     QObject::connect(&app, &QCoreApplication::aboutToQuit, powerInhibitor, &PowerInhibitor::shutdown);
@@ -679,7 +700,7 @@ int main(int argc, char *argv[])
             }
         };
         // The Dock icon, links, and quitting from the system (see MacApplicationEvents).
-        auto *macEvents = new MacApplicationEvents(window, timer, [activateWindow]() { activateWindow(); }, openUrl, !background,
+        auto *macEvents = new MacApplicationEvents(window, timer, dataManager, [activateWindow]() { activateWindow(); }, openUrl, !background,
                                                    &services);
         app.installEventFilter(macEvents);
         if (background) {
@@ -698,10 +719,10 @@ int main(int argc, char *argv[])
             QMetaObject::invokeMethod(window, "openPage", Q_ARG(QString, page));
         });
 
-        // The tray menu's Quit: the window's own, which asks first while a phase runs; the window
-        // comes to the front then, so the question is seen.
-        QObject::connect(tray, &TrayController::quitRequested, window, [window, timer, activateWindow]() {
-            if (timer->isActive()) {
+        // The tray menu's Quit: the window's own, which asks first while a phase runs or data is
+        // waiting to be saved; the window comes to the front then, so the question is seen.
+        QObject::connect(tray, &TrayController::quitRequested, window, [window, timer, dataManager, activateWindow]() {
+            if (timer->isActive() || dataManager->saveFailing()) {
                 activateWindow();
             }
             QMetaObject::invokeMethod(window, "requestQuit");
@@ -727,6 +748,27 @@ int main(int argc, char *argv[])
 
         // A click on a notification with nothing more specific to do.
         QObject::connect(notifier, &PhaseNotifier::showWindowRequested, window, activateWindow);
+
+        // A session brought back while Sugo starts hidden (at login): the focus page that says so
+        // is not on screen, so a notification does.
+        if (keeper && keeper->isRestored() && settings->startHidden()) {
+            const int minutes = (timer->remainingSeconds() + 59) / 60;
+            Notifier::Notification restored;
+            restored.title = timer->phase() == TimerEngine::Phase::Work ? i18n("Work session paused") : i18n("Break paused");
+            restored.text = i18np("Sugo was closed during this session. %1 minute is left: resume it when you are ready.",
+                                  "Sugo was closed during this session. %1 minutes are left: resume it when you are ready.",
+                                  minutes);
+            restored.iconName = QStringLiteral("stream.sugo.app");
+            restored.actions.append({i18n("Resume"), [timer, keeper](const QString &) {
+                                         // Only the session brought back, while it still waits.
+                                         if (keeper->holdsRestoredSession() && timer->isPaused()) {
+                                             timer->resume();
+                                         }
+                                     }});
+            restored.defaultActionLabel = i18n("View");
+            restored.defaultAction = activateWindow;
+            notifications->notify(keeper, restored);
+        }
 
         // Sugo Sync: a device asking for approval while the window is hidden is notified; a click
         // shows the window on the Sync settings, where the approval dialog waits.

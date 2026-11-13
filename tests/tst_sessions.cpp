@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QSqlDatabase>
@@ -7,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QUuid>
 
 #include "Localization.h"
 
@@ -214,6 +216,76 @@ private Q_SLOTS:
         QVERIFY(all().at(0).presetUuid.isEmpty());
     }
 
+    void eachSessionGetsItsOwnUuid()
+    {
+        QVERIFY(sessions->insert(makeRecord(1000)));
+        QVERIFY(sessions->insert(makeRecord(2000)));
+        const QList<SessionRecord> rows = all();
+        QCOMPARE(rows.size(), 2);
+        for (const SessionRecord &r : rows) {
+            QVERIFY2(!QUuid::fromString(r.uuid).isNull(), qPrintable(r.uuid));
+        }
+        QVERIFY(rows.at(0).uuid != rows.at(1).uuid);
+    }
+
+    void aSessionKeepsTheUuidItCameWith()
+    {
+        SessionRecord r = makeRecord(1000);
+        r.uuid = QStringLiteral("0b6f2c4e-8a51-4d7e-9c3a-5f1e2d7b9a60");
+        QVERIFY(sessions->insert(r));
+        QCOMPARE(all().at(0).uuid, r.uuid);
+        QVERIFY(!sessions->insert(r)); // the same session twice: one row
+        QCOMPARE(sessions->count(), 1);
+    }
+
+    void aChangedNoteMarksTheSessionChanged()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(makeRecord(1000), &id));
+        const auto updatedAt = [this, id]() {
+            QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+            query.prepare(QStringLiteral("SELECT updated_at FROM session WHERE id = ?"));
+            query.addBindValue(id);
+            return query.exec() && query.next() ? query.value(0).toLongLong() : -1;
+        };
+        QCOMPARE(updatedAt(), 0); // as recorded
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Chapter 4")));
+        QVERIFY(updatedAt() >= before);
+    }
+
+    void aDeletedSessionLeavesATombstone()
+    {
+        qint64 kept = 0;
+        qint64 gone = 0;
+        QVERIFY(sessions->insert(makeRecord(1000), &kept));
+        QVERIFY(sessions->insert(makeRecord(2000), &gone));
+        const QString uuid = all().at(1).uuid;
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        SessionRecord deleted;
+        QVERIFY(sessions->deleteById(gone, &deleted));
+        QCOMPARE(deleted.id, gone);
+        QCOMPARE(deleted.uuid, uuid);
+        QCOMPARE(deleted.startedAtMs, 2000);
+        QCOMPARE(all().size(), 1);
+        QCOMPARE(all().at(0).id, kept);
+
+        QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at, deleted_by FROM session_tombstone")));
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toString(), uuid);
+        QVERIFY(query.value(1).toLongLong() >= before);
+        QCOMPARE(query.value(2).toString(), QString()); // this device
+        QVERIFY(!query.next());
+
+        // No such session: nothing changes, no tombstone.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("there is no session")));
+        QVERIFY(!sessions->deleteById(gone));
+        QVERIFY(query.exec(QStringLiteral("SELECT count(*) FROM session_tombstone")) && query.next());
+        QCOMPARE(query.value(0).toInt(), 1);
+        QCOMPARE(sessions->count(), 1);
+    }
+
     // --- SessionRecorder -----------------------------------------------------
 
     /// Makes the database refuse new sessions, as a full disk or a lock would.
@@ -226,6 +298,64 @@ private Q_SLOTS:
         } else {
             QVERIFY(query.exec(QStringLiteral("DROP TRIGGER refuse")));
         }
+    }
+
+    /// Makes the database refuse changes to stored sessions.
+    void failSessionUpdates(bool fail)
+    {
+        QSqlQuery query(QSqlDatabase::database(db->connectionName()));
+        if (fail) {
+            QVERIFY(query.exec(QStringLiteral("CREATE TEMP TRIGGER refuseUpdate BEFORE UPDATE ON session "
+                                              "BEGIN SELECT RAISE(ABORT, 'disk full'); END")));
+        } else {
+            QVERIFY(query.exec(QStringLiteral("DROP TRIGGER refuseUpdate")));
+        }
+    }
+
+    void extraTimeTheDatabaseRefusesIsStoredLater()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        recorder->setRetryIntervalForTesting(30);
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        const qint64 id = all().at(0).id;
+        QCOMPARE(recorded.size(), 1);
+
+        failSessionUpdates(true);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Cannot update session")));
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+        QVERIFY(recorder->isSaveFailing()); // said, not lost
+        QCOMPARE(all().at(0).durationSec, 25 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), id);
+
+        failSessionUpdates(false);
+        QTRY_VERIFY(!recorder->isSaveFailing());
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).id, id);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorded.size(), 2); // the calendar replaces its event
+        QCOMPARE(recorded.at(1).at(0).value<SessionRecord>().id, id);
+    }
+
+    void extraTimeWaitingForADeletedSessionIsDropped()
+    {
+        recorder->setRetryIntervalForTesting(30);
+        engine->start();
+        elapse(25 * 60);
+        const qint64 id = all().at(0).id;
+        failSessionUpdates(true);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Cannot update session")));
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+        QVERIFY(recorder->isSaveFailing());
+        failSessionUpdates(false);
+        QVERIFY(sessions->deleteById(id));
+        recorder->forgetSession(id);
+        QVERIFY(!recorder->isSaveFailing());
+        QTest::qWait(60);
+        QVERIFY(all().isEmpty());
     }
 
     void sessionsTheDatabaseRefusesAreKeptAndStoredLater()
@@ -561,6 +691,142 @@ private Q_SLOTS:
         QCOMPARE(all().size(), 2);
         QCOMPARE(recorder->lastWorkSessionId(), -1);
     }
+    void workTakenUpAgainUpdatesItsSession()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        QCOMPARE(all().size(), 1);
+        const qint64 id = all().at(0).id;
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Report")));
+
+        elapse(60); // a minute later: five more minutes
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).id, id);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(r.at(0).plannedSec, 30 * 60);
+        QCOMPARE(r.at(0).startedAtMs, clock.base().toMSecsSinceEpoch());
+        QCOMPARE(r.at(0).endedAtMs, clock.base().addSecs(31 * 60).toMSecsSinceEpoch());
+        QCOMPARE(r.at(0).note, QStringLiteral("Report"));
+        QCOMPARE(recorder->lastWorkSessionId(), id);
+        // Sent again with the same id, so the calendar replaces its event, note included.
+        QCOMPARE(recorded.size(), 2);
+        const auto again = recorded.at(1).at(0).value<SessionRecord>();
+        QCOMPARE(again.id, id);
+        QCOMPARE(again.durationSec, 30 * 60);
+        QCOMPARE(again.note, QStringLiteral("Report"));
+    }
+
+    void workTakenUpAgainAfterItsSessionWasDeletedIsStoredAnew()
+    {
+        engine->start();
+        elapse(25 * 60); // Manual: the short break waits
+        const qint64 id = all().at(0).id;
+        QVERIFY(sessions->deleteById(id));
+        recorder->forgetSession(id);
+        QCOMPARE(recorder->lastWorkSessionId(), -1);
+
+        elapse(60);
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).id != id);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), r.at(0).id);
+    }
+
+    void workTakenUpAgainKeepsTheTimerNameItBeganWith()
+    {
+        QSignalSpy recorded(recorder.get(), &SessionRecorder::workSessionRecorded);
+        const QString custom = presets->create({{QStringLiteral("name"), QStringLiteral("Before")},
+                                                {QStringLiteral("category"), QStringLiteral("A")}});
+        presets->setCurrentUuid(custom);
+        engine->start();
+        elapse(60);
+        presets->update(custom, {{QStringLiteral("name"), QStringLiteral("After")},
+                                 {QStringLiteral("category"), QStringLiteral("B")}});
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All); // after the timer's own setting
+        elapse(24 * 60); // the break starts by itself, with the timer as it is now
+        QCOMPARE(engine->state(), TimerEngine::State::ShortBreak);
+        QVERIFY(engine->continueFinished());
+        elapse(5 * 60);
+
+        QCOMPARE(all().size(), 1);
+        QCOMPARE(all().at(0).presetName, QStringLiteral("Before"));
+        QCOMPARE(recorded.size(), 2);
+        const auto again = recorded.at(1).at(0).value<SessionRecord>();
+        QCOMPARE(again.presetName, QStringLiteral("Before")); // what the calendar is sent
+        QCOMPARE(again.category, QStringLiteral("A"));
+    }
+
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain_data()
+    {
+        QTest::addColumn<bool>("retryBeforeReopening");
+        QTest::newRow("stored before it is taken up again") << true;
+        QTest::newRow("stored while it goes on") << false;
+    }
+
+    void workStoredByARetryIsUpdatedWhenTakenUpAgain()
+    {
+        QFETCH(bool, retryBeforeReopening);
+        recorder->setRetryIntervalForTesting(30);
+        failSessionInserts(true);
+        engine->start();
+        elapse(25 * 60);
+        QVERIFY(recorder->isSaveFailing());
+        if (retryBeforeReopening) {
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+            QVERIFY(engine->continueFinished());
+        } else {
+            QVERIFY(engine->continueFinished());
+            failSessionInserts(false);
+            QTRY_VERIFY(!recorder->isSaveFailing());
+        }
+        elapse(5 * 60);
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1); // one session, not the first end and the longer one
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+        QCOMPARE(recorder->lastWorkSessionId(), r.at(0).id); // the task note goes to it
+    }
+
+    void breakThatStartedByItselfGivesWayUnrecorded()
+    {
+        engine->setAutoStartMode(TimerEngine::AutoStartMode::All);
+        engine->start();
+        elapse(25 * 60);
+        elapse(90); // the short break has run a while
+        QVERIFY(engine->continueFinished());
+        engine->stop(); // cut short at once: still the completed session, as long as it ran
+
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QCOMPARE(r.at(0).kind, SessionKind::Work);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).durationSec, 25 * 60);
+    }
+
+    void extendingTheRunningPhaseRecordsOneLongerSession()
+    {
+        engine->start();
+        elapse(20 * 60);
+        QVERIFY(engine->extend());
+        elapse(10 * 60);
+        const QList<SessionRecord> r = all();
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.at(0).completed);
+        QCOMPARE(r.at(0).plannedSec, 30 * 60);
+        QCOMPARE(r.at(0).durationSec, 30 * 60);
+    }
+
     // A page that cannot be read ends the query partway: the cursor must not move past the rows
     // that were never read, or the statistics would never count them.
     void completedWorkStartsAfterKeepsItsPlaceWhenAPageCannotBeRead()

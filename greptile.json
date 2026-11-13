@@ -1,0 +1,5 @@
+{
+  "includeBranches": ["dev"],
+  "autoReview": ["open"],
+  "effort": "base"
+}

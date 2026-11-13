@@ -114,9 +114,18 @@ A *timer* (preset) bundles the durations of a work phase, a short break and a lo
 - **Silence notifications while working**, **play a sound** and **show a notification** when a phase ends can be set per timer.
 - The timer you pick stays selected the next time you start Sugo. You cannot switch timers while one is running.
 
+**More time**: **+2 min**, **+5 min** and **+10 min**, under the cycle on the Focus tab, add that many minutes (so do **Add Time** in the tray and Dock menus, and in the Timer menu of the macOS menu bar); the notification at the end of a phase offers **5 More Minutes**.
+
+- While a phase runs or is paused, it makes that phase longer.
+- For ten minutes after a phase ends, as long as you have not done anything else with the timer, it takes the phase that just ended up again, even if the next one has already started by itself. It stays one session: a 25-minute work session continued for five minutes is recorded as one of 30 minutes (the minutes in between count as a pause), the calendar event is updated, and the break comes after it as before.
+
+During a break, a line under the clock suggests something to do with it (stretch, drink some water, rest your eyes…), a different one each break.
+
 Pausing keeps the remaining time; stopping resets the phase. A phase stopped early is recorded as *interrupted* in the statistics if it ran for at least five seconds.
 
 Skipping a running work session counts it towards the long break. Skipping a work session that has not started yet (for example with the notification's **Skip** button) moves on to the short break without counting it, so the long break is only reached by working.
+
+If Sugo ends while a phase is running or paused (you quit it, log out, restart for an update, or it crashes), it keeps the session and brings it back the next time it starts: paused, with the time it had left, as the same session (the time Sugo was closed counts as a pause, never as work or as a break). Press **Resume** to go on, or **Stop** to end it there. A session left for more than 12 hours, or whose timer was deleted meanwhile, is not brought back: it is recorded as interrupted at the moment Sugo ended.
 
 When the computer goes to sleep, a running phase is paused, and it stays paused after the computer wakes up until you resume it: the time asleep never counts as work or as a break.
 
@@ -142,7 +151,7 @@ On macOS the same icon and menu are in the **menu bar**.
 The tray icon shows a ring with the minutes left (red while working, green during breaks). Its context menu contains, from the top:
 
 1. **A status line** (not clickable): the phase, the time left and the name of the timer, for example `Work · 12:30 · Pomodoro`.
-2. **Start / Pause / Resume**, and **Stop** and **Skip**, which appear only while a phase is running or paused.
+2. **Start / Pause / Resume**, and **Stop** and **Skip**, which appear only while a phase is running or paused, and **Add Time** (2, 5 or 10 minutes), also there for ten minutes after a phase ends.
 3. **Timer**: a submenu with all your timers; pick one to switch to it. It is disabled while a timer is running.
 4. **Statistics** and **Settings**, which open the window on that page.
 5. **Show Window / Hide Window** and **Quit**.
@@ -260,6 +269,8 @@ Up to Sugo 1.0.2 the service and the interface were `io.github.mineraleyt.sugo`:
 | `qdbus stream.sugo.app /Timer pause` | Pause |
 | `qdbus stream.sugo.app /Timer stop` | Stop and reset |
 | `qdbus stream.sugo.app /Timer skip` | Skip to the next phase |
+| `qdbus stream.sugo.app /Timer extend` | Five more minutes for the phase, or for the one that has just ended |
+| `qdbus stream.sugo.app /Timer extendBy 10` | The same with any number of minutes from 1 to 60 |
 | `qdbus stream.sugo.app /Timer status` | Print `state:phase:seconds` |
 | `qdbus stream.sugo.app /Timer presets` | List the names of the timers, one per line |
 | `qdbus stream.sugo.app /Timer selectPreset "Deep work"` | Choose a timer by name (not case-sensitive) or uuid |
@@ -290,6 +301,8 @@ On macOS, opening a `sugo://` link sends Sugo a command. Open it from Terminal o
 | `open sugo://pause` / `open sugo://resume` | Pause or continue the countdown |
 | `open sugo://stop` | Stop and reset |
 | `open sugo://skip` | Skip to the next phase |
+| `open sugo://extend` | Five more minutes for the phase, or for the one that has just ended |
+| `open sugo://extend/10` | The same with any number of minutes from 1 to 60 |
 | `open sugo://show` | Show the window |
 | `open sugo://preset/Deep%20work` | Choose a timer by name (spaces written as `%20`) or uuid |
 | `open sugo://start/Deep%20work` | Choose a timer and start it |
@@ -309,7 +322,7 @@ Inside the Flatpak the Linux files live under `~/.var/app/stream.sugo.app/`.
 
 **Settings → Advanced → Data management** can **back up** the database to a file, **restore** a backup (including backups made by older versions), and **clear the session history**. Restoring replaces your current timers and sessions, and is not possible while a timer is running. If the database file is damaged, Sugo moves it aside (`sugo.db.corrupt-…`) and starts a new one.
 
-**What leaves your computer.** Nothing about you:
+**What leaves your computer.** Only this, and only for what you use:
 
 - **Updates**: the AppImage and the macOS app download a small file from GitHub every few hours to see whether a newer Sugo exists (see [Updates](#updates-and-diagnostics); you can turn this off), and the new version itself only when you click **Install update**. The other packages only look when you press **Check for Updates**. Either way the request carries only the program version.
 - **Calendar sync**, if you turn it on, sends the information described [above](#good-to-know) to the server you chose.
@@ -325,6 +338,8 @@ While it is on, Sugo sends these events, and nothing else:
 |:---|:---|:---|
 | `app_started` | Once each time Sugo starts (a minute after), and when you turn the statistics on | The Sugo version and channel (stable or nightly); Linux or macOS; the package (AppImage, Flatpak, macOS app, or built from source / a distribution's package); the Qt version; the desktop (KDE, GNOME or other; "none" on macOS); the Linux distribution, if it is one of a [fixed list](#which-distributions) (otherwise just "other"; "none" on macOS); how many timers you have (1, 2-3 or 4 or more); the colour scheme (system, light or dark); whether these are on: calendar sync, focus sound, tray icon, start at login, Sugo Sync, keeping the screen awake, pausing when the screen locks, the one-minute warning, asking for a note after a session, control by other programs; and whether Sugo could open its database or had to work without saving |
 | `session_ended` | Each time a phase ends | Work, short break or long break; its planned length in minutes; whether it ran to the end or was stopped or skipped |
+| `timer_extended` | Each time you add time to a phase | Work, short break or long break; how many minutes; whether the phase was still under way or had just ended; where you asked (the window, the notification, the tray or Dock menu, or a D-Bus command or `sugo://` link) |
+| `session_restored` | When a session Sugo brought back from its last run is resumed or ended, or could not be brought back | Work, short break or long break; whether you resumed it, stopped it, or it was too old (or its timer gone) to come back |
 | `stats_enabled` | When you turn the statistics on | Whether you did it in the welcome tour or in Settings |
 | `onboarding_finished` | When the welcome tour ends, if the statistics are on by then | Whether you finished it or skipped it, and on which step |
 | `update_install` | When the AppImage or the macOS app installs an update you asked for | Whether it worked, or the stage where it failed (writing the file, downloading, checking it, installing) |

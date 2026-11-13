@@ -22,6 +22,7 @@
 #include "SessionRepository.h"
 #include "Settings.h"
 #include "SyncAccount.h"
+#include "SyncChannel.h"
 #include "SyncController.h"
 #include "SyncCrypto.h"
 #include "SyncSecrets.h"
@@ -88,6 +89,54 @@ struct Device {
     int keyringReads() const { return int(store.accesses(SyncSecrets::itemKey(), FakeSecretStore::Access::Read).size()); }
 };
 
+/// A kind of data for the controller's generic part: one text, the newest write wins.
+class TextChannel : public SyncChannel
+{
+public:
+    explicit TextChannel(SyncKind kind)
+        : m_kind(kind)
+    {
+    }
+    SyncKind kind() const override { return m_kind; }
+    bool ready() const override { return true; }
+    QByteArray localData(const QString &, qsizetype maxBytes) override
+    {
+        lastMaxBytes = maxBytes;
+        QJsonObject o{{QStringLiteral("format"), 1}, {QStringLiteral("text"), text}, {QStringLiteral("at"), at}};
+        return QJsonDocument(o).toJson(QJsonDocument::Compact);
+    }
+    Merge merge(const QByteArray &plaintext, const QString &) override
+    {
+        Merge m;
+        const QJsonObject o = QJsonDocument::fromJson(plaintext).object();
+        if (o.value(QStringLiteral("format")).toInt() != 1) {
+            m.result = Merge::Result::Unreadable;
+            return m;
+        }
+        const qint64 remoteAt = o.value(QStringLiteral("at")).toInteger();
+        if (remoteAt > at) {
+            text = o.value(QStringLiteral("text")).toString();
+            at = remoteAt;
+        }
+        m.changedRemote = at > remoteAt;
+        return m;
+    }
+    /// A change made on this device.
+    void edit(const QString &value)
+    {
+        text = value;
+        ++at;
+        notifyChanged();
+    }
+
+    QString text;
+    qint64 at = 0;
+    qsizetype lastMaxBytes = 0;
+
+private:
+    SyncKind m_kind;
+};
+
 TimerPreset remotePreset(const QString &uuid, const QString &name)
 {
     TimerPreset p;
@@ -105,7 +154,7 @@ class SyncControllerTest : public QObject
 
     std::unique_ptr<FakeSyncServer> server;
 
-    FakeSyncServer::Account &blob() { return server->accounts[kUser]; }
+    FakeSyncServer::Blob &blob() { return server->accounts[kUser].blobs["presets"]; }
     int puts() const { return server->count("PUT", kBlobPath); }
     int gets() const { return server->count("GET", kBlobPath); }
 
@@ -170,6 +219,9 @@ class SyncControllerTest : public QObject
         QCOMPARE(pending.value(QStringLiteral("id")).toString(), b.account()->deviceId());
         QCOMPARE(pending.value(QStringLiteral("name")).toString(), name);
         QCOMPARE(pending.value(QStringLiteral("verificationCode")).toString(), b.sync->verificationCode());
+        QCOMPARE(b.sync->approverName(), a.sync->deviceName());
+        QVERIFY(b.sync->confirmVerificationCode(b.sync->verificationCode()));
+        QVERIFY(b.sync->verificationConfirmed());
         a.sync->approveDevice(pending.value(QStringLiteral("id")).toString());
         QVERIFY(a.sync->pendingApproval().isEmpty());
         QTRY_COMPARE_WITH_TIMEOUT(b.sync->state(), SyncController::Idle, 5000);
@@ -225,6 +277,178 @@ private Q_SLOTS:
         QVERIFY(remoteNames(a).contains(QStringLiteral("Deep study")));
         QTRY_COMPARE(a.sync->state(), SyncController::Idle);
         QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
+    }
+
+    void blobOfAnEarlierEpochIsReplaced()
+    {
+        // An upload that outlived a "Start over" left a blob of the old key: the server counts it
+        // as none (GET 404, If-Match 412 with etag null), and If-None-Match: * replaces it.
+        Device a(*server);
+        signInFirst(a);
+        blob().stale = true;
+        const int before = puts();
+
+        a.model->create({{QStringLiteral("name"), QStringLiteral("After the reset")}});
+        QTRY_VERIFY(!blob().stale);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        const auto put = server->of("PUT", kBlobPath);
+        QCOMPARE(put.size(), before + 2);
+        QVERIFY(put.at(before).headers.contains("if-match"));     // 412, etag null
+        QCOMPARE(put.last().headers.value("if-none-match"), QByteArray("*")); // after the GET's 404
+        QVERIFY(!put.last().headers.contains("if-match"));
+        QVERIFY(remoteNames(a).contains(QStringLiteral("After the reset")));
+        QCOMPARE(a.settings->value(QStringLiteral("Sync/Etag")).toByteArray(), blob().etag);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
+    }
+
+    void plusRequiredKeepsTheTimersSyncing()
+    {
+        Device a(*server);
+        auto *sessions = new TextChannel(SyncKind::Sessions);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        QSignalSpy availability(a.sync.get(), &SyncController::availabilityChanged);
+        signInFirst(a);
+        QTRY_COMPARE(a.sync->availability(SyncKind::Sessions), SyncController::PlusRequired);
+        QCOMPARE(a.sync->availability(SyncKind::Presets), SyncController::Available);
+        QCOMPARE(availability.size(), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 0);
+
+        // Changes wait, the timers go on, and the kind is not asked about again by itself.
+        sessions->edit(QStringLiteral("Read a chapter"));
+        const int before = puts();
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Plus or not")}});
+        QTRY_COMPARE(puts(), before + 1);
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(gets(), 3);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 0);
+        QVERIFY(a.settings->value(QStringLiteral("Sync/sessions/Dirty")).toBool());
+
+        // Remembered over a restart. (The old controller deletes its channel: copy it first.)
+        const QString text = sessions->text;
+        const qint64 at = sessions->at;
+        a.build(*server);
+        sessions = new TextChannel(SyncKind::Sessions);
+        sessions->text = text;
+        sessions->at = at;
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        QCOMPARE(a.sync->availability(SyncKind::Sessions), SyncController::PlusRequired);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/sessions"), 1);
+
+        // With Plus, Sync Now asks again and uploads what waited.
+        server->accounts[kUser].plus = true;
+        a.sync->syncNow();
+        QTRY_COMPARE(a.sync->availability(SyncKind::Sessions), SyncController::Available);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        const SyncCrypto::OpenedBlob opened =
+            SyncCrypto::decryptBlob(a.account()->dataKey(), kUser, server->accounts[kUser].blobs["sessions"].blob, QStringLiteral("sessions"));
+        QVERIFY(opened.ok());
+        QVERIFY(opened.plaintext.contains("Read a chapter"));
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/sessions/Dirty")));
+        QVERIFY(!a.settings->contains(QStringLiteral("Sync/sessions/Unavailable")));
+        QCOMPARE(sessions->lastMaxBytes, qsizetype(1048576) - SyncKinds::BlobOverhead);
+    }
+
+    void unknownKindIsNotRetriedAtEveryPull()
+    {
+        // A Worker older than the kind answers 404 to the download and to the first upload.
+        server->blobKinds.remove("settings");
+        server->accounts[kUser].plus = true;
+        Device a(*server);
+        a.sync->addChannel(std::make_unique<TextChannel>(SyncKind::Settings));
+        signInFirst(a);
+        QTRY_COMPARE(a.sync->availability(SyncKind::Settings), SyncController::Unavailable);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(gets(), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+
+        // A day later it is asked about again, and the newer server takes it.
+        server->blobKinds.insert("settings", 8192);
+        a.settings->setValue(QStringLiteral("Sync/settings/CheckedAt"), QDateTime::currentDateTimeUtc().addSecs(-2000));
+        QTest::qWait(70 * kUnitMs);
+        a.sync->windowActivated();
+        QTRY_COMPARE(a.sync->availability(SyncKind::Settings), SyncController::Available);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+    }
+
+    void overTheLimitIsNotSent()
+    {
+        server->accounts[kUser].plus = true;
+        Device a(*server);
+        auto *settings = new TextChannel(SyncKind::Settings);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(settings));
+        signInFirst(a);
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+
+        // Over 8 KB: refused here, before any upload, and the timers still sync.
+        settings->edit(QString(9000, QLatin1Char('x')));
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QCOMPARE(a.sync->statusText(), QStringLiteral("The settings are too large to sync."));
+        QVERIFY(a.sync->errorTexts().contains(a.sync->statusText()));
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+        const int before = puts();
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Still syncing")}});
+        QTRY_COMPARE(puts(), before + 1);
+        QTRY_VERIFY(a.sync->state() != SyncController::Syncing);
+        // A download does not hide it.
+        a.sync->syncNow();
+        QTRY_COMPARE(server->count("GET", "/v1/blob/settings"), 2);
+        QTRY_VERIFY(a.sync->state() != SyncController::Syncing);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QCOMPARE(server->count("PUT", "/v1/blob/settings"), 1);
+
+        // A change that fits goes up and clears it.
+        settings->edit(QStringLiteral("small"));
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/settings"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
+        QCOMPARE(a.sync->errorKind(), SyncController::NoError);
+    }
+
+    void tooLargeFromTheServerIsNotRetried()
+    {
+        server->accounts[kUser].plus = true;
+        server->blobKinds["sessions"] = 100; // a server with a smaller limit than this Sugo knows
+        Device a(*server);
+        auto *sessions = new TextChannel(SyncKind::Sessions);
+        a.sync->addChannel(std::unique_ptr<SyncChannel>(sessions));
+        sessions->text = QString(200, QLatin1Char('y'));
+        a.sync->signIn(QStringLiteral("A"));
+        QTRY_VERIFY(!a.sync->userCode().isEmpty());
+        QVERIFY(server->approve(a.sync->userCode(), kUser).startsWith(QLatin1String("dev_")));
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::TooLarge);
+        QVERIFY(!blob().blob.isEmpty()); // the timers went up
+        QCOMPARE(a.sync->state(), SyncController::Error);
+        QCOMPARE(a.sync->statusText(), QStringLiteral("The session history is too large to sync."));
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        // Not at the next downloads either (each 404 asks for a first upload).
+        a.sync->syncNow();
+        QTRY_COMPARE(server->count("GET", "/v1/blob/sessions"), 2);
+        QTest::qWait(400 * kUnitMs); // past a periodic pull
+        QVERIFY(server->count("GET", "/v1/blob/sessions") >= 3);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QCOMPARE(a.sync->errorKind(), SyncController::TooLarge);
+
+        // A change here tries again.
+        sessions->edit(QStringLiteral("short"));
+        QTRY_COMPARE(server->count("PUT", "/v1/blob/sessions"), 2);
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle);
     }
 
     void notModified()
@@ -473,6 +697,32 @@ private Q_SLOTS:
         QTest::qWait(30 * kUnitMs);
         QCOMPARE(puts(), before + 1); // the next try waits for the server (at most an hour)
         QCOMPARE(a.sync->state(), SyncController::Error);
+    }
+
+    void timersThatCouldNotBeReadAreNeverSynced()
+    {
+        Device a(*server);
+        signInFirst(a);
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Mine")}});
+        QTRY_VERIFY(remoteNames(a).contains(QStringLiteral("Mine")));
+        const int putsBefore = puts();
+        const int getsBefore = gets();
+
+        // Restart: the stored timers cannot be read (a busy or damaged file). The app runs on the
+        // built-in timer alone, which must not replace the synced ones.
+        QSqlQuery query(QSqlDatabase::database(a.db->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        a.build(*server);
+        QVERIFY(a.persistence->loadFailed());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+        QTRY_COMPARE(a.sync->state(), SyncController::Idle); // signed in again
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Typed meanwhile")}});
+        a.sync->syncNow();
+        QTest::qWait(20 * kUnitMs); // past the upload delay
+        QCOMPARE(puts(), putsBefore);
+        QCOMPARE(gets(), getsBefore); // nor merged into what was never loaded
+        QVERIFY(remoteNames(a).contains(QStringLiteral("Mine")));
+        QVERIFY(!remoteNames(a).contains(QStringLiteral("Typed meanwhile")));
     }
 
     void tooLargeErrorSurvivesPullsUntilAnUploadSucceeds()

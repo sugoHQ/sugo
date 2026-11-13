@@ -12,14 +12,17 @@
 #include <QTcpSocket>
 #include <QTimeZone>
 
+#include <algorithm>
 #include <functional>
+#include <limits>
 
 #include "FakeSecretStore.h" // nextFakeEventSequence()
 
 /**
  * The Sugo Sync API (docs/api.md of sugo-sync) in memory, over a local QTcpServer: sign-in
  * codes, rotating refresh tokens (a reused one blocks the device), devices, boxed keys, the
- * recovery copy and the blob with ETags. The site's part (approving a code) is approve().
+ * recovery copy and one blob per kind with ETags, the kinds' size limits and Plus. The site's part
+ * (approving a code) is approve().
  *
  * Every request is logged with nextFakeEventSequence(), so a test can order it against the
  * keyring accesses of FakeSecretStore. Failures can be programmed per path.
@@ -44,6 +47,7 @@ public:
         QString platform;
         QByteArray publicKey;
         QString createdAt;
+        QString lastSeen;       ///< Set by seen(); empty: last seen when it was created.
         bool collected = false; ///< Sugo took its tokens (last_seen set).
         bool ready = false;     ///< Holds the data key.
     };
@@ -65,12 +69,20 @@ public:
         bool expired = false;
     };
 
+    struct Blob {
+        QByteArray blob;
+        QByteArray etag;
+        /// Written before a reset (an earlier sync epoch): it counts as no blob, GET answers 404
+        /// and If-Match 412 with `etag: null`, until If-None-Match: * replaces it.
+        bool stale = false;
+    };
+
     struct Account {
         QByteArray recovery;
         QString recoveryUpdatedAt;
         QString recoveryUpdatedBy;
-        QByteArray blob;
-        QByteArray etag;
+        QHash<QByteArray, Blob> blobs; ///< By kind ("presets", ...).
+        bool plus = false;             ///< The Plus kinds answer 403 plus_required without it.
     };
 
     /// A failure answered instead of the real thing, once, to the next request whose path
@@ -101,12 +113,28 @@ public:
     // --- Settings ---------------------------------------------------------------------------------
     int deviceLimit = 2;
     int interval = 5;          ///< Polling interval of the sign-in, in seconds.
-    int maxBlobSize = 262144;  ///< The PUT /blob/presets body limit: a larger upload is refused with 413.
+    /// A limit below the kinds' own (blobKinds) for every upload: a larger one is refused with 413.
+    int maxBlobSize = std::numeric_limits<int>::max();
     int accessExpiresIn = 3600;
     int slowDownNext = 0;      ///< The next n polls of a pending code answer slow_down.
+    int codeExpiresIn = 600;   ///< expires_in of a new sign-in code, in seconds.
+    int pendingExpiresIn = -1; ///< expires_in of authorization_pending and slow_down (-1: none).
     QByteArray retryAfter = "60"; ///< The Retry-After header of a programmed 429.
     /// Every request is answered by closing the connection, like a server out of reach.
     bool offline = false;
+    /// The next n requests are carried out, but their answers are lost (the connection closes).
+    int loseAnswers = 0;
+    /// The next n requests are carried out, but answered by a 200 that is not JSON (a proxy's page).
+    int garbleAnswers = 0;
+    /// Within the server's grace (a minute, as before sugo-sync#51): a spent refresh token whose successor was never used gives
+    /// a new pair and revokes that successor (docs/api.md, "Lost refresh response"). Off, any
+    /// spent token is theft.
+    bool refreshGrace = false;
+    /// The blob kinds and their limits; a kind missing here is unknown, 404 to GET and PUT, as
+    /// on a Worker older than the kind.
+    QHash<QByteArray, int> blobKinds = {
+        {"presets", 262144}, {"sessions", 1048576}, {"tasks", 1048576}, {"statistics", 1048576}, {"settings", 8192},
+    };
     QList<Failure> failures;
     void failNext(const QByteArray &pathPrefix, int status, const QByteArray &method = QByteArray())
     {
@@ -122,6 +150,7 @@ public:
     QHash<QString, Code> codes;          ///< By device code.
     QHash<QString, QString> refreshTokens;     ///< Valid token → device id.
     QHash<QString, QString> spentRefreshTokens; ///< Used token → device id.
+    QHash<QString, QString> refreshSuccessors;  ///< Used token → the token issued at its use.
     QHash<QString, QString> accessTokens;      ///< Token → device id.
     QHash<QString, Box> boxes;           ///< By receiving device id.
     QHash<QString, Account> accounts;    ///< By user id.
@@ -156,6 +185,14 @@ public:
             }
         }
         return nullptr;
+    }
+
+    /// The device synced just now: of all devices it is the one seen last.
+    void seen(const QString &id)
+    {
+        if (Device *d = device(id)) {
+            d->lastSeen = stamp();
+        }
     }
 
     QString userCodeFor(const QString &deviceCode) const { return codes.value(deviceCode).userCode; }
@@ -301,6 +338,20 @@ private:
             }
             if (failure > 0) {
                 fail(s, failure);
+            } else if (loseAnswers > 0) {
+                --loseAnswers;
+                m_muted = true;
+                respond(s, req);
+                m_muted = false;
+                buf.clear();
+                s->abort();
+                return;
+            } else if (garbleAnswers > 0) {
+                --garbleAnswers;
+                m_muted = true;
+                respond(s, req);
+                m_muted = false;
+                reply(s, 200, "<html>Not Sugo Sync</html>", {}, "text/html");
             } else {
                 respond(s, req);
             }
@@ -323,6 +374,9 @@ private:
     void reply(QTcpSocket *s, int status, const QByteArray &body = QByteArray(), const QList<QPair<QByteArray, QByteArray>> &headers = {},
                const QByteArray &type = "application/json")
     {
+        if (m_muted) {
+            return;
+        }
         QByteArray out = "HTTP/1.1 " + QByteArray::number(status) + " X\r\n";
         if (!body.isEmpty()) {
             out += "Content-Type: " + type + "\r\n";
@@ -390,7 +444,8 @@ private:
         o.insert(QStringLiteral("name"), d.name);
         o.insert(QStringLiteral("platform"), d.platform);
         o.insert(QStringLiteral("created_at"), d.createdAt);
-        o.insert(QStringLiteral("last_seen"), d.collected ? QJsonValue(d.createdAt) : QJsonValue(QJsonValue::Null));
+        o.insert(QStringLiteral("last_seen"),
+                 d.collected ? QJsonValue(d.lastSeen.isEmpty() ? d.createdAt : d.lastSeen) : QJsonValue(QJsonValue::Null));
         o.insert(QStringLiteral("pending"), !d.ready);
         o.insert(QStringLiteral("current"), d.id == caller);
         o.insert(QStringLiteral("public_key"), QString::fromLatin1(d.publicKey.toBase64()));
@@ -420,7 +475,7 @@ private:
             json.insert(QStringLiteral("verification_uri"), QStringLiteral("https://sugo.stream/link"));
             json.insert(QStringLiteral("verification_uri_complete"), QString(QStringLiteral("https://sugo.stream/link?code=") + c.userCode));
             json.insert(QStringLiteral("interval"), interval);
-            json.insert(QStringLiteral("expires_in"), 600);
+            json.insert(QStringLiteral("expires_in"), codeExpiresIn);
             replyJson(s, 200, json);
             return;
         }
@@ -445,10 +500,16 @@ private:
                         interval += 5;
                         QJsonObject extra;
                         extra.insert(QStringLiteral("interval"), interval);
+                        if (pendingExpiresIn >= 0) {
+                            extra.insert(QStringLiteral("expires_in"), pendingExpiresIn);
+                        }
                         error(s, 400, "slow_down", extra);
                         return;
                     }
                     QJsonObject extra;
+                    if (pendingExpiresIn >= 0) {
+                        extra.insert(QStringLiteral("expires_in"), pendingExpiresIn);
+                    }
                     if (c.limitReached) {
                         extra.insert(QStringLiteral("reason"), QStringLiteral("device_limit_reached"));
                     }
@@ -468,6 +529,16 @@ private:
             }
             if (grant == QLatin1String("refresh_token")) {
                 const QString token = body.value(QStringLiteral("refresh_token")).toString();
+                const QString successor = refreshSuccessors.value(token);
+                if (refreshGrace && spentRefreshTokens.contains(token) && refreshTokens.contains(successor)) {
+                    // The answer was lost: the successor is revoked (spent, without a successor of its own).
+                    const QString id = refreshTokens.take(successor);
+                    spentRefreshTokens.insert(successor, id);
+                    const QJsonObject json = issueTokens(id);
+                    refreshSuccessors.insert(token, json.value(QStringLiteral("refresh_token")).toString());
+                    replyJson(s, 200, json);
+                    return;
+                }
                 if (spentRefreshTokens.contains(token)) {
                     dropTokensOf(spentRefreshTokens.value(token)); // reuse: theft
                     error(s, 400, "invalid_grant");
@@ -479,7 +550,9 @@ private:
                 }
                 const QString id = refreshTokens.take(token);
                 spentRefreshTokens.insert(token, id);
-                replyJson(s, 200, issueTokens(id));
+                const QJsonObject json = issueTokens(id);
+                refreshSuccessors.insert(token, json.value(QStringLiteral("refresh_token")).toString());
+                replyJson(s, 200, json);
                 return;
             }
             error(s, 400, "invalid_request");
@@ -617,7 +690,8 @@ private:
                 return;
             }
         }
-        if (path == "/v1/blob/presets") {
+        if (path.startsWith("/v1/blob/")) {
+            const QByteArray kind = path.mid(int(qstrlen("/v1/blob/")));
             int pending = 0;
             for (const Device &d : devicesOf(userId)) {
                 if (d.collected && !d.ready && d.id != caller) {
@@ -625,9 +699,19 @@ private:
                 }
             }
             const QPair<QByteArray, QByteArray> pendingHeader{"Sugo-Pending-Devices", QByteArray::number(pending)};
-            const QByteArray quoted = '"' + account.etag + '"';
+            if (!blobKinds.contains(kind) || (req.method != "GET" && req.method != "PUT")) {
+                error(s, 404, "not_found");
+                return;
+            }
+            if (kind != "presets" && !account.plus) {
+                error(s, 403, "plus_required");
+                return;
+            }
+            Blob &stored = account.blobs[kind];
+            const bool exists = !stored.blob.isEmpty() && !stored.stale;
+            const QByteArray quoted = '"' + stored.etag + '"';
             if (req.method == "GET") {
-                if (account.blob.isEmpty()) {
+                if (!exists) {
                     error(s, 404, "not_found", {}, {pendingHeader});
                     return;
                 }
@@ -635,41 +719,48 @@ private:
                     reply(s, 304, {}, {pendingHeader, {"ETag", quoted}});
                     return;
                 }
-                reply(s, 200, account.blob, {pendingHeader, {"ETag", quoted}}, "application/octet-stream");
+                reply(s, 200, stored.blob, {pendingHeader, {"ETag", quoted}}, "application/octet-stream");
                 return;
             }
-            if (req.method == "PUT") {
-                const QByteArray ifMatch = req.headers.value("if-match");
-                const QByteArray ifNoneMatch = req.headers.value("if-none-match");
-                if (req.body.size() > maxBlobSize) {
-                    error(s, 413, "too_large");
-                    return;
+            const QByteArray ifMatch = req.headers.value("if-match");
+            const QByteArray ifNoneMatch = req.headers.value("if-none-match");
+            // A kind's own limit, or a lower one a test sets for every kind.
+            const int limit = std::min(blobKinds.value(kind), maxBlobSize);
+            if (req.body.size() > limit) {
+                QJsonObject extra;
+                extra.insert(QStringLiteral("max_bytes"), limit);
+                error(s, 413, "too_large", extra);
+                return;
+            }
+            if (ifMatch.isEmpty() == (ifNoneMatch != "*")) {
+                if (ifMatch.isEmpty()) {
+                    error(s, 428, "precondition_required");
+                } else {
+                    error(s, 400, "invalid_request");
                 }
-                if (ifMatch.isEmpty() == (ifNoneMatch != "*")) {
-                    if (ifMatch.isEmpty()) {
-                        error(s, 428, "precondition_required");
-                    } else {
-                        error(s, 400, "invalid_request");
-                    }
-                    return;
-                }
-                const QByteArray wanted = QByteArray(ifMatch).replace('"', "");
-                if ((ifNoneMatch == "*" && !account.blob.isEmpty()) || (!ifMatch.isEmpty() && (account.blob.isEmpty() || wanted != account.etag))) {
-                    QJsonObject extra;
-                    extra.insert(QStringLiteral("etag"), QString::fromLatin1(account.etag));
+                return;
+            }
+            const QByteArray wanted = QByteArray(ifMatch).replace('"', "");
+            if ((ifNoneMatch == "*" && exists) || (!ifMatch.isEmpty() && (!exists || wanted != stored.etag))) {
+                QJsonObject extra;
+                if (exists) {
+                    extra.insert(QStringLiteral("etag"), QString::fromLatin1(stored.etag));
                     error(s, 412, "precondition_failed", extra, {{"ETag", quoted}});
-                    return;
+                } else {
+                    extra.insert(QStringLiteral("etag"), QJsonValue::Null);
+                    error(s, 412, "precondition_failed", extra);
                 }
-                if (!req.body.startsWith("SUGO") || req.body.size() < 4 + 1 + 24 + 16) {
-                    error(s, 400, "invalid_blob");
-                    return;
-                }
-                const bool created = account.blob.isEmpty();
-                account.blob = req.body;
-                account.etag = "e" + QByteArray::number(++m_counter);
-                reply(s, created ? 201 : 204, {}, {{"ETag", '"' + account.etag + '"'}});
                 return;
             }
+            if (!req.body.startsWith("SUGO") || req.body.size() < 4 + 1 + 24 + 16) {
+                error(s, 400, "invalid_blob");
+                return;
+            }
+            stored.blob = req.body;
+            stored.stale = false;
+            stored.etag = "e" + QByteArray::number(++m_counter);
+            reply(s, exists ? 204 : 201, {}, {{"ETag", '"' + stored.etag + '"'}});
+            return;
         }
         error(s, 404, "not_found");
     }
@@ -678,4 +769,5 @@ private:
     QHash<QTcpSocket *, QByteArray> m_buffers;
     int m_counter = 0;
     int m_clockTicks = 0;
+    bool m_muted = false; ///< The answer being written is lost.
 };

@@ -81,3 +81,33 @@ void macSetUpTitleBar(QWindow *window)
     nsWindow.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
     nsWindow.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
 }
+
+void macStopTrayActivationReports()
+{
+    if (QGuiApplication::platformName() != QLatin1String("cocoa")) {
+        return;
+    }
+    // Qt's status item delegate is the target of the icon's button and the observer of the
+    // menu's NSMenuDidBeginTrackingNotification; without that observer the menu still opens (it
+    // belongs to the status item), only the report of the click goes.
+    const SEL clicked = NSSelectorFromString(@"statusItemClicked");
+    for (NSWindow *window in NSApp.windows) {
+        if (!window.contentView) {
+            continue;
+        }
+        NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:window.contentView];
+        while (views.count) {
+            NSView *view = views.lastObject;
+            [views removeLastObject];
+            if ([view isKindOfClass:[NSStatusBarButton class]]) {
+                NSStatusBarButton *button = (NSStatusBarButton *)view;
+                if (button.action == clicked && button.target) {
+                    [NSNotificationCenter.defaultCenter removeObserver:button.target
+                                                                  name:NSMenuDidBeginTrackingNotification
+                                                                object:nil];
+                }
+            }
+            [views addObjectsFromArray:view.subviews];
+        }
+    }
+}

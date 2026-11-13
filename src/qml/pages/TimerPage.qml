@@ -378,6 +378,38 @@ QQC2.Page {
         }
     }
 
+    // More time, under the cycle: 2, 5 or 10 minutes for the phase under way, or for the one that
+    // has just ended. Out of the clock's column, so nothing moves when they come or go.
+    Row {
+        id: extendRow
+        objectName: "extendRow"
+        anchors.top: clockColumn.bottom
+        anchors.topMargin: Theme.spaceLg
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        spacing: Theme.spaceXs
+        opacity: TimerEngine.extendable ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+        readonly property string hint: !TimerEngine.active && TimerEngine.continuable
+                                       ? (TimerEngine.finishedPhase === TimerEngine.Phase.Work ? i18n("Keep working a few more minutes")
+                                                                                               : i18n("Make the break a few minutes longer"))
+                                       : ""
+
+        Repeater {
+            model: [2, 5, 10]
+            SButton {
+                required property int modelData
+                objectName: "extend-" + modelData
+                kind: "ghost"
+                text: i18nc("adds minutes to the timer", "+%1 min", modelData)
+                enabled: TimerEngine.extendable
+                toolTipText: extendRow.hint
+                Accessible.description: extendRow.hint.length > 0 ? extendRow.hint
+                                                                   : i18np("Add %1 minute", "Add %1 minutes", modelData)
+                onClicked: TimerEngine.extend(modelData * 60)
+            }
+        }
+    }
+
     // Paused by the screen lock or by sleep: say so, and offer to go on.
     // Over the clock and out of its column, so the clock does not move when it comes or goes.
     MessageSlot {
@@ -405,6 +437,72 @@ QQC2.Page {
             iconName: "close"
             text: i18n("Dismiss")
             onClicked: ScreenLockWatcher.clearLockPauseNotice()
+        }
+    }
+
+    // During a break (and while one waits to start): a small idea for it, under the clock. A new
+    // one each break; out of the column, so the clock does not move when it comes or goes, and
+    // only where it fits above the controls.
+    readonly property var breakTips: [
+        i18nc("a suggestion for the break", "Stand up and stretch your back and shoulders."),
+        i18nc("a suggestion for the break", "Drink a glass of water."),
+        i18nc("a suggestion for the break", "Look at something far away for 20 seconds."),
+        i18nc("a suggestion for the break", "Take a few slow, deep breaths."),
+        i18nc("a suggestion for the break", "Walk around for a minute or two."),
+        i18nc("a suggestion for the break", "Open a window and let some fresh air in."),
+        i18nc("a suggestion for the break", "Roll your shoulders and loosen your neck."),
+        i18nc("a suggestion for the break", "Close your eyes and rest them for a moment."),
+        i18nc("a suggestion for the break", "Step away from the screen, and leave the phone too.")
+    ]
+    readonly property var longBreakTips: [
+        i18nc("a suggestion for the long break", "Go for a short walk outside."),
+        i18nc("a suggestion for the long break", "Have a snack and something to drink."),
+        i18nc("a suggestion for the long break", "Tidy your desk, then rest a moment.")
+    ]
+    Text {
+        id: breakTip
+        objectName: "breakTip"
+        anchors.top: extendRow.bottom
+        anchors.topMargin: Theme.spaceLg
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        width: page.trackWidth
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+        color: Theme.muted
+        font.pixelSize: Theme.fontBody
+        readonly property var tips: TimerEngine.phase === TimerEngine.Phase.LongBreak ? page.longBreakTips : page.breakTips
+        // Main.qml counts the breaks, so the page coming back keeps the same suggestion.
+        text: tips[applicationWindow().breakTipNumber % tips.length]
+        readonly property bool fits: y + height + Theme.spaceXl <= dock.y
+        opacity: !page.isWorkPhase && fits ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
+        Accessible.role: Accessible.StaticText
+        Accessible.name: opacity > 0 ? text : ""
+    }
+
+    // A session an earlier run of Sugo left under way, brought back paused: say why, and offer to go on.
+    MessageSlot {
+        objectName: "restoredSessionMessage"
+        anchors.bottom: clockColumn.top
+        anchors.bottomMargin: Theme.spaceXl
+        anchors.horizontalCenter: clockColumn.horizontalCenter
+        width: page.trackWidth
+        lines: 2
+        shown: SessionKeeper.restored && TimerEngine.paused
+        text: i18n("Sugo was closed during this session, so it was paused.")
+        SButton {
+            kind: "ghost"
+            text: i18n("Resume")
+            onClicked: TimerEngine.resume()
+        }
+        SButton {
+            kind: "ghost"
+            iconOnly: true
+            iconName: "close"
+            text: i18n("Dismiss")
+            onClicked: SessionKeeper.dismiss()
         }
     }
 

@@ -20,8 +20,18 @@
 namespace
 {
 constexpr int kTransferTimeoutMs = 30000;
+/// The most an answer may hold. A blob is at most a few hundred KiB (the server refuses larger
+/// uploads): a server that sends more is cut off rather than read into memory.
+constexpr qint64 kMaxResponseSize = 8 * 1024 * 1024;
 /// An access token is renewed when it has less than this left.
 constexpr qint64 kAccessMarginMs = 60 * 1000;
+/// The renewal's own transfer timeout, shorter than the others: its retries must all reach the server
+/// while it still takes back a refresh token whose answer was lost. Servers before sugo-sync#51 do so
+/// for a minute (since then for 24 h), and the retries keep to the minute, so they work with both.
+constexpr int kRefreshTimeoutMs = 15000;
+/// No retry of a renewal starts later than this after the first try (the shortest grace, of servers
+/// before sugo-sync#51, is 60 s from when the server took the token, never before the first try was sent).
+constexpr qint64 kRefreshRetryWindowMs = 40 * 1000;
 
 QString appVersion()
 {
@@ -77,6 +87,7 @@ SyncError::Kind SyncError::kindForCode(const QString &code, int http)
         {QStringLiteral("precondition_failed"), Kind::PreconditionFailed},
         {QStringLiteral("precondition_required"), Kind::PreconditionRequired},
         {QStringLiteral("too_large"), Kind::TooLarge},
+        {QStringLiteral("plus_required"), Kind::PlusRequired},
         {QStringLiteral("invalid_blob"), Kind::InvalidBlob},
         {QStringLiteral("invalid_request"), Kind::InvalidRequest},
         {QStringLiteral("not_found"), Kind::NotFound},
@@ -285,11 +296,11 @@ void SyncApi::putRecovery(const QByteArray &sealed, Callback done)
     call(r, std::move(done));
 }
 
-void SyncApi::getBlob(const QByteArray &etag, Callback done)
+void SyncApi::getBlob(SyncKind kind, const QByteArray &etag, Callback done)
 {
     Request r;
     r.verb = "GET";
-    r.path = QStringLiteral("/v1/blob/presets");
+    r.path = QStringLiteral("/v1/blob/") + SyncKinds::name(kind);
     r.expectJson = false;
     if (!etag.isEmpty()) {
         r.headers.append({QByteArrayLiteral("If-None-Match"), '"' + etag + '"'});
@@ -297,11 +308,11 @@ void SyncApi::getBlob(const QByteArray &etag, Callback done)
     call(r, std::move(done));
 }
 
-void SyncApi::putBlob(const QByteArray &blob, const QByteArray &etag, Callback done)
+void SyncApi::putBlob(SyncKind kind, const QByteArray &blob, const QByteArray &etag, Callback done)
 {
     Request r;
     r.verb = "PUT";
-    r.path = QStringLiteral("/v1/blob/presets");
+    r.path = QStringLiteral("/v1/blob/") + SyncKinds::name(kind);
     r.body = blob;
     r.contentType = "application/octet-stream";
     r.expectJson = false;
@@ -344,6 +355,11 @@ void SyncApi::ensureAccessToken(TokenCallback done)
         return;
     }
     m_refreshInFlight = true;
+    sendRefresh(refreshToken, 0, now());
+}
+
+void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 firstSentAt)
+{
     QJsonObject body;
     body.insert(QLatin1String("grant_type"), QStringLiteral("refresh_token"));
     body.insert(QLatin1String("refresh_token"), refreshToken);
@@ -352,18 +368,46 @@ void SyncApi::ensureAccessToken(TokenCallback done)
     r.path = QStringLiteral("/v1/auth/token");
     r.body = jsonBody(body);
     r.auth = false;
-    send(r, QString(), [this](const SyncReply &reply) {
-        m_refreshInFlight = false;
-        if (reply.ok()) {
-            SyncError e;
-            if (!takeTokens(reply.json)) {
-                e.kind = SyncError::Kind::Format;
-                e.http = reply.http;
-            }
-            finishRefresh(e);
+    r.timeoutMs = kRefreshTimeoutMs;
+    send(r, QString(), [this, refreshToken, attempt, firstSentAt](const SyncReply &reply) {
+        const quint64 gen = m_generation;
+        if (reply.ok() && takeTokens(reply.json)) {
+            m_refreshInFlight = false;
+            finishRefresh(SyncError());
             return;
         }
-        if (reply.error.kind == SyncError::Kind::InvalidGrant) {
+        if (gen != m_generation) {
+            return; // reset() while the token was saved (a sign-out during the keyring's prompt)
+        }
+        SyncError error = reply.error;
+        if (reply.ok()) { // a success without the tokens
+            error.kind = SyncError::Kind::Format;
+            error.http = reply.http;
+        }
+        // No answer, a server error or an answer that cannot be read (a proxy's page, a cut body):
+        // the server may have taken the token and its answer been lost. It takes the same token
+        // back within its grace (and gives a new pair), and treats it as stolen afterwards. The
+        // grace is 24 h since sugo-sync#51 but a minute before, so the retries come now, not with
+        // the sync's backoff.
+        // A refused redirect (3xx, failing as Network or Server) is an answer: never retried.
+        const bool redirected = reply.http >= 300 && reply.http < 400;
+        const bool lost = !redirected
+            && (error.kind == SyncError::Kind::Network || error.kind == SyncError::Kind::Format
+                || (error.kind == SyncError::Kind::Server && reply.http >= 500));
+        if (lost && attempt < m_refreshRetryDelaysMs.size()) {
+            const int delay = m_refreshRetryDelaysMs.at(attempt);
+            if (now() - firstSentAt + delay <= kRefreshRetryWindowMs) {
+                const quint64 gen = m_generation;
+                QTimer::singleShot(delay, this, [this, gen, refreshToken, attempt, firstSentAt]() {
+                    if (gen == m_generation) {
+                        sendRefresh(refreshToken, attempt + 1, firstSentAt);
+                    }
+                });
+                return;
+            }
+        }
+        m_refreshInFlight = false;
+        if (error.kind == SyncError::Kind::InvalidGrant) {
             dropAccessToken();
             // First: whoever handles it may reset(), and then no waiter runs after the sign-out.
             const quint64 gen = m_generation;
@@ -372,9 +416,14 @@ void SyncApi::ensureAccessToken(TokenCallback done)
                 return;
             }
         }
-        // Network, rate limit, server: the refresh token in memory stays as it is.
-        finishRefresh(reply.error);
+        // Network, rate limit, server, unreadable: the refresh token in memory stays as it is.
+        finishRefresh(error);
     });
+}
+
+void SyncApi::setRefreshRetryDelaysMs(const QList<int> &delays)
+{
+    m_refreshRetryDelaysMs = delays;
 }
 
 bool SyncApi::takeTokens(const QJsonObject &json)
@@ -488,10 +537,16 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
     // https never falls back to http.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
     req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setTransferTimeout(request.timeoutMs > 0 ? request.timeoutMs : kTransferTimeoutMs);
 
     QNetworkReply *reply = network()->sendCustomRequest(req, request.verb, request.body);
     m_replies.insert(reply);
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64 total) {
+        if (received > kMaxResponseSize || total > kMaxResponseSize) {
+            reply->setProperty("sugoTooLarge", true);
+            reply->abort();
+        }
+    });
     const bool expectJson = request.expectJson;
     connect(reply, &QNetworkReply::finished, this, [this, reply, gen, done, expectJson]() {
         m_replies.remove(reply);
@@ -500,8 +555,10 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
             return;
         }
         SyncReply r;
-        r.http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        r.body = reply->readAll();
+        // Cut off for its size: it fails as the network does, with nothing of what came.
+        const bool tooLarge = reply->property("sugoTooLarge").toBool();
+        r.http = tooLarge ? 0 : reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        r.body = tooLarge ? QByteArray() : reply->readAll();
         r.etag = bareEtag(reply->rawHeader("ETag"));
         const QByteArray pending = reply->rawHeader("Sugo-Pending-Devices");
         bool pendingOk = false;
@@ -510,8 +567,8 @@ void SyncApi::send(const Request &request, const QString &accessToken, Callback 
         // A transfer cut off after the status line (closed, timed out) has a status but not all of its
         // body: it fails as the network does, not as a good answer with half a blob.
         const QNetworkReply::NetworkError transport = reply->error();
-        const bool cutOff = transport != QNetworkReply::NoError && transport < QNetworkReply::ContentAccessDenied;
-        r.error = cutOff ? SyncError::fromResponse(0, {}, reply->errorString())
+        const bool cutOff = tooLarge || (transport != QNetworkReply::NoError && transport < QNetworkReply::ContentAccessDenied);
+        r.error = cutOff ? SyncError::fromResponse(0, {}, tooLarge ? QStringLiteral("The server's answer is too large") : reply->errorString())
                          : SyncError::fromResponse(r.http, r.body, r.http == 0 ? reply->errorString() : QString());
         if (!r.error.ok()) {
             // An HTTP date (or anything unreadable) gives 0: the caller's own delay.

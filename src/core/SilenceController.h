@@ -21,7 +21,9 @@ class TimerEngine;
  * When an elapsed phase auto-starts Work, the silencing follows one event-loop turn later, so
  * the end-of-phase announcement reaches the desktop before the inhibition does. The silencing of
  * a phase that ends is released as soon as it ends, even when the next phase is Work again (a
- * timer without breaks), where no state change would otherwise re-evaluate the rule.
+ * timer without breaks), where no state change would otherwise re-evaluate the rule. A phase taken
+ * up again and then stopped or skipped ends as a completed session with no announcement: nothing
+ * is waited for beyond the event-loop turn in which it ended.
  */
 class SilenceController : public QObject
 {
@@ -53,6 +55,8 @@ Q_SIGNALS:
 
 private:
     void update();
+    /// The end of a phase is behind us (announced, or never to be): what was put off may come.
+    void phaseEndOver();
 
     TimerEngine *m_engine = nullptr;
     PresetModel *m_presets = nullptr;
@@ -60,6 +64,6 @@ private:
     bool m_active = false;
     bool m_decided = false; ///< update() has told the inhibitor at least once
     bool m_wanted = false;  ///< what the inhibitor was last told
-    bool m_phaseEnding = false;     ///< between sessionEnded and phaseFinished of an elapsed phase
+    bool m_phaseEnding = false;     ///< a completed session ended, its phaseFinished is still awaited
     bool m_silenceDeferred = false; ///< silencing put off until that phase end is announced
 };

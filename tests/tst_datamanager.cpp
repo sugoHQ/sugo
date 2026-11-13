@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <algorithm>
 #include <QFile>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QFileInfo>
 #include <QDateTime>
 #include <QDir>
@@ -196,6 +194,7 @@ private Q_SLOTS:
         const QString sourcePath = elsewhere.filePath(QStringLiteral("source.db"));
         const QString copiedPath = elsewhere.filePath(QStringLiteral("copied.db"));
         const QString wal = QStringLiteral("-wal");
+        QStringList sourceUuids;
         {
             Database source(sourcePath);
             QVERIFY(source.open());
@@ -208,6 +207,9 @@ private Q_SLOTS:
                 QVERIFY(sourceSessions.insert(sampleRecord(QStringLiteral("In the log %1").arg(i))));
             }
             QVERIFY(QFileInfo(sourcePath + wal).size() > 0);
+            for (const SessionRecord &r : sourceSessions.between(0, 2000)) {
+                sourceUuids.append(r.uuid);
+            }
             QVERIFY(QFile::copy(sourcePath, copiedPath));
             QVERIFY(QFile::copy(sourcePath + wal, copiedPath + wal));
         }
@@ -218,9 +220,43 @@ private Q_SLOTS:
         QCOMPARE(succeeded.count(), 1);
         QCOMPARE(manager->sessionCount(), 3);
         QCOMPARE(sessions->between(0, 2000).first().presetName, QStringLiteral("In the log 0"));
+        QStringList restoredUuids;
+        for (const SessionRecord &r : sessions->between(0, 2000)) {
+            restoredUuids.append(r.uuid);
+        }
+        QCOMPARE(restoredUuids, sourceUuids); // the same sessions, as Sugo Sync knows them
         // The user's files are left as they were.
         QVERIFY(QFile::exists(copiedPath + wal));
         QVERIFY(!QFile::exists(copiedPath + QStringLiteral("-shm")));
+    }
+
+    void restoreKeepsWhenNotesChangedAndBringsDeletedSessionsBack()
+    {
+        qint64 id = 0;
+        QVERIFY(sessions->insert(sampleRecord(QStringLiteral("Pomodoro")), &id));
+        QVERIFY(sessions->updateNote(id, QStringLiteral("Edited")));
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at FROM session")) && query.next());
+        const QString uuid = query.value(0).toString();
+        const qint64 updatedAt = query.value(1).toLongLong();
+        QVERIFY(updatedAt > 0);
+        query.finish();
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup.db")));
+        QVERIFY(manager->backupDatabase(backup));
+
+        // Deleted afterwards, as Sugo Sync will know it: the row goes, a tombstone stays.
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) SELECT uuid, 1 FROM session")));
+        QVERIFY(query.exec(QStringLiteral("DELETE FROM session")));
+        QVERIFY(query.exec(QStringLiteral("INSERT INTO session_tombstone (uuid, deleted_at) VALUES ('another', 1)")));
+
+        QVERIFY(manager->restoreDatabase(backup));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid, updated_at, note FROM session")) && query.next());
+        QCOMPARE(query.value(0).toString(), uuid);
+        QCOMPARE(query.value(1).toLongLong(), updatedAt); // the note's change is not forgotten
+        QCOMPARE(query.value(2).toString(), QStringLiteral("Edited"));
+        QVERIFY(query.exec(QStringLiteral("SELECT uuid FROM session_tombstone")) && query.next());
+        QCOMPARE(query.value(0).toString(), QStringLiteral("another")); // only the one not brought back
+        QVERIFY(!query.next());
     }
 
     void restoreWaitsForTheTimerToStop()
@@ -439,6 +475,60 @@ private Q_SLOTS:
         manager->setPresetPersistence(nullptr);
     }
 
+    void timersThatCouldNotBeReadAreReported()
+    {
+        QVERIFY(!manager->timersUnreadable());
+        // The stored timers cannot be read at startup (stands in for a busy or damaged file).
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        PresetModel model;
+        PresetPersistence persistence(&model, presetRepository.get());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+
+        QSignalSpy failing(manager.get(), &DataManager::saveFailingChanged);
+        manager->setPresetPersistence(&persistence);
+        QVERIFY(manager->timersUnreadable());
+        QCOMPARE(failing.count(), 1);
+
+        manager->setPresetPersistence(nullptr);
+        QVERIFY(!manager->timersUnreadable());
+    }
+
+    void restoreAfterTimersCouldNotBeReadSavesAgain()
+    {
+        const QUrl backup = QUrl::fromLocalFile(dir.filePath(QStringLiteral("backup.db")));
+        QVERIFY(manager->backupDatabase(backup));
+        // The stored timers cannot be read at startup.
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset RENAME TO preset_away")));
+        PresetPersistence persistence(presetModel.get(), presetRepository.get());
+        QVERIFY(query.exec(QStringLiteral("ALTER TABLE preset_away RENAME TO preset")));
+        manager->setPresetPersistence(&persistence);
+        QVERIFY(manager->timersUnreadable());
+
+        // The restore puts the stored timers in the model: from then on, changes are saved.
+        QSignalSpy failing(manager.get(), &DataManager::saveFailingChanged);
+        QSignalSpy saved(&persistence, &PresetPersistence::saved);
+        QVERIFY(manager->restoreDatabase(backup));
+        QVERIFY(!manager->timersUnreadable());
+        QVERIFY(!persistence.loadFailed());
+        QVERIFY(failing.count() >= 1);
+        QCOMPARE(saved.count(), 1);
+
+        const QString uuid = presetModel->currentUuid();
+        QVERIFY(presetModel->update(uuid, {{QStringLiteral("name"), QStringLiteral("Edited after the restore")}}));
+        bool ok = false;
+        const QList<TimerPreset> stored = presetRepository->loadAll(&ok);
+        QVERIFY(ok);
+        const auto edited = std::find_if(stored.cbegin(), stored.cend(),
+                                         [&uuid](const TimerPreset &p) { return p.uuid == uuid; });
+        QVERIFY(edited != stored.cend());
+        QCOMPARE(edited->name, QStringLiteral("Edited after the restore"));
+        QCOMPARE(saved.count(), 2);
+
+        manager->setPresetPersistence(nullptr);
+    }
+
     void sessionsWaitingToBeStoredDoNotReappearAfterClearing()
     {
         FakeClock clock;
@@ -619,94 +709,73 @@ private Q_SLOTS:
         QCOMPARE(manager->sessionCount(), 1);
     }
 
-    void exportToCsvQuotesFieldsAndNeutralisesFormulas()
+    void deleteSessionRemovesOnlyThatSession()
     {
+        FakeClock clock;
+        TimerEngine engine(&clock, nullptr);
+        SessionRecorder recorder(&engine, presetModel.get(), sessions.get());
+        manager->setSessionRecorder(&recorder);
+
         SessionRecord record;
         record.kind = SessionKind::Work;
-        record.startedAtMs = 1'700'000'000'000;
-        record.endedAtMs = 1'700'000'600'000;
+        record.startedAtMs = 1000;
+        record.endedAtMs = 1600;
         record.durationSec = 600;
-        record.plannedSec = 1500;
         record.completed = true;
-        record.presetName = QStringLiteral("Deep, \"focus\"");
-        record.category = QStringLiteral("=SUM(A1)");
-        record.note = QStringLiteral("line one\nline two");
-        QVERIFY(sessions->insert(record));
-        record.kind = SessionKind::ShortBreak;
-        record.completed = false;
-        record.presetName = QStringLiteral("@cmd");
-        record.category = QStringLiteral("-1+1");
-        record.note = QStringLiteral("+x");
-        QVERIFY(sessions->insert(record));
+        qint64 kept = 0;
+        QVERIFY(sessions->insert(record, &kept));
+
+        // A session started by mistake and stopped after 37 seconds.
+        engine.start();
+        clock.advanceSeconds(37);
+        engine.refresh();
+        engine.stop();
+        const qint64 mistake = manager->lastWorkSessionId();
+        QVERIFY(mistake > 0);
+        QCOMPARE(manager->sessionCount(), 2);
 
         QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
-        const QString path = dir.filePath(QStringLiteral("history.csv"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
+        QSignalSpy changed(manager.get(), &DataManager::dataChanged);
+        QSignalSpy deletedSpy(manager.get(), &DataManager::sessionDeleted);
+        QString mistakeUuid;
+        for (const SessionRecord &r : sessions->between(0, std::numeric_limits<qint64>::max())) {
+            if (r.id == mistake) {
+                mistakeUuid = r.uuid;
+            }
+        }
+        QVERIFY(!mistakeUuid.isEmpty());
+        QVERIFY(manager->deleteSession(mistake, true));
+        QCOMPARE(manager->sessionCount(), 1);
+        // The calendar hears of it, with what it needs to find the event.
+        QCOMPARE(deletedSpy.count(), 1);
+        const auto deleted = deletedSpy.first().at(0).value<SessionRecord>();
+        QCOMPARE(deleted.id, mistake);
+        QCOMPARE(deleted.uuid, mistakeUuid);
+        QCOMPARE(deleted.completed, false);
+        QCOMPARE(deletedSpy.first().at(1).toBool(), true);
+        // Sugo Sync will tell the other devices: the deletion leaves a tombstone.
+        {
+            QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+            QVERIFY(query.exec(QStringLiteral("SELECT uuid, deleted_at FROM session_tombstone")));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toString(), mistakeUuid);
+            QVERIFY(query.value(1).toLongLong() > 0);
+            QVERIFY(!query.next());
+        }
+        QCOMPARE(sessions->between(0, std::numeric_limits<qint64>::max()).first().id, kept);
+        QCOMPARE(changed.count(), 1);
         QCOMPARE(succeeded.count(), 1);
-        QCOMPARE(succeeded.first().first().toString(), QStringLiteral("Exported 2 sessions."));
-        QCOMPARE(QFile::permissions(path) & (QFile::ReadGroup | QFile::WriteGroup | QFile::ReadOther | QFile::WriteOther),
-                 QFileDevice::Permissions());
+        // A note typed now has no session to go to.
+        QCOMPARE(manager->lastWorkSessionId(), -1);
 
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QString csv = QString::fromUtf8(file.readAll());
-        const QStringList lines = csv.split(QStringLiteral("\r\n"));
-        QCOMPARE(lines.first(), QStringLiteral("id,kind,started_at,ended_at,duration_sec,planned_sec,completed,preset_name,category,note"));
-        // The first row's note spans two physical lines: it is one quoted field.
-        QVERIFY(csv.contains(QStringLiteral(",600,1500,1,\"Deep, \"\"focus\"\"\",'=SUM(A1),\"line one\nline two\"\r\n")));
-        QVERIFY(csv.contains(QStringLiteral(",short_break,")));
-        QVERIFY(csv.contains(QStringLiteral(",600,1500,0,'@cmd,'-1+1,'+x\r\n")));
-        QVERIFY(csv.endsWith(QStringLiteral("\r\n")));
-        // The times carry an offset from UTC and name the same instants.
-        const QString started = csv.split(QStringLiteral("\r\n")).at(1).split(QLatin1Char(',')).at(2);
-        QVERIFY(started.contains(QRegularExpression(QStringLiteral("[+-]\\d\\d:\\d\\d$|Z$"))));
-        QCOMPARE(QDateTime::fromString(started, Qt::ISODate).toMSecsSinceEpoch(), qint64(1'700'000'000'000));
-    }
-
-    void exportToJsonKeepsTextAsIs()
-    {
-        SessionRecord record;
-        record.kind = SessionKind::LongBreak;
-        record.startedAtMs = 1'700'000'000'000;
-        record.endedAtMs = 1'700'000'900'000;
-        record.durationSec = 900;
-        record.plannedSec = 900;
-        record.completed = true;
-        record.presetName = QStringLiteral("Pomodoro");
-        record.category = QStringLiteral("Study");
-        record.note = QStringLiteral("=keep");
-        QVERIFY(sessions->insert(record));
-
-        const QString path = dir.filePath(QStringLiteral("history.JSON"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        QVERIFY(doc.isArray());
-        QCOMPARE(doc.array().size(), 1);
-        const QJsonObject row = doc.array().first().toObject();
-        QCOMPARE(row.value(QStringLiteral("kind")).toString(), QStringLiteral("long_break"));
-        QCOMPARE(row.value(QStringLiteral("duration_sec")).toInt(), 900);
-        QCOMPARE(row.value(QStringLiteral("planned_sec")).toInt(), 900);
-        QCOMPARE(row.value(QStringLiteral("completed")).toBool(), true);
-        QCOMPARE(row.value(QStringLiteral("preset_name")).toString(), QStringLiteral("Pomodoro"));
-        QCOMPARE(row.value(QStringLiteral("category")).toString(), QStringLiteral("Study"));
-        QCOMPARE(row.value(QStringLiteral("note")).toString(), QStringLiteral("=keep"));
-        QCOMPARE(QDateTime::fromString(row.value(QStringLiteral("ended_at")).toString(), Qt::ISODate).toMSecsSinceEpoch(),
-                 qint64(1'700'000'900'000));
-        QVERIFY(row.contains(QStringLiteral("id")));
-    }
-
-    void exportFailsForUnusableTargets()
-    {
+        // Deleting it again (or any session that is not there) fails and says so.
         QSignalSpy failed(manager.get(), &DataManager::operationFailed);
-        QVERIFY(!manager->exportHistory(QUrl(QStringLiteral("https://example.com/history.csv"))));
-        QCOMPARE(failed.count(), 1);
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("history.txt")))));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("there is no session")));
+        QVERIFY(!manager->deleteSession(mistake));
+        QVERIFY(!manager->deleteSession(0));
         QCOMPARE(failed.count(), 2);
-        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("history.txt"))));
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("missing/dir/history.csv")))));
-        QCOMPARE(failed.count(), 3);
+        QCOMPARE(manager->sessionCount(), 1);
+        manager->setSessionRecorder(nullptr);
     }
 
     void presetCountReflectsModelCount()
@@ -835,35 +904,6 @@ private Q_SLOTS:
         QVERIFY2(!fileBytes().contains(marker), "a cleared note is still readable in the database file");
     }
 
-    void exportOfAnUnreadableHistoryLeavesTheFileAlone()
-    {
-        QVERIFY(sessions->insert(sampleRecord()));
-        const QString path = dir.filePath(QStringLiteral("previous.csv"));
-        QVERIFY(manager->exportHistory(QUrl::fromLocalFile(path)));
-        QFile previous(path);
-        QVERIFY(previous.open(QIODevice::ReadOnly));
-        const QByteArray before = previous.readAll();
-        previous.close();
-        QVERIFY(before.contains("Pomodoro"));
-
-        // The sessions can no longer be read: that is a failure, not an empty history.
-        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
-        QVERIFY(query.exec(QStringLiteral("DROP TABLE session")));
-        bool ok = true;
-        QVERIFY(sessions->between(0, 2000, &ok).isEmpty());
-        QVERIFY(!ok);
-        QCOMPARE(sessions->count(), -1);
-
-        QSignalSpy failed(manager.get(), &DataManager::operationFailed);
-        QSignalSpy succeeded(manager.get(), &DataManager::operationSucceeded);
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(path)));
-        QVERIFY(!manager->exportHistory(QUrl::fromLocalFile(dir.filePath(QStringLiteral("new.json")))));
-        QCOMPARE(failed.count(), 2);
-        QCOMPARE(succeeded.count(), 0);
-        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("new.json"))));
-        QVERIFY(previous.open(QIODevice::ReadOnly));
-        QCOMPARE(previous.readAll(), before);
-    }
 };
 
 QTEST_GUILESS_MAIN(DataManagerTest)

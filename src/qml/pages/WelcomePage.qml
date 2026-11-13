@@ -382,7 +382,7 @@ QQC2.Page {
                 return list;
             }
             function minutes(seconds: int): string {
-                return i18nc("a duration in minutes", "%1 min", Math.max(1, Math.round(seconds / 60)));
+                return i18nc("minutes", "%1 min", Math.max(1, Math.round(seconds / 60)));
             }
 
             StepHeader {
@@ -693,7 +693,7 @@ QQC2.Page {
                         id: usageStatsRow
                         objectName: "welcomeUsageStatsRow"
                         title: i18n("Share anonymous usage statistics")
-                        description: i18n("Helps us see which features to improve. Nothing about you is sent.")
+                        description: i18n("Optional, used only to improve Sugo. Never your name, notes or files.")
                         opacity: setupStep.reveal(8)
                         transform: Translate { y: setupStep.rise(8) }
                         SButton {

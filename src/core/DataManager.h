@@ -7,12 +7,13 @@
 
 #include <functional>
 
+#include "SessionRepository.h"
+
 class Database;
 class PresetModel;
 class PresetPersistence;
 class PresetRepository;
 class SessionRecorder;
-class SessionRepository;
 class StatsModel;
 
 /// Backup, restore, export and clear the user's recorded timer sessions.
@@ -25,6 +26,9 @@ class DataManager : public QObject
     Q_PROPERTY(bool usingTemporaryDatabase READ usingTemporaryDatabase CONSTANT FINAL)
     /// True while finished sessions or timer changes could not be stored (they are retried).
     Q_PROPERTY(bool saveFailing READ saveFailing NOTIFY saveFailingChanged FINAL)
+    /// True when the stored timers could not be read at startup: Sugo runs on the built-in timer
+    /// and saves no timer change until it is started again or a backup is restored (PresetPersistence::loadFailed()).
+    Q_PROPERTY(bool timersUnreadable READ timersUnreadable NOTIFY saveFailingChanged FINAL)
     /// Where a damaged or foreign database found at startup was moved to (a new one was started); empty if none was.
     Q_PROPERTY(QString movedAsideDatabasePath READ movedAsideDatabasePath CONSTANT FINAL)
     /// True if that file was damaged, false if it belonged to another program.
@@ -41,6 +45,7 @@ public:
     int presetCount() const;
     bool usingTemporaryDatabase() const;
     bool saveFailing() const;
+    bool timersUnreadable() const;
     QString movedAsideDatabasePath() const { return m_movedAsidePath; }
     bool movedAsideDatabaseWasCorrupt() const { return m_movedAsideCorrupt; }
     QString sugo100RecoveryReplacedPath() const { return m_sugo100ReplacedPath; }
@@ -63,8 +68,9 @@ public:
     Q_INVOKABLE bool clearHistory();
     /// Deletes the sessions that started more than `months` months ago. Removing none is a success.
     Q_INVOKABLE bool clearHistoryOlderThan(int months);
-    /// Writes every session to a .csv or .json file (chosen by the file's extension).
-    Q_INVOKABLE bool exportHistory(const QUrl &fileUrl);
+    /// Deletes one session (a phase started by mistake, say) and updates the statistics.
+    /// `fromCalendar`: its event goes from the calendar too (sessionDeleted()).
+    Q_INVOKABLE bool deleteSession(qint64 sessionId, bool fromCalendar = false);
     /// Opens the folder holding the database in the file manager.
     Q_INVOKABLE void openDatabaseFolder() const;
     Q_INVOKABLE bool backupDatabase(const QUrl &fileUrl);
@@ -79,6 +85,8 @@ Q_SIGNALS:
     void saveFailingChanged();
     /// A session note was stored (also emitted for an empty note).
     void sessionNoteChanged(qint64 sessionId, const QString &note);
+    /// A session was deleted (deleteSession()); `fromCalendar`: the user wants its event gone too.
+    void sessionDeleted(const SessionRecord &record, bool fromCalendar);
 
 private:
     bool validateBackup(const QString &path, QString *error) const;

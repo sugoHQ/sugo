@@ -40,6 +40,16 @@
  * break with a zero duration is skipped: the upcoming phase is Work right away. Skipping a
  * work phase counts as a cycle just like finishing it, so skipping through a set reaches the
  * long break.
+ *
+ * More time
+ * ---------
+ *   any active  --extend-->           the same phase, `seconds` longer (also while paused)
+ *   a phase that has just elapsed  --continueFinished-->  that phase again, for `seconds` more
+ * A phase that elapsed can be taken up again for kReopenWindowMs, until any other command: the
+ * phase auto-started after it, if any, gives way without being recorded, the cycle count goes back
+ * to what it was, and the phase goes on as the same session (same start, the time in between
+ * counted like a pause). phaseReopened() tells SessionRecorder to update the session it stored
+ * instead of adding another. A reopened phase cut short by stop/skip still counts as completed.
  */
 class TimerEngine : public QObject
 {
@@ -91,11 +101,33 @@ public:
     };
     Q_ENUM(AutoStartMode)
 
+    /// Who asked for more time (for the usage statistics).
+    enum class ExtendSource {
+        App = 0,
+        Notification = 1,
+        Menu = 2,
+        Command = 3
+    };
+    Q_ENUM(ExtendSource)
+
+    /// True while extend() can add time: a phase is active, or one has just elapsed (see continueFinished()).
+    Q_PROPERTY(bool extendable READ isExtendable NOTIFY extendableChanged FINAL)
+    /// True while the phase that has just elapsed can be taken up again (continueFinished()).
+    Q_PROPERTY(bool continuable READ isContinuable NOTIFY extendableChanged FINAL)
+    /// The active phase continues one that had ended (continueFinished()): quitting ends it, it is not kept.
+    Q_PROPERTY(bool continuesEndedSession READ continuesEndedSession NOTIFY continuesEndedSessionChanged FINAL)
+    /// The phase continueFinished() would take up again (valid while `continuable`).
+    Q_PROPERTY(Phase finishedPhase READ finishedPhase NOTIFY extendableChanged FINAL)
+
     Q_PROPERTY(int cyclesBeforeLong READ cyclesBeforeLong WRITE setCyclesBeforeLong NOTIFY cyclesBeforeLongChanged FINAL)
 
     /// A phase cut short before this much time ran is an accidental start: it is not recorded
     /// (SessionRecorder) and a Work phase skipped that early does not count a cycle.
     static constexpr qint64 kMinInterruptedMs = 5000;
+    /// What "+5 min" adds.
+    static constexpr int kExtendSeconds = 5 * 60;
+    /// How long after its end a phase can still be taken up again.
+    static constexpr qint64 kReopenWindowMs = 10 * 60 * 1000;
 
     /// Uses the real monotonic clock. This is the constructor QML uses.
     explicit TimerEngine(QObject *parent = nullptr);
@@ -113,6 +145,16 @@ public:
     int totalSeconds() const;
     double progress() const;
     int completedCycles() const { return m_completedCycles; }
+    bool isExtendable() const { return isActive() || isContinuable(); }
+    /// The active phase continues one that had ended (continueFinished()).
+    bool continuesEndedSession() const { return m_reopened; }
+
+    /// The active phase's planned length, time left and wall-clock start (SessionKeeper).
+    qint64 plannedMs() const { return isActive() ? m_plannedMs : durationMs(m_phase); }
+    qint64 remainingMs() const;
+    QDateTime phaseStartedAt() const { return m_startWall; }
+    bool isContinuable() const;
+    Phase finishedPhase() const { return m_reopen.phase; }
 
     int workSeconds() const { return m_workSeconds; }
     void setWorkSeconds(int seconds);
@@ -140,6 +182,19 @@ public Q_SLOTS:
     /// An active phase is stopped first (saved as interrupted).
     void reset();
 
+    /// Puts back, paused, a phase an earlier run of Sugo left under way (SessionKeeper): the same
+    /// session, started at `startedAt`, with `remainingMs` of its `plannedMs` left and `cycles`
+    /// work phases done in the set. Only while Idle; false otherwise or for impossible values.
+    bool restorePaused(TimerEngine::Phase phase, qint64 plannedMs, qint64 remainingMs, const QDateTime &startedAt, int cycles);
+
+    /// Adds `seconds` to the active phase; while Idle right after a phase elapsed, takes that one
+    /// up again (continueFinished()). False if there is nothing to extend or the phase is at its
+    /// longest (PresetLimits).
+    bool extend(int seconds = kExtendSeconds, TimerEngine::ExtendSource source = ExtendSource::App);
+    /// Takes the phase that has just elapsed up again for `seconds` more (see "More time" above),
+    /// also when the next phase has started by itself meanwhile. False when it can no longer be.
+    bool continueFinished(int seconds = kExtendSeconds, TimerEngine::ExtendSource source = ExtendSource::App);
+
     /// Recomputes everything from the clock and ends the phase if due.
     /// Called by the internal ticker; also callable directly (tests).
     void refresh();
@@ -155,6 +210,8 @@ Q_SIGNALS:
     void shortBreakSecondsChanged();
     void longBreakSecondsChanged();
     void cyclesBeforeLongChanged();
+    void extendableChanged();
+    void continuesEndedSessionChanged();
     void oneMinuteRemaining(TimerEngine::Phase phase);
 
     /// A phase ended, either elapsed (completed) or cut short by stop/skip.
@@ -168,14 +225,21 @@ Q_SIGNALS:
 
     /// A phase began (start, auto-start or skip). Not emitted on resume.
     void phaseStarted(TimerEngine::Phase phase);
+    /// A phase of an earlier run was put back, paused (restorePaused()).
+    void phaseRestored(TimerEngine::Phase phase);
 
     /// A phase elapsed naturally. `next` is the upcoming phase. Use for notifications.
     /// Emitted after the transition: if `next` was auto-started, isRunning() is already true.
     void phaseFinished(TimerEngine::Phase finished, TimerEngine::Phase next);
 
+    /// `seconds` were added: to the running phase (`afterEnd` false) or to the one that had just ended.
+    void phaseExtended(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds);
+    /// The phase that had just ended, already reported by sessionEnded(), goes on: its next
+    /// sessionEnded() is the same session, longer. Emitted before the state changes.
+    void phaseReopened(TimerEngine::Phase phase);
+
 private:
     qint64 durationMs(Phase phase) const;
-    qint64 remainingMs() const;
     static State stateFor(Phase phase);
 
     /// The phase that really runs in place of `phase`: a zero long break becomes a short break
@@ -200,6 +264,11 @@ private:
     void notifyTime(bool force);
     /// Refreshes the shown time while Idle, replacing a pending break that now lasts 0.
     void refreshIdleDisplay();
+    qint64 maxDurationMs(Phase phase) const;
+    /// Forgets the phase that could be taken up again.
+    void dropReopen();
+    void updateExtendable();
+    void setReopened(bool reopened);
 
     std::unique_ptr<Clock> m_ownedClock;
     Clock *m_clock = nullptr;
@@ -225,4 +294,20 @@ private:
     AutoStartMode m_autoStartMode = AutoStartMode::Manual;
     bool m_warnedOneMinute = false;
     bool m_completing = false; ///< sessionEnded of a completed phase is being emitted
+
+    /// The phase that elapsed last, while it can be taken up again.
+    struct Reopen {
+        bool valid = false;
+        Phase phase = Phase::Work;
+        qint64 plannedMs = 0;
+        QDateTime startWall;
+        qint64 startMonoMs = 0;
+        qint64 endMonoMs = 0;
+        int cycles = 0;
+    };
+    Reopen m_reopen;
+    QTimer m_reopenExpiry;
+    bool m_reopened = false;   ///< the running phase continues a session already reported
+    int m_extendableKey = 0; ///< what extendableChanged() last told
+    bool m_holdExtendable = false;
 };

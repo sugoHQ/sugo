@@ -75,6 +75,7 @@ private Q_SLOTS:
         store = FakeSecretStore();
         secrets = std::make_unique<SyncSecrets>(&store);
         api = std::make_unique<SyncApi>(secrets.get(), QUrl(server->base()));
+        api->setRefreshRetryDelaysMs({20, 50});
     }
     void cleanup()
     {
@@ -103,6 +104,7 @@ private Q_SLOTS:
         QTest::newRow("412") << 412 << QByteArray(R"({"error":"precondition_failed","etag":"x"})") << int(K::PreconditionFailed);
         QTest::newRow("428") << 428 << QByteArray(R"({"error":"precondition_required"})") << int(K::PreconditionRequired);
         QTest::newRow("413") << 413 << QByteArray(R"({"error":"too_large"})") << int(K::TooLarge);
+        QTest::newRow("plus_required") << 403 << QByteArray(R"({"error":"plus_required"})") << int(K::PlusRequired);
         QTest::newRow("invalid_blob") << 400 << QByteArray(R"({"error":"invalid_blob"})") << int(K::InvalidBlob);
         QTest::newRow("invalid_request") << 400 << QByteArray(R"({"error":"invalid_request"})") << int(K::InvalidRequest);
         QTest::newRow("not_found") << 404 << QByteArray(R"({"error":"not_found"})") << int(K::NotFound);
@@ -201,7 +203,7 @@ private Q_SLOTS:
         sync.target = server->base();
         SyncApi redirected(secrets.get(), QUrl(sync.base()));
 
-        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(SyncKind::Presets, QByteArray(), cb); });
         QVERIFY(!reply.ok());
         QVERIFY(!redirected.hasAccessToken());
         QCOMPARE(sync.requests.size(), 1);
@@ -226,7 +228,7 @@ private Q_SLOTS:
                              R"({"access_token":"acc_redirect_test","refresh_token":"ref_redirect_test","expires_in":3600})"});
         SyncApi redirected(secrets.get(), QUrl(sync.base()));
 
-        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { redirected.getBlob(SyncKind::Presets, QByteArray(), cb); });
         QVERIFY(!reply.ok());
         QCOMPARE(sync.requests.size(), 2);
         QCOMPARE(sync.requests.at(1).path, QByteArray("/v1/blob/presets"));
@@ -339,6 +341,20 @@ private Q_SLOTS:
         QCOMPARE(storedItem(store).value(QLatin1String("refreshToken")).toString(), secrets->refreshToken());
     }
 
+    void resetWhileTheNewTokenIsSavedSendsNoOtherRenewal()
+    {
+        link();
+        *store.failWrites = true;
+        // Signed out while the keyring was asked (its prompt lets events run): no renewal follows.
+        connect(api.get(), &SyncApi::tokenNotSaved, this, [this]() { api->reset(); }, Qt::SingleShotConnection);
+        bool answered = false;
+        api->listDevices([&](const SyncReply &) { answered = true; });
+        QTRY_COMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QTest::qWait(300);
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QVERIFY(!answered);
+    }
+
     void invalidGrantSignsOut()
     {
         link();
@@ -395,6 +411,109 @@ private Q_SLOTS:
         QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
     }
 
+    void lostRenewalAnswerIsRetriedWithinTheGrace()
+    {
+        link();
+        const QString first = secrets->refreshToken();
+        server->refreshGrace = true;
+        server->loseAnswers = 1; // the server takes the token, its answer never comes
+        QSignalSpy signedOut(api.get(), &SyncApi::signedOutRemotely);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 2);
+        QCOMPARE(signedOut.size(), 0);
+        // Only the pair given to the retry lives: the one whose answer was lost is revoked.
+        QVERIFY(secrets->refreshToken() != first);
+        QCOMPARE(server->refreshTokens.size(), 1);
+        QVERIFY(server->refreshTokens.contains(secrets->refreshToken()));
+        // And the chain goes on.
+        api->dropAccessToken();
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(signedOut.size(), 0);
+    }
+
+    void unreadableRenewalAnswerIsRetriedWithinTheGrace()
+    {
+        link();
+        const QString first = secrets->refreshToken();
+        server->refreshGrace = true;
+        server->garbleAnswers = 1; // the server takes the token, its answer cannot be read
+        QSignalSpy signedOut(api.get(), &SyncApi::signedOutRemotely);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 2);
+        QCOMPARE(signedOut.size(), 0);
+        QVERIFY(secrets->refreshToken() != first);
+        QVERIFY(server->refreshTokens.contains(secrets->refreshToken()));
+    }
+
+    void renewalServerErrorIsRetried()
+    {
+        link();
+        server->failNext("/v1/auth/token", 503);
+        server->failNext("/v1/auth/token", 0);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 3);
+    }
+
+    void renewalRetriesAreFew()
+    {
+        link();
+        server->offline = true;
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 3); // the first try and two retries
+    }
+
+    void renewalRetriesStayWithinTheGrace_data()
+    {
+        QTest::addColumn<qint64>("tryTakesMs");
+        QTest::addColumn<int>("tries");
+        QTest::newRow("quick") << qint64(1000) << 3;
+        QTest::newRow("second retry would start after 40 s") << qint64(20000) << 2;
+        QTest::newRow("first retry would start after 40 s") << qint64(40000) << 1;
+    }
+    void renewalRetriesStayWithinTheGrace()
+    {
+        // A server before sugo-sync#51 takes a spent token back only within a minute of its first use: no retry
+        // starts more than 40 s after the first try, however long the tries took.
+        QFETCH(qint64, tryTakesMs);
+        QFETCH(int, tries);
+        link();
+        qint64 clock = 0;
+        api->setNowProvider([&clock]() { return clock; });
+        server->offline = true;
+        server->onRequest = [&](const FakeSyncServer::Request &r) {
+            if (r.path == "/v1/auth/token") {
+                clock += tryTakesMs;
+            }
+        };
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), tries);
+    }
+
+    void renewalRateLimitIsNotRetried()
+    {
+        link();
+        server->failNext("/v1/auth/token", 429);
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::RateLimited));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+    }
+
+    void resetStopsTheRenewalRetries()
+    {
+        link();
+        api->setRefreshRetryDelaysMs({200, 200});
+        server->offline = true;
+        bool answered = false;
+        api->listDevices([&](const SyncReply &) { answered = true; });
+        QTRY_COMPARE(server->count("POST", "/v1/auth/token"), 1);
+        api->reset();
+        QTest::qWait(500);
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QVERIFY(!answered);
+    }
+
     void noRefreshToken()
     {
         const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
@@ -406,42 +525,118 @@ private Q_SLOTS:
     {
         link();
         const QByteArray blob = someBlob();
-        SyncReply first = wait([&](auto cb) { api->putBlob(blob, QByteArray(), cb); });
+        SyncReply first = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, QByteArray(), cb); });
         QCOMPARE(first.http, 201);
         QVERIFY(!first.etag.isEmpty());
         QCOMPARE(server->of("PUT", "/v1/blob/presets").last().headers.value("if-none-match"), QByteArray("*"));
 
-        SyncReply again = wait([&](auto cb) { api->putBlob(blob, QByteArray(), cb); });
+        SyncReply again = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, QByteArray(), cb); });
         QCOMPARE(int(again.error.kind), int(SyncError::Kind::PreconditionFailed));
         QCOMPARE(again.etag, first.etag);
 
-        SyncReply unchanged = wait([&](auto cb) { api->getBlob(first.etag, cb); });
+        SyncReply unchanged = wait([&](auto cb) { api->getBlob(SyncKind::Presets, first.etag, cb); });
         QVERIFY(unchanged.ok());
         QCOMPARE(unchanged.http, 304);
         QCOMPARE(unchanged.pendingDevices, 0);
 
-        SyncReply replaced = wait([&](auto cb) { api->putBlob(blob, first.etag, cb); });
+        SyncReply replaced = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, first.etag, cb); });
         QCOMPARE(replaced.http, 204);
         QVERIFY(replaced.etag != first.etag);
         QCOMPARE(server->of("PUT", "/v1/blob/presets").last().headers.value("if-match"), '"' + first.etag + '"');
 
-        SyncReply stale = wait([&](auto cb) { api->putBlob(blob, first.etag, cb); });
+        SyncReply stale = wait([&](auto cb) { api->putBlob(SyncKind::Presets, blob, first.etag, cb); });
         QCOMPARE(int(stale.error.kind), int(SyncError::Kind::PreconditionFailed));
         QCOMPARE(stale.error.extra.value(QLatin1String("etag")).toString().toLatin1(), replaced.etag);
 
-        SyncReply full = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        SyncReply full = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(full.http, 200);
         QCOMPARE(full.body, blob);
         QCOMPARE(full.etag, replaced.etag);
 
-        SyncReply huge = wait([&](auto cb) { api->putBlob(QByteArray(300000, 'x'), replaced.etag, cb); });
+        SyncReply huge = wait([&](auto cb) { api->putBlob(SyncKind::Presets, QByteArray(300000, 'x'), replaced.etag, cb); });
         QCOMPARE(int(huge.error.kind), int(SyncError::Kind::TooLarge));
+    }
+
+    void blobPerKind()
+    {
+        link();
+        server->accounts[kUser].plus = true;
+        const QByteArray presets = someBlob();
+        const QByteArray sessions = someBlob();
+        const SyncReply first = wait([&](auto cb) { api->putBlob(SyncKind::Presets, presets, QByteArray(), cb); });
+        QCOMPARE(first.http, 201);
+        const SyncReply other = wait([&](auto cb) { api->putBlob(SyncKind::Sessions, sessions, QByteArray(), cb); });
+        QCOMPARE(other.http, 201);
+        QCOMPARE(server->count("PUT", "/v1/blob/sessions"), 1);
+        QVERIFY(other.etag != first.etag);
+
+        const SyncReply got = wait([&](auto cb) { api->getBlob(SyncKind::Sessions, QByteArray(), cb); });
+        QCOMPARE(got.body, sessions);
+        QCOMPARE(got.etag, other.etag);
+        const SyncReply settings = wait([&](auto cb) { api->getBlob(SyncKind::Settings, QByteArray(), cb); });
+        QCOMPARE(int(settings.error.kind), int(SyncError::Kind::NotFound));
+        QCOMPARE(server->count("GET", "/v1/blob/settings"), 1);
+
+        // Each kind has its own limit.
+        const SyncReply huge = wait([&](auto cb) { api->putBlob(SyncKind::Settings, QByteArray(9000, 'x'), QByteArray(), cb); });
+        QCOMPARE(int(huge.error.kind), int(SyncError::Kind::TooLarge));
+        QCOMPARE(huge.error.extra.value(QLatin1String("max_bytes")).toInt(), 8192);
+    }
+
+    void plusRequired()
+    {
+        link();
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Tasks, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::PlusRequired));
+        QCOMPARE(get.http, 403);
+        QVERIFY(!get.error.transient());
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Tasks, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::PlusRequired));
+        // The timers sync on every plan.
+        QCOMPARE(wait([&](auto cb) { api->putBlob(SyncKind::Presets, someBlob(), QByteArray(), cb); }).http, 201);
+    }
+
+    void unknownKind()
+    {
+        // A Worker older than the kind: 404 to both GET and PUT.
+        link();
+        server->accounts[kUser].plus = true;
+        server->blobKinds.remove("sessions");
+        const SyncReply get = wait([&](auto cb) { api->getBlob(SyncKind::Sessions, QByteArray(), cb); });
+        QCOMPARE(int(get.error.kind), int(SyncError::Kind::NotFound));
+        const SyncReply put = wait([&](auto cb) { api->putBlob(SyncKind::Sessions, someBlob(), QByteArray(), cb); });
+        QCOMPARE(int(put.error.kind), int(SyncError::Kind::NotFound));
+    }
+
+    void kindNames()
+    {
+        QCOMPARE(SyncKinds::name(SyncKind::Presets), QLatin1String("presets"));
+        QCOMPARE(SyncKinds::name(SyncKind::Statistics), QLatin1String("statistics"));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Presets), qsizetype(262144));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Tasks), qsizetype(1048576));
+        QCOMPARE(SyncKinds::maxBytes(SyncKind::Settings), qsizetype(8192));
+        QVERIFY(!SyncKinds::needsPlus(SyncKind::Presets));
+        QVERIFY(SyncKinds::needsPlus(SyncKind::Sessions));
+        QCOMPARE(SyncCrypto::encryptBlob(SyncCrypto::newDataKey(), kUser, "abc").size(), 3 + SyncKinds::BlobOverhead);
+    }
+
+    void anOversizedAnswerIsCutOff()
+    {
+        link();
+        // A server that sends more than any blob may hold: placed on it directly, as no upload
+        // that large is let in.
+        server->accounts[kUser].blobs["presets"] = {QByteArrayLiteral("SUGO") + QByteArray(9 * 1024 * 1024, 'x'), "e1"};
+
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(reply.http, 0);
+        QVERIFY(reply.body.isEmpty());
     }
 
     void missingBlob()
     {
         link();
-        const SyncReply reply = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(int(reply.error.kind), int(SyncError::Kind::NotFound));
     }
 
@@ -450,7 +645,7 @@ private Q_SLOTS:
         link();
         server->addLinkedDevice(kUser, SyncCrypto::generateKeyPair().publicKey, false);
         QSignalSpy pending(api.get(), &SyncApi::pendingDevicesSeen);
-        const SyncReply reply = wait([&](auto cb) { api->getBlob(QByteArray(), cb); });
+        const SyncReply reply = wait([&](auto cb) { api->getBlob(SyncKind::Presets, QByteArray(), cb); });
         QCOMPARE(reply.pendingDevices, 1);
         QCOMPARE(pending.size(), 1);
         QCOMPARE(pending.first().first().toInt(), 1);

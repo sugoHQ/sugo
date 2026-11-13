@@ -33,9 +33,11 @@ PhaseNotifier::PhaseNotifier(TimerEngine *engine, PresetModel *presets, Notifica
 {
     connect(engine, &TimerEngine::phaseFinished, this, &PhaseNotifier::onPhaseFinished);
     connect(engine, &TimerEngine::oneMinuteRemaining, this, &PhaseNotifier::onOneMinuteRemaining);
-    connect(engine, &TimerEngine::phaseStarted, this, [this]() {
-        ++m_phaseSerial;
-    });
+    for (const auto signal : {&TimerEngine::phaseStarted, &TimerEngine::phaseReopened, &TimerEngine::phaseRestored}) {
+        connect(engine, signal, this, [this]() {
+            ++m_phaseSerial;
+        });
+    }
 }
 
 void PhaseNotifier::setLastWorkSessionIdProvider(std::function<qint64()> provider)
@@ -159,6 +161,15 @@ void PhaseNotifier::onPhaseFinished(TimerEngine::Phase finished, TimerEngine::Ph
                                              m_engine->skip();
                                          }
                                      }});
+        // The phase that ended goes on for five more minutes (while TimerEngine still allows it).
+        if (m_engine->isContinuable()) {
+            notification.actions.append({i18n("5 More Minutes"), [this, unchanged](const QString &) {
+                                             if (unchanged()) {
+                                                 m_engine->continueFinished(TimerEngine::kExtendSeconds,
+                                                                            TimerEngine::ExtendSource::Notification);
+                                             }
+                                         }});
+        }
 
         notification.defaultActionLabel = i18n("View");
         notification.defaultAction = [this, offerNote, preset, sessionId](const QString &token) {

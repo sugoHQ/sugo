@@ -56,7 +56,7 @@ private:
  * While off, nothing is recorded, queued or sent, and there is no install id. Turned on, it makes a
  * random id (Telemetry/Id in the settings file), records `app_started` (once per run, and when turned
  * on, at the first send so that what it reports has settled), `session_ended` for every phase that
- * ends, `stats_enabled` and `onboarding_finished` (tour), `update_install` and `sync_error` (at most
+ * ends, `timer_extended` for more time, `session_restored` for a session brought back, `stats_enabled` and `onboarding_finished` (tour), `update_install` and `sync_error` (at most
  * once a day per kind), and sends them in batches of at most 50 a
  * minute after starting and then every 15 minutes. Times are cut to the hour. The queue (at most
  * 200 events, the oldest dropped first) is kept in the settings file, so sessions done offline are
@@ -93,6 +93,14 @@ public:
 
     /// A phase ended (TimerEngine::sessionEnded).
     void recordSession(TimerEngine::Phase phase, qint64 plannedMs, bool completed);
+    /// `seconds` were added to a phase (TimerEngine::phaseExtended); `afterEnd` when it had ended already.
+    void recordExtend(TimerEngine::Phase phase, bool afterEnd, TimerEngine::ExtendSource source, int seconds);
+    /// The phase that ended was taken up again (TimerEngine::phaseReopened): if its session_ended was
+    /// recorded, the next one (the same session, longer) is not.
+    void skipNextSession() { m_skipNextSession = m_lastSessionRecorded; }
+    /// What became of a session an earlier run left under way (SessionKeeper::restoreEnded):
+    /// "resumed", "stopped" or "expired".
+    void recordRestore(TimerEngine::Phase phase, const QString &result);
     /// The welcome tour ended on `step`, finished or skipped (from WelcomePage).
     Q_INVOKABLE void tourEnded(int step, bool skipped);
     /// An update was installed (`ok`, stage "install") or failed at `stage` ("write", "download", "verify", "install").
@@ -123,6 +131,8 @@ private:
     bool m_enabled = false;
     bool m_startedRecorded = false;
     bool m_sending = false;
+    bool m_skipNextSession = false;
+    bool m_lastSessionRecorded = false; ///< the last session_ended was recorded (statistics were on)
     /// Events of the batch on its way that the queue's cap pushed out meanwhile.
     int m_droppedWhileSending = 0;
     /// Bumped when turned off: the answer to a batch sent before is ignored.

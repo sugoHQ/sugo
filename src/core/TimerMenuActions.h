@@ -12,12 +12,13 @@ class QMenu;
 class TimerEngine;
 
 /**
- * The entries that drive the timer from a menu: Start/Pause/Resume, Stop and Skip, and a Timer
+ * The entries that drive the timer from a menu: Start/Pause/Resume, Stop, Skip and Add Time (2, 5 or 10 minutes), and a Timer
  * submenu that picks the timer in use. Shared by the tray (menu bar) icon's menu and the macOS
  * Dock menu, so both say and do the same.
  *
  * The entries are added to a menu the caller owns (which owns the actions too) and follow the
- * timer by themselves: Stop and Skip show only while a phase runs, the timer list is locked
+ * timer by themselves: Stop and Skip show only while a phase runs, Add Time while there is a
+ * phase to extend (TimerEngine::extendable), the timer list is locked
  * then, and the first entry's text and icon follow the state.
  *
  * Stop and Skip do not end the phase themselves: they emit endPhaseRequested(), which main.cpp
@@ -30,7 +31,7 @@ class TimerMenuActions : public QObject
 public:
     TimerMenuActions(TimerEngine *engine, PresetModel *presets, QObject *parent = nullptr);
 
-    /// Adds Start/Pause/Resume, Stop and Skip to `menu`, in that order.
+    /// Adds Start/Pause/Resume, Stop, Skip and the Add Time submenu to `menu`, in that order.
     void addControls(QMenu *menu);
     /// Adds the Timer submenu to `menu`.
     void addTimerMenu(QMenu *menu);
@@ -54,6 +55,8 @@ private:
     QPointer<QAction> m_toggleAction;
     QPointer<QAction> m_stopAction;
     QPointer<QAction> m_skipAction;
+    QPointer<QMenu> m_extendMenu;
+    QList<QPointer<QAction>> m_extendActions; ///< 2, 5 and 10 minutes
     QPointer<QMenu> m_timerMenu;
     QPointer<QActionGroup> m_timerGroup;
     QString m_timerMenuKey; ///< What the Timer submenu currently lists, to skip no-op rebuilds.

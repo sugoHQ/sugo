@@ -114,10 +114,16 @@ Uguale su Linux e macOS, nessuno schema URL da registrare, funziona anche su un 
      privata, la chiave pubblica del nuovo) a `PUT /v1/devices/{id}/key`. Il nuovo la ritira con
      `GET /v1/key`, che restituisce anche `from_device_id` e `from_public_key`. Entrambi mostrano lo
      **stesso codice di verifica** di 16 caratteri in Base32 di Crockford (`XXXX-XXXX-XXXX-XXXX`, 80 bit
-     di BLAKE2b delle due chiavi pubbliche): così un server compromesso non può sostituire né la chiave del
-     nuovo dispositivo né quella del mittente. Con 6 cifre (~20 bit) il server poteva generare ~2000 coppie
-     di chiavi per lato finché i due codici coincidevano (paradosso del compleanno); con 80 bit ne servono
-     ~2^40 per lato durante una sola approvazione. Un passo commit-then-reveal (ognuno impegna un hash della
+     di BLAKE2b delle due chiavi pubbliche), e l'utente conferma **su entrambi**: sul dispositivo collegato
+     approvando, sul nuovo con "Same code", accanto al nome del dispositivo che deve approvarlo. Il nuovo
+     apre il box solo dopo quella conferma, e solo se viene dalla chiave pubblica del codice confermato; se
+     il codice passa a un altro dispositivo (la lista viene riletta ogni minuto), la conferma decade. Senza
+     la conferma sul nuovo dispositivo il server poteva elencare un dispositivo suo e consegnargli una `K'`
+     sua senza che l'utente confrontasse niente (così nelle versioni precedenti, che restano esposte finché
+     non si aggiornano: il server non può imporre il passo). Per sostituire una delle due chiavi un server
+     compromesso deve quindi far coincidere i due codici: con 6 cifre (~20 bit) bastavano ~2000 coppie di
+     chiavi per lato (paradosso del compleanno); con 80 bit ne servono ~2^40 per lato durante una sola
+     approvazione. È un costo, non un'impossibilità. Un passo commit-then-reveal (ognuno impegna un hash della
      propria chiave prima di vedere l'altra) toglierebbe del tutto la ricerca, ma cambia il protocollo
      (`sugo-sync`): da fare. (Con un box anonimo,
      `crypto_box_seal`, il server potrebbe consegnare una sua `K'` e poi leggere i preset caricati dal nuovo
@@ -289,6 +295,71 @@ Totale: circa **3–4 settimane** per una persona.
   1 €/mese, per via di IVA e commissioni fisse; pagamenti con un merchant of record (Paddle, Lemon
   Squeezy) o con Clerk Billing **[verificare]**, verificati dal Worker tramite webhook.
 - Altri provider (WebDAV, cartella) dietro la stessa interfaccia di trasporto.
+
+## Sicurezza: da fare
+
+Tre lavori rinviati dalla revisione di novembre 2026 (sugo#218 e #220, sugo-sync#51–#53). Ognuno
+cambia il protocollo o lo storage. Va fatto con una PR per repository e una migrazione compatibile con
+la versione in produzione: si aggiunge prima, si toglie in un rilascio successivo.
+
+### 1. Commit-then-reveal per il codice di verifica
+
+- **Oggi.** Il codice è fatto di 80 bit di BLAKE2b delle due chiavi pubbliche. Un server compromesso
+  può generare coppie di chiavi finché i due codici coincidono: servono circa 2^40 tentativi per lato
+  (paradosso del compleanno). La chiave dell'approvatore è nota da tempo, quindi il calcolo si può fare
+  in anticipo.
+- **Proposta.** Uno schema come il "numeric comparison" di Bluetooth e ZRTP:
+  1. Il nuovo dispositivo, all'accesso, manda solo un impegno `C = H(pk_nuovo ‖ n_nuovo)`, con `n` di
+     256 bit casuali.
+  2. L'approvatore pubblica `pk_A` e `n_A`.
+  3. Solo allora il nuovo dispositivo rivela `pk_nuovo` e `n_nuovo`.
+  4. Entrambi verificano l'impegno e mostrano `H(pk_nuovo ‖ pk_A ‖ n_nuovo ‖ n_A)`.
+
+  Il server deve impegnarsi prima di vedere `n_A`: ha un solo tentativo per approvazione, con
+  probabilità 2^-k di riuscire se il codice ha k bit. Conviene comunque tenere i 16 caratteri.
+- **API.** `POST /v1/auth/device` manda l'impegno al posto della chiave pubblica; `GET /devices` elenca
+  l'impegno finché la chiave non è rivelata. Servono due passi nuovi: l'approvatore manda il proprio
+  nonce (uno per approvatore, per Plus con tre o più dispositivi) e il nuovo dispositivo fa la
+  rivelazione. Il box arriva solo dopo.
+- **Compatibilità e downgrade.** Finché esistono client vecchi, il server accetta entrambi gli schemi.
+  Un server malevolo potrebbe però fingere che l'altro lato sia vecchio. Per questo un client nuovo
+  usa sempre lo schema nuovo, e dalla versione che lo introduce non accetta più l'altro: va scelta una
+  versione minima, dopo la quale i client vecchi vanno aggiornati per approvare.
+
+### 2. "Pronto" dimostrato con un verificatore derivato da `K`
+
+- **Oggi.** Qualsiasi dispositivo collegato diventa pronto con `DELETE /v1/key` se l'account ha una
+  copia di recupero, cioè quasi sempre. Da pronto può scollegare gli altri dispositivi, sovrascrivere
+  blob e copia di recupero e inviare box. Non può leggere nulla, ma può fare danni: oggi è solo un
+  paletto contro errori del client (`docs/api.md`).
+- **Proposta.** Una chiave di firma Ed25519 derivata da `K` (seme = BLAKE2b(`K`, "SugoReadyKey")). Il
+  server conserva solo la chiave pubblica `V` (`user.ready_verifier`). Per diventare pronto il
+  dispositivo:
+  1. chiede un nonce;
+  2. chiama `DELETE /v1/key` con la firma di `nonce ‖ device_id ‖ user_id`.
+
+  `key_ready_at`, che abilita le azioni da pronto, si ottiene allora solo con `K`. `V` cambia insieme
+  a `K` ("Start over").
+- **Migrazione.** La colonna parte vuota. Il primo dispositivo la scrive insieme alla copia di
+  recupero, e i dispositivi già pronti la caricano al primo avvio, solo se è vuota. Questa prima
+  scrittura si accetta sulla fiducia (trust on first use). Finché `V` è vuota, `DELETE /v1/key` senza
+  firma resta valido.
+- **Limite.** Non protegge da un dispositivo che ha davvero `K`.
+
+### 3. Blob di un'epoca vecchia rimasti in R2
+
+- **Oggi.** Un upload che finisce dopo "Start over" resta in R2 con l'epoca vecchia. Conta come
+  assente, ma non sparisce finché quel tipo di dati non viene caricato di nuovo. È cifrato con la
+  chiave scartata, ma l'utente aveva chiesto la cancellazione.
+- **Perché `PUT /blob` non può cancellarlo.** R2 non ha una cancellazione condizionata, e nel frattempo
+  un nuovo dispositivo può aver già scritto alla stessa chiave il blob della nuova epoca.
+- **Proposta.** Mettere l'epoca nella chiave: `users/<id>/e<epoch>/<kind>.bin`. Oggetti di epoche
+  diverse non si sovrascrivono più. Un `PUT` che scopre il reset cancella il proprio oggetto senza
+  rischi, e il cron cancella i prefissi delle epoche precedenti. Per la migrazione, le letture
+  ripiegano sulla chiave vecchia finché esistono oggetti senza epoca, e il primo `PUT` li sposta.
+- **Alternativa più piccola.** Una colonna `sync_reset_at`: il cron elenca `users/<id>/` degli account
+  azzerati di recente e cancella gli oggetti con `customMetadata.epoch` precedente. Ricontrolla con
+  `head` subito prima, ma resta una piccola finestra di gara.
 
 ## Da verificare
 

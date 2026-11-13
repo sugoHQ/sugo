@@ -43,9 +43,14 @@ jobs:
   # branch that passed, so the changes of a failed or cancelled run are tested by the next one.
   changes:
     name: Changes
-    # A pull request from dev, testing or main (e.g. dev into testing) is the same commit the push
-    # run already tests: skip it, so the same jobs do not run twice. The jobs below need this one.
-    if: github.event_name != 'pull_request' || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
+    # A pull request from dev, testing or main of this repository (e.g. dev into testing) is the
+    # same commit the push run already tests: skip it, so the same jobs do not run twice. The name
+    # of the branch alone does not say so: the dev or main of a fork was never pushed here, no run
+    # has tested it, and its pull request runs like any other. The jobs below need this one.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
+      || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # actions: read to find the newest CI run of the branch that passed.
@@ -83,7 +88,10 @@ jobs:
   # i.e. the first time after the Dockerfile changes; otherwise a check of a few seconds.
   image:
     name: CI image
-    if: github.event_name != 'pull_request' || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
+      || !contains(fromJSON('["dev","testing","main"]'), github.head_ref)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -177,7 +185,8 @@ jobs:
       - name: Run test suite
         run: ctest --test-dir build --output-on-failure --parallel "$(getconf _NPROCESSORS_ONLN)"
 
-  # Clang's warnings are close to those of Apple's compiler: they show up here before the macOS job.
+  # Clang's warnings are close to those of Apple's compiler: they show up here before the macOS job,
+  # and the tests run again on what it built.
   build-clang:
     name: Build with Clang
     needs: [changes, image]
@@ -222,6 +231,10 @@ jobs:
           # Keep only what this build used: the cache stays the size of one build.
           ccache --evict-older-than 7200s
 
+      # The suite again, built by another compiler: what one of them gets wrong shows up here.
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure --parallel "$(getconf _NPROCESSORS_ONLN)"
+
   # Native arm64 build and tests with Qt from qt.io, extra-cmake-modules and libsodium from source,
   # at the versions packaging/macos/build.sh and build-libsodium.sh pin. Not blocking yet: a
   # failure here does not fail CI (nor stop the nightly build) while the port settles.
@@ -233,8 +246,8 @@ jobs:
     runs-on: xcode-27
     continue-on-error: true
     env:
-      CCACHE_VERSION: 4.14.2
-      CCACHE_SHA256: cf240009630b605b775c7c5c7b7105a3b196c79f31af322c1557969aa28003fc
+      CCACHE_VERSION: 4.14.3
+      CCACHE_SHA256: 764dd2a8100ff83e6bbd7b9a1e2016cc401be34bee8a70ea99698186622c34d5
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

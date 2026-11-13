@@ -208,21 +208,24 @@ private Q_SLOTS:
 #endif
     }
 
-    void testExportReport()
+    void testRedactsTheUserInCalDavPaths()
     {
-        Diagnostics diag;
-        QTemporaryDir tempDir;
-        QVERIFY(tempDir.isValid());
-
-        const QString targetPath = tempDir.filePath(QStringLiteral("diagnostics.txt"));
-        const QUrl targetUrl = QUrl::fromLocalFile(targetPath);
-
-        QVERIFY(diag.exportReport(targetUrl));
-
-        QFile file(targetPath);
-        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-        const QString content = QString::fromUtf8(file.readAll());
-        QVERIFY(content.startsWith(QStringLiteral("# Sugo Diagnostics Report")));
+        // Signed in with an e-mail address, or a principal named by id: not the login.
+        QCOMPARE(Diagnostics::redact(QStringLiteral("PROPFIND https://dav.example.org/remote.php/dav/calendars/alice.smith/personal/: 207")),
+                 QStringLiteral("PROPFIND https://dav.example.org/remote.php/dav/calendars/<user>/personal/: 207"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("current-user-principal /remote.php/dav/principals/users/7f3a9c/")),
+                 QStringLiteral("current-user-principal /remote.php/dav/principals/users/<user>/"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("href /principals/alice@example.org/ and /calendars/bob")),
+                 QStringLiteral("href /principals/<user>/ and /calendars/<user>"));
+        // An account word already put in stays as it is.
+        Diagnostics::setAccountRedactions({QStringLiteral("nc-login-42")});
+        QCOMPARE(Diagnostics::redact(QStringLiteral("/dav/calendars/nc-login-42/work/")), QStringLiteral("/dav/calendars/<account>/work/"));
+        // The login only part of the path's user: none of it is left.
+        Diagnostics::setAccountRedactions({QStringLiteral("alice")});
+        QCOMPARE(Diagnostics::redact(QStringLiteral("GET /remote.php/dav/calendars/alice.smith/personal/")),
+                 QStringLiteral("GET /remote.php/dav/calendars/<user>/personal/"));
+        QCOMPARE(Diagnostics::redact(QStringLiteral("/principals/users/smith-alice")), QStringLiteral("/principals/users/<user>"));
+        Diagnostics::setAccountRedactions({});
     }
 
     void testRedactsUserAtHostAndUserName()
@@ -344,29 +347,6 @@ private Q_SLOTS:
         Diagnostics::setAccountRedactions({});
     }
 
-    void testExportRejectsNonLocalUrls()
-    {
-        Diagnostics diag;
-        QVERIFY(!diag.exportReport(QUrl(QStringLiteral("https://example.com/report.txt"))));
-        QVERIFY(!diag.lastExportError().isEmpty());
-    }
-
-    void testExportReportsWriteFailures()
-    {
-        Diagnostics diag;
-        QTemporaryDir tempDir;
-        QVERIFY(tempDir.isValid());
-        const QString missingDir = tempDir.filePath(QStringLiteral("no/such/dir/report.txt"));
-        QVERIFY(!diag.exportReport(QUrl::fromLocalFile(missingDir)));
-        QVERIFY(!diag.lastExportError().isEmpty());
-
-        // A success clears the error; a plain absolute path works too.
-        const QString target = tempDir.filePath(QStringLiteral("report.txt"));
-        QVERIFY(diag.exportReport(QUrl(target)));
-        QVERIFY(diag.lastExportError().isEmpty());
-        QVERIFY(QFile::exists(target));
-    }
-
     void testAttachedReport()
     {
         std::unique_ptr<Database> db = std::make_unique<Database>(QStringLiteral(":memory:"));
@@ -449,7 +429,7 @@ private Q_SLOTS:
                 }
             }
         }
-        const QString etag = QString::fromLatin1(server.accounts.value(QStringLiteral("usr_private_42")).etag);
+        const QString etag = QString::fromLatin1(server.accounts.value(QStringLiteral("usr_private_42")).blobs.value("presets").etag);
         QVERIFY(!etag.isEmpty());
         secrets << etag;
         for (const QString &secret : std::as_const(secrets)) {

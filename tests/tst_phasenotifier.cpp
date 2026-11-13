@@ -216,7 +216,8 @@ private Q_SLOTS:
         QCOMPARE(shown.title, QStringLiteral("Work session finished"));
         QCOMPARE(shown.text, QStringLiteral("Time for a short break: 5 minutes."));
         QCOMPARE(shown.iconName, QStringLiteral("stream.sugo.app"));
-        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Start Short Break"), QStringLiteral("Skip Break")}));
+        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Start Short Break"), QStringLiteral("Skip Break"),
+                                                              QStringLiteral("5 More Minutes")}));
         QVERIFY(!shown.reply); // no settings, no task note
 
         QVERIFY(engine->isIdle());
@@ -241,7 +242,7 @@ private Q_SLOTS:
         QCOMPARE(notifications->shown.size(), 2);
         QCOMPARE(notifications->last().title, QStringLiteral("Break is over"));
         QCOMPARE(notifications->last().text, QStringLiteral("Time to get back to work."));
-        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Start Work"), QStringLiteral("Skip")}));
+        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Start Work"), QStringLiteral("Skip"), QStringLiteral("5 More Minutes")}));
     }
 
     void anAutoStartedBreakCanBePaused()
@@ -250,7 +251,8 @@ private Q_SLOTS:
         endWork();
         QVERIFY(engine->isRunning());
         QCOMPARE(notifications->last().text, QStringLiteral("Short break started: 5 minutes."));
-        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Pause Break"), QStringLiteral("Skip Break")}));
+        QCOMPARE(notifications->actionLabels(), (QStringList{QStringLiteral("Pause Break"), QStringLiteral("Skip Break"),
+                                                              QStringLiteral("5 More Minutes")}));
         QVERIFY(notifications->invoke(QStringLiteral("Pause Break")));
         QVERIFY(engine->isPaused());
         QCOMPARE(engine->phase(), TimerEngine::Phase::ShortBreak);
@@ -297,6 +299,28 @@ private Q_SLOTS:
         QVERIFY(engine->isRunning());
         QVERIFY(notifications->invoke(QStringLiteral("Start Short Break")));
         QVERIFY(engine->isRunning());
+    }
+
+    void fiveMoreMinutesTakesTheWorkUpAgain()
+    {
+        QSignalSpy extended(engine.get(), &TimerEngine::phaseExtended);
+        endWork();
+        QVERIFY(notifications->invoke(QStringLiteral("5 More Minutes")));
+        QCOMPARE(engine->state(), TimerEngine::State::Working);
+        QCOMPARE(engine->remainingSeconds(), TimerEngine::kExtendSeconds);
+        QCOMPARE(extended.size(), 1);
+        QCOMPARE(extended.at(0).at(2).value<TimerEngine::ExtendSource>(), TimerEngine::ExtendSource::Notification);
+        // Pressed again (a second click, an old copy of the notification): nothing more.
+        QVERIFY(notifications->invoke(QStringLiteral("5 More Minutes")));
+        QCOMPARE(engine->remainingSeconds(), TimerEngine::kExtendSeconds);
+    }
+
+    void fiveMoreMinutesIsLateOnceTheBreakStarted()
+    {
+        endWork();
+        engine->start(); // the break, from the window
+        QVERIFY(notifications->invoke(QStringLiteral("5 More Minutes")));
+        QCOMPARE(engine->state(), TimerEngine::State::ShortBreak);
     }
 
     void aClickOnTheNotificationShowsTheWindow()

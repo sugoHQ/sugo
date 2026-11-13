@@ -26,9 +26,6 @@ public:
     MacSessionEvents(const MacSessionEvents &) = delete;
     MacSessionEvents &operator=(const MacSessionEvents &) = delete;
 
-    /// The sleep notifications could be registered for.
-    bool sleepNotificationsAvailable() const { return m_rootPort != 0; }
-
 private:
     struct Callbacks; // the C callbacks, defined in the .cpp file
     friend struct Callbacks;

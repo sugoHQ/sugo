@@ -4,6 +4,9 @@
 #include <QCoreApplication>
 #include <QLoggingCategory>
 
+#include <algorithm>
+#include <utility>
+
 #include "PresetModel.h"
 #include "SessionRepository.h"
 
@@ -30,9 +33,13 @@ SessionRecorder::SessionRecorder(TimerEngine *engine, PresetModel *presets, Sess
     , m_presets(presets)
     , m_repository(repository)
     , m_active(presets->currentPreset())
+    , m_lastEndedTimer(m_active)
 {
     connect(engine, &TimerEngine::phaseStarted, this, &SessionRecorder::onPhaseStarted);
     connect(engine, &TimerEngine::sessionEnded, this, &SessionRecorder::onSessionEnded);
+    connect(engine, &TimerEngine::phaseReopened, this, &SessionRecorder::onPhaseReopened);
+    // A phase of an earlier run, put back: the timer it ran with is the current one again.
+    connect(engine, &TimerEngine::phaseRestored, this, &SessionRecorder::onPhaseStarted);
     m_retryTimer.setSingleShot(true);
     m_retryTimer.setInterval(60 * 1000);
     connect(&m_retryTimer, &QTimer::timeout, this, &SessionRecorder::storeUnsaved);
@@ -40,9 +47,32 @@ SessionRecorder::SessionRecorder(TimerEngine *engine, PresetModel *presets, Sess
 
 bool SessionRecorder::store(const SessionRecord &record)
 {
+    if (record.id > 0) {
+        // A phase taken up again: its row gets the new end.
+        SessionRecord updated = record;
+        if (!m_repository->updateEnd(updated, &updated.note)) {
+            return false;
+        }
+        Q_EMIT sessionRecorded();
+        if (updated.kind == SessionKind::Work && updated.completed) {
+            Q_EMIT workSessionRecorded(updated);
+        }
+        return true;
+    }
     qint64 id = -1;
     if (!m_repository->insert(record, &id)) {
         return false;
+    }
+    // The phase that ended last, stored only now by a retry: a phase taken up again updates this row.
+    if (record.startedAtMs == m_lastEndedStartMs && record.kind == m_lastEndedKind) {
+        m_lastSessionId = id;
+        if (record.kind == SessionKind::Work) {
+            m_lastWorkSessionId = id; // its note goes to this row now
+        }
+        if (m_reopenedUnsaved) {
+            m_reopenedUnsaved = false;
+            m_reopenedId = id;
+        }
     }
     Q_EMIT sessionRecorded();
     if (record.kind == SessionKind::Work && record.completed) {
@@ -51,6 +81,22 @@ bool SessionRecorder::store(const SessionRecord &record)
         Q_EMIT workSessionRecorded(stored);
     }
     return true;
+}
+
+void SessionRecorder::storeEnded(const SessionRecord &record, qint64 activeMs)
+{
+    if (!record.completed && activeMs < kMinInterruptedMs) {
+        return;
+    }
+    storeUnsaved();
+    if (isSaveFailing() || !store(record)) {
+        const bool wasFailing = isSaveFailing();
+        m_unsaved.append(record);
+        m_retryTimer.start();
+        if (!wasFailing) {
+            Q_EMIT saveFailingChanged();
+        }
+    }
 }
 
 void SessionRecorder::storeUnsaved()
@@ -69,6 +115,10 @@ void SessionRecorder::storeUnsaved()
 void SessionRecorder::forgetHistory()
 {
     m_lastWorkSessionId = -1;
+    m_lastSessionId = -1;
+    m_reopenedId = 0;
+    m_reopenedUnsaved = false;
+    m_lastEndedStartMs = -1;
     m_retryTimer.stop();
     if (isSaveFailing()) {
         m_unsaved.clear();
@@ -76,9 +126,41 @@ void SessionRecorder::forgetHistory()
     }
 }
 
+void SessionRecorder::forgetSession(qint64 sessionId)
+{
+    if (sessionId <= 0) {
+        return;
+    }
+    if (m_lastWorkSessionId == sessionId) {
+        m_lastWorkSessionId = -1;
+    }
+    if (m_lastSessionId == sessionId) {
+        m_lastSessionId = -1;
+    }
+    if (m_reopenedId == sessionId) {
+        m_reopenedId = 0;
+    }
+    // A new end waiting for the deleted row would be refused forever.
+    const bool wasFailing = isSaveFailing();
+    m_unsaved.removeIf([sessionId](const SessionRecord &r) { return r.id == sessionId; });
+    if (wasFailing && !isSaveFailing()) {
+        m_retryTimer.stop();
+        Q_EMIT saveFailingChanged();
+    }
+}
+
 void SessionRecorder::onPhaseStarted(TimerEngine::Phase)
 {
     m_active = m_presets->currentPreset();
+}
+
+void SessionRecorder::onPhaseReopened(TimerEngine::Phase)
+{
+    // The phase that started by itself meanwhile took the timer as it is now: the session goes on
+    // under the name and category it was stored with.
+    m_active = m_lastEndedTimer;
+    m_reopenedId = m_lastSessionId > 0 ? m_lastSessionId : 0;
+    m_reopenedUnsaved = m_reopenedId == 0 && isSaveFailing();
 }
 
 void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
@@ -89,10 +171,13 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
                                      bool completed)
 {
     const bool isWork = phase == TimerEngine::Phase::Work;
+    const qint64 reopenedId = std::exchange(m_reopenedId, 0);
+    const bool reopenedUnsaved = std::exchange(m_reopenedUnsaved, false);
     if (!completed && activeMs < kMinInterruptedMs) {
         if (isWork) {
             m_lastWorkSessionId = -1;
         }
+        m_lastSessionId = -1;
         return;
     }
 
@@ -106,6 +191,41 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     record.presetUuid = m_active.uuid;
     record.presetName = m_active.name;
     record.category = m_active.category;
+    if (reopenedId <= 0) {
+        m_lastEndedStartMs = record.startedAtMs;
+        m_lastEndedKind = record.kind;
+        m_lastEndedTimer = m_active;
+    }
+
+    if (reopenedId > 0) {
+        // The same session, longer: its row gets the new end, never a new row (that would count
+        // the session twice). If the database refuses it, the new end waits with the unsaved
+        // sessions and is retried, after them, so no extra time is lost.
+        record.id = reopenedId;
+        m_lastSessionId = reopenedId;
+        if (isWork) {
+            m_lastWorkSessionId = reopenedId;
+        }
+        storeUnsaved();
+        if (isSaveFailing() || !store(record)) {
+            const bool wasFailing = isSaveFailing();
+            const auto same = std::find_if(m_unsaved.begin(), m_unsaved.end(), [reopenedId](const SessionRecord &r) { return r.id == reopenedId; });
+            if (same != m_unsaved.end()) {
+                *same = record; // the latest end of that row is the one to store
+            } else {
+                m_unsaved.append(record);
+            }
+            m_retryTimer.start();
+            if (!wasFailing) {
+                Q_EMIT saveFailingChanged();
+            }
+        }
+        return;
+    }
+    if (reopenedUnsaved && !m_unsaved.isEmpty() && m_unsaved.last().startedAtMs == record.startedAtMs) {
+        m_unsaved.last() = record; // not stored yet: it will be, with the new end
+        return;
+    }
 
     // Older sessions that could not be stored go first, so the history stays in order.
     storeUnsaved();
@@ -114,6 +234,7 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     if (isWork) {
         m_lastWorkSessionId = inserted ? id : -1;
     }
+    m_lastSessionId = inserted ? id : -1;
     if (inserted) {
         Q_EMIT sessionRecorded();
         if (isWork && completed) {
@@ -130,9 +251,14 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     }
 }
 
-void SessionRecorder::connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder)
+void SessionRecorder::connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder,
+                                  std::function<bool()> keep)
 {
-    QObject::connect(app, &QCoreApplication::aboutToQuit, engine, &TimerEngine::stop);
+    QObject::connect(app, &QCoreApplication::aboutToQuit, engine, [engine, keep = std::move(keep)]() {
+        if (!keep || !keep()) {
+            engine->stop();
+        }
+    });
     QObject::connect(app, &QCoreApplication::aboutToQuit, recorder, &SessionRecorder::storeBeforeQuit);
 }
 

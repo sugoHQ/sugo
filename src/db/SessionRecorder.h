@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <functional>
 #include <QList>
 #include <QObject>
 #include <QTimer>
@@ -26,6 +27,10 @@ class QCoreApplication;
  * A session that cannot be stored (database busy, disk full...) is not dropped: it is kept in
  * memory and stored again at the next phase end or retry, and isSaveFailing() says so meanwhile.
  * Quitting tries once more (see connectQuit()).
+ *
+ * A phase taken up again after it ended (TimerEngine::phaseReopened) is the same session: when it
+ * ends, the row stored for it is updated instead of a new one added, and workSessionRecorded()
+ * comes again with the same id (the calendar replaces its event).
  */
 class SessionRecorder : public QObject
 {
@@ -46,15 +51,33 @@ public:
     /// sessions still waiting to be stored, so they do not reappear in the replaced history.
     void forgetHistory();
 
+    /// Called when the session `sessionId` was deleted: a note or a phase taken up again no
+    /// longer goes to its row (a phase taken up again is stored as a new session).
+    void forgetSession(qint64 sessionId);
+
+    /// The running phase is one an earlier run began with the timer then named `name` (SessionKeeper):
+    /// it is recorded with that name and category, not the timer's current ones.
+    void setActiveTimer(const QString &name, const QString &category)
+    {
+        m_active.name = name;
+        m_active.category = category;
+    }
+
+    /// Stores a session that ended outside the timer (SessionKeeper: one left by an earlier run),
+    /// under the same rules as the timer's: kept if it ran at least kMinInterruptedMs (`activeMs`).
+    void storeEnded(const SessionRecord &record, qint64 activeMs);
+
     /// True while some ended sessions could not be stored yet.
     bool isSaveFailing() const { return !m_unsaved.isEmpty(); }
     void setRetryIntervalForTesting(int ms) { m_retryTimer.setInterval(ms); }
 
     /// Connects quitting in the order that loses nothing: the engine stops first, so a running
-    /// phase is ended as an interrupted session, then the recorder tries once more to store the
-    /// sessions still waiting (with the timer idle, no phase end would retry them) and logs those
-    /// it still cannot store. Both are direct connections, called in the order they are made.
-    static void connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder);
+    /// phase is ended as an interrupted session, unless `keep` says it was kept for the next start
+    /// (SessionKeeper); then the recorder tries once more to store the sessions still waiting (with
+    /// the timer idle, no phase end would retry them) and logs those it still cannot store. Both are
+    /// direct connections, called in the order they are made.
+    static void connectQuit(QCoreApplication *app, TimerEngine *engine, SessionRecorder *recorder,
+                            std::function<bool()> keep = {});
 
 public Q_SLOTS:
     /// The last try at quit; see connectQuit().
@@ -68,6 +91,7 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void onPhaseStarted(TimerEngine::Phase phase);
+    void onPhaseReopened(TimerEngine::Phase phase);
     void onSessionEnded(TimerEngine::Phase phase,
                         const QDateTime &startedAt,
                         const QDateTime &endedAt,
@@ -83,6 +107,13 @@ private:
     SessionRepository *m_repository;
     TimerPreset m_active; ///< Preset captured at the start of the running phase.
     qint64 m_lastWorkSessionId = -1;
-    QList<SessionRecord> m_unsaved; ///< Ended sessions the database refused, oldest first.
+    qint64 m_lastSessionId = -1;     ///< Row id of the phase that ended last, of any kind; -1 if not stored.
+    qint64 m_reopenedId = 0;         ///< Row the next ended phase updates (> 0), or 0.
+    bool m_reopenedUnsaved = false;  ///< The next ended phase replaces the last unsaved one instead.
+    qint64 m_lastEndedStartMs = -1;  ///< Start of the phase that ended last, to know its row once a retry stores it.
+    SessionKind m_lastEndedKind = SessionKind::Work;
+    TimerPreset m_lastEndedTimer; ///< m_active of that phase: a phase taken up again keeps its name and category.
+    /// Ended sessions the database refused, oldest first; one with an id is a new end of that row.
+    QList<SessionRecord> m_unsaved;
     QTimer m_retryTimer;
 };

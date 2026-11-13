@@ -5,6 +5,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -160,6 +163,7 @@ public:
     QList<int> putStatuses;            ///< Consumed one per PUT, then defaultPut.
     int defaultPut = 201;
     QByteArray putRetryAfter;          ///< Retry-After of a PUT that is not accepted, when not empty.
+    QByteArray putAnswer;              ///< The body of every PUT's answer.
     int deleteStatus = 204;
     int propfindStatus = 0;            ///< Answers every PROPFIND with this status when not 0.
     QByteArray forbiddenPropfindPath;  ///< A PROPFIND of this path is answered with 403.
@@ -325,7 +329,7 @@ private:
             if (status >= 200 && status < 300) {
                 stored.insert(path, req.body);
             }
-            reply(s, status, QByteArray(), "application/json", status >= 200 && status < 300 ? QByteArray() : putRetryAfter);
+            reply(s, status, putAnswer, "application/json", status >= 200 && status < 300 ? QByteArray() : putRetryAfter);
             return;
         }
         if (req.method == "DELETE") {
@@ -1453,6 +1457,15 @@ private Q_SLOTS:
         QTRY_COMPARE(m_sync->status(), CalendarSync::Ready);
     }
 
+    void anOversizedAnswerIsCutOff()
+    {
+        configureCustom();
+        m_server->putAnswer = QByteArray(9 * 1024 * 1024, 'x');
+        m_sync->testConnection();
+        QTRY_COMPARE(m_sync->status(), CalendarSync::Failed);
+        QVERIFY(m_sync->lastError().contains(QStringLiteral("The server's answer is too large")));
+    }
+
     void networkErrorIsReported()
     {
         configureCustom();
@@ -1508,6 +1521,143 @@ private Q_SLOTS:
         QCOMPARE(puts.size(), 2);
         QCOMPARE(puts.at(1).path, puts.at(0).path);
         QVERIFY(puts.at(1).body.contains("DESCRIPTION:wrote the report\\, finally"));
+    }
+
+    void deletedSessionLeavesTheCalendarWhenAsked()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(9));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        // Kept on the calendar: nothing is asked of the server.
+        m_sync->onSessionDeleted(record(9), false);
+        QTest::qWait(50);
+        QCOMPARE(m_server->count("DELETE"), 0);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        m_sync->enqueueWorkSession(record(10));
+        QTRY_COMPARE(m_server->stored.size(), 2);
+        m_sync->onSessionDeleted(record(10), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, m_server->of("PUT").last().path);
+        QCOMPARE(m_server->stored.size(), 1);
+        // A note for it later has no event to go to.
+        m_sync->setIncludeNote(true);
+        m_sync->onNoteChanged(10, QStringLiteral("too late"));
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
+    void deletedSessionNotSentYetIsNeverSentButStillDeleted()
+    {
+        configureCustom();
+        m_sync->setRetryDelaysForTesting({60'000}); // the event waits for its next try
+        m_server->putStatuses = {500};
+        m_sync->enqueueWorkSession(record(3));
+        QTRY_VERIFY(m_sync->retryIntervalForTesting() > 0);
+        m_sync->onSessionDeleted(record(3), true);
+        QCOMPARE(m_sync->pendingCount(), 0);
+        // It may be on the server all the same (an answer lost): asked to go, and not there (404).
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTest::qWait(100);
+        QCOMPARE(m_server->count("PUT"), 1);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void deletedSessionWhoseUploadAnswerWasLostIsStillDeleted()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(15));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        // The server took it, but Sugo quit before the answer came: still queued at the restart.
+        const QByteArray path = "/cal/personal/" + CalendarSync::uidFor(record(15)).toUtf8() + ".ics";
+        m_server->stored.insert(path, QByteArray("BEGIN:VCALENDAR"));
+        m_sync.reset();
+        m_server->hold = nullptr;
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(15), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, path);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
+    void deletedSessionOnItsWayIsRemovedOnceItArrives()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(4));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        m_sync->onSessionDeleted(record(4), true);
+        QCOMPARE(m_server->count("DELETE"), 0); // not before the upload has finished
+        m_server->hold = nullptr;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+        QCOMPARE(m_sync->pendingCount(), 0);
+    }
+
+    void deletedSessionLeavesTheCalendarItWasSentTo()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(11));
+        QTRY_COMPARE(m_sync->pendingCount(), 0); // its answer arrived: Sugo knows where it went
+        const QByteArray sentTo = m_server->of("PUT").first().path;
+
+        // Another calendar of the same account is chosen afterwards, and Sugo restarts.
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(11), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, sentTo);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void anUploadOnItsWayIsNotDeletedBeforeItArrives()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(12));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(13));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        // 13 is deleted while on its way, then 12 (sent): only 12's event may go now.
+        m_sync->onSessionDeleted(record(13), true);
+        m_sync->onSessionDeleted(record(12), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTest::qWait(50);
+        QCOMPARE(m_server->count("DELETE"), 1);
+        m_server->hold = nullptr;
+        m_server->releaseHeld();
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+    }
+
+    void deletingFromAnUnreachableCalendarIsTriedAgain()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(5));
+        QTRY_COMPARE(m_server->stored.size(), 1);
+        m_server->deleteStatus = 503;
+        m_sync->onSessionDeleted(record(5), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->stored.size(), 1);
+
+        // Kept across a restart, and tried again once the server takes an event.
+        m_sync.reset();
+        m_sync = makeSync();
+        m_server->deleteStatus = 204;
+        m_sync->enqueueWorkSession(record(6));
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_COMPARE(m_server->stored.size(), 1);
     }
 
     void noteUpdatesQueuedItem()
@@ -2325,6 +2475,80 @@ private Q_SLOTS:
         QVERIFY(keyring.secrets->isEmpty());
     }
 
+    void deletedSessionWhoseUploadAnswerWasLostLeavesTheCalendarItWasTriedIn()
+    {
+        configureCustom();
+        m_server->hold = [](const FakeServer::Request &req) {
+            return req.method == "PUT";
+        };
+        m_sync->enqueueWorkSession(record(16));
+        QTRY_COMPARE(m_server->heldCount(), 1);
+        const QByteArray path = "/cal/personal/" + CalendarSync::uidFor(record(16)).toUtf8() + ".ics";
+        m_server->stored.insert(path, QByteArray("BEGIN:VCALENDAR")); // the server took it
+        // Another calendar of the same account is chosen, and Sugo restarts before the answer came.
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+        m_server->hold = nullptr;
+        // At the restart it is sent again, to the calendar chosen now, and this time the answer comes.
+        m_sync = makeSync();
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        const QByteArray now = "/cal/work/" + CalendarSync::uidFor(record(16)).toUtf8() + ".ics";
+        QVERIFY(m_server->stored.contains(now));
+        // Deleting the session deletes it from both.
+        m_sync->onSessionDeleted(record(16), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 2);
+        QTRY_VERIFY(!m_server->stored.contains(path));
+        QVERIFY(!m_server->stored.contains(now));
+    }
+
+    void deletedSessionSentBeforeTheAddressesWereAListLeavesItsCalendar()
+    {
+        configureCustom();
+        m_sync->enqueueWorkSession(record(17));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+        const QByteArray sentTo = m_server->of("PUT").first().path;
+        m_sync->setCalendarUrl(m_server->base() + QStringLiteral("/cal/work/"));
+        m_sync.reset();
+
+        // As a development build saved it: one address under "url".
+        {
+            Settings::Ptr config = Settings::open(configPath());
+            const QString key = QStringLiteral("CalendarQueue/Sent");
+            QJsonArray sent = QJsonDocument::fromJson(config->value(key).toString().toUtf8()).array();
+            QCOMPARE(sent.size(), 1);
+            QJsonObject entry = sent.at(0).toObject();
+            const QJsonArray urls = entry.take(QStringLiteral("urls")).toArray();
+            QCOMPARE(urls.size(), 1);
+            entry.insert(QStringLiteral("url"), urls.at(0));
+            sent[0] = entry;
+            config->setValue(key, QString::fromUtf8(QJsonDocument(sent).toJson(QJsonDocument::Compact)));
+            Settings::sync(*config);
+        }
+
+        m_sync = makeSync();
+        m_sync->onSessionDeleted(record(17), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QCOMPARE(m_server->of("DELETE").first().path, sentTo);
+        QCOMPARE(m_server->stored.size(), 0);
+    }
+
+    void deletedSessionReadsAKeyringThatWasNotReadyAtStartup()
+    {
+        FakeSecretStore keyring;
+        m_sync = makeSyncWithKeyring(keyring);
+        configureCustom();
+        m_sync->enqueueWorkSession(record(14));
+        QTRY_COMPARE(m_sync->pendingCount(), 0);
+
+        // Restarted while the keyring did not answer yet (still locked at login, say).
+        *keyring.available = false;
+        m_sync = makeSyncWithKeyring(keyring);
+        *keyring.available = true;
+        m_sync->onSessionDeleted(record(14), true);
+        QTRY_COMPARE(m_server->count("DELETE"), 1);
+        QTRY_COMPARE(m_server->stored.size(), 0);
+    }
+
     void passwordInTheFileMovesToTheKeyring()
     {
         configureCustom(); // no keyring: written to the private settings file
@@ -2364,16 +2588,35 @@ private Q_SLOTS:
         FakeSecretStore keyring;
         *keyring.available = false;
         m_sync = makeSyncWithKeyring(keyring);
+        QVERIFY(!m_sync->passwordOutsideKeyring());
+        QSignalSpy storage(m_sync.get(), &CalendarSync::passwordStorageChanged);
         configureCustom();
         QVERIFY(!m_sync->isPasswordInKeyring());
+        // The settings tell the user, from the property this sets.
+        QVERIFY(m_sync->passwordOutsideKeyring());
         QVERIFY(configFileContents().contains(kPassword.toUtf8()));
         const QFileInfo info(configPath());
         QVERIFY(!(info.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther)));
+
+        // Saving the password again tells the settings where it went, though there was one
+        // before and there is one after (hasPasswordChanged() is not emitted).
+        storage.clear();
+        *keyring.available = true;
+        m_sync->setPassword(kPassword);
+        QVERIFY(m_sync->isPasswordInKeyring());
+        QVERIFY(!m_sync->passwordOutsideKeyring());
+        QCOMPARE(storage.count(), 1);
+        *keyring.available = false;
+        m_sync->setPassword(kPassword);
+        QVERIFY(m_sync->passwordOutsideKeyring());
+        QCOMPARE(storage.count(), 2);
+        QVERIFY(configFileContents().contains(kPassword.toUtf8()));
 
         // The keyring comes back: the next start moves it there.
         *keyring.available = true;
         m_sync = makeSyncWithKeyring(keyring);
         QVERIFY(m_sync->isPasswordInKeyring());
+        QVERIFY(!m_sync->passwordOutsideKeyring());
         QVERIFY(!configFileContents().contains(kPassword.toUtf8()));
     }
 

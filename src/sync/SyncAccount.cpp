@@ -9,8 +9,10 @@
 #include <QSysInfo>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <utility>
 
 namespace
 {
@@ -41,6 +43,8 @@ constexpr int kRetrySeconds = 30;
 /// While waiting for the key, the devices are listed again this often: an approver that signed
 /// out (or was disconnected) is replaced by whichever device holds the key now.
 constexpr int kKeyRelistSeconds = 60;
+/// The waits before the tries of a new recovery copy after an uncertain answer; the last repeats.
+constexpr int kRecoveryRetrySeconds[] = {5, 15, 60, 300};
 /// The longest wait between two requests, whatever the server asks (interval, Retry-After): more
 /// would overflow the timers' milliseconds, and the polling would stop without a word.
 constexpr int kMaxWaitSeconds = 3600;
@@ -64,6 +68,8 @@ SyncAccount::SyncAccount(SyncApi *api, SyncSecrets *secrets, Settings::Ptr setti
     connect(&m_pollTimer, &QTimer::timeout, this, &SyncAccount::pollToken);
     m_keyTimer.setSingleShot(true);
     connect(&m_keyTimer, &QTimer::timeout, this, [this]() { runKeyStep(m_keyStep); });
+    m_recoveryTimer.setSingleShot(true);
+    connect(&m_recoveryTimer, &QTimer::timeout, this, &SyncAccount::sendRecovery);
     connect(m_api, &SyncApi::signedOutRemotely, this, &SyncAccount::onSignedOutRemotely);
 }
 
@@ -266,6 +272,14 @@ void SyncAccount::pollToken()
             return;
         }
         const SyncError &error = reply.error;
+        if (error.kind == SyncError::Kind::AuthorizationPending || error.kind == SyncError::Kind::SlowDown) {
+            // The code's life left: an approval extends it (to two minutes at least), so the first
+            // expires_in may no longer hold.
+            const QJsonValue left = error.extra.value(QLatin1String("expires_in"));
+            if (left.isDouble()) {
+                m_codeExpiresAt = QDateTime::currentDateTimeUtc().addSecs(std::max<qint64>(0, left.toInteger()));
+            }
+        }
         switch (error.kind) {
         case SyncError::Kind::AuthorizationPending:
             setDeviceLimitReached(error.reason == QLatin1String("device_limit_reached"));
@@ -365,6 +379,7 @@ void SyncAccount::waitForKey()
 {
     if (m_phase == Phase::WaitingForKey) {
         m_keyTimer.stop();
+        setApprover(Device()); // a wait started over chooses its approver afresh, and confirms it again
         runKeyStep(KeyStep::List);
     }
 }
@@ -457,11 +472,19 @@ bool SyncAccount::takeDevices(const SyncReply &reply)
 
 void SyncAccount::chooseApprover()
 {
-    // The device that can send K: another one that holds it; the most recently seen if several.
+    // The device that can send K: another one that holds it. The one already chosen stays while it
+    // is still listed as such with the key the shown code covers: the user may be comparing that
+    // code, and the key that device sends must still be taken. Else the most recently seen.
     const Device *approver = nullptr;
     for (const Device &d : std::as_const(m_devices)) {
-        if (!d.current && !d.pending && d.publicKey.size() == SyncCrypto::KeyBytes
-            && (!approver || d.lastSeen > approver->lastSeen)) {
+        if (d.current || d.pending || d.publicKey.size() != SyncCrypto::KeyBytes) {
+            continue;
+        }
+        if (!m_approver.id.isEmpty() && d.id == m_approver.id && d.publicKey == m_approver.publicKey) {
+            approver = &d;
+            break;
+        }
+        if (!approver || d.lastSeen > approver->lastSeen) {
             approver = &d;
         }
     }
@@ -469,7 +492,7 @@ void SyncAccount::chooseApprover()
     for (const Device &d : std::as_const(m_devices)) {
         anyReady = anyReady || (!d.current && !d.pending);
     }
-    m_approver = approver ? *approver : Device();
+    setApprover(approver ? *approver : Device());
     const QString code = approver ? SyncCrypto::verificationCode(m_publicKey, approver->publicKey) : QString();
     if (code != m_verificationCode) {
         m_verificationCode = code;
@@ -563,7 +586,8 @@ void SyncAccount::pollKey()
         }
         if (reply.error.kind == SyncError::Kind::NotFound) {
             // Not sent yet. The approver may be gone meanwhile (signed out, disconnected): the
-            // devices are listed again after a while, so the code follows whoever can approve now.
+            // devices are listed again after a while, so the code moves to a device that can
+            // approve now if its own no longer can.
             if (m_keyListTaken.elapsed() >= kKeyRelistSeconds * m_unitMs) {
                 runKeyStep(KeyStep::List);
                 return;
@@ -584,6 +608,13 @@ void SyncAccount::receiveKey(const QJsonObject &json)
         rejectKey();
         return;
     }
+    // ...and only once the user saw the same code there. Until then the box waits here, unopened,
+    // and the server is not asked again: the approver cannot change under the code meanwhile.
+    if (m_confirmedKey != fromKey) {
+        m_keyTimer.stop();
+        m_heldKey = json;
+        return;
+    }
     const QByteArray sealed = QByteArray::fromBase64(json.value(QLatin1String("sealed_key")).toString().toLatin1());
     std::optional<SecretBytes> dataKey = SyncCrypto::openBox(sealed, fromKey, m_secrets->values().deviceKey);
     if (!dataKey || dataKey->size() != SyncCrypto::KeyBytes) {
@@ -597,6 +628,45 @@ void SyncAccount::receiveKey(const QJsonObject &json)
         return;
     }
     confirmKey();
+}
+
+bool SyncAccount::verificationConfirmed() const
+{
+    return !m_approver.publicKey.isEmpty() && m_confirmedKey == m_approver.publicKey;
+}
+
+bool SyncAccount::confirmVerificationCode(const QString &code)
+{
+    if (m_phase != Phase::WaitingForKey || m_approver.id.isEmpty() || code.isEmpty() || code != m_verificationCode) {
+        return false;
+    }
+    if (!verificationConfirmed()) {
+        m_confirmedKey = m_approver.publicKey;
+        Q_EMIT verificationConfirmedChanged(true);
+    }
+    if (m_heldKey) {
+        const QJsonObject json = *std::exchange(m_heldKey, std::nullopt);
+        receiveKey(json);
+    } else if (m_keyStep == KeyStep::PollKey && m_keyTimer.isActive()) {
+        m_keyTimer.stop();
+        pollKey(); // the key may be there already: no need to wait for the next poll
+    }
+    return true;
+}
+
+void SyncAccount::setApprover(const Device &approver)
+{
+    if (approver.id != m_approver.id || approver.publicKey != m_approver.publicKey) {
+        m_heldKey.reset();
+        const bool wasConfirmed = verificationConfirmed();
+        m_confirmedKey.clear();
+        m_approver = approver;
+        if (wasConfirmed) {
+            Q_EMIT verificationConfirmedChanged(false);
+        }
+        return;
+    }
+    m_approver = approver; // the same device: its name or last seen may be newer
 }
 
 void SyncAccount::rejectKey()
@@ -625,7 +695,7 @@ void SyncAccount::confirmKey()
 void SyncAccount::becomeReady()
 {
     m_keyTimer.stop();
-    m_approver = Device();
+    setApprover(Device());
     if (!m_verificationCode.isEmpty()) {
         m_verificationCode.clear();
         Q_EMIT verificationCodeChanged(QString());
@@ -838,35 +908,71 @@ void SyncAccount::refreshRecoveryStatus()
     });
 }
 
+struct SyncAccount::PendingRecovery {
+    SecretBytes code;
+    QByteArray sealed;
+    QVariant previousStamp; ///< RecoveryUpdatedAt before, back if the server surely kept its copy.
+    int attempt = 0;
+    bool mayHaveArrived = false; ///< A try got no answer or a server error.
+};
+
 void SyncAccount::regenerateRecoveryCode()
 {
     if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
         return;
     }
     m_regenerating = true;
-    auto code = std::make_shared<SecretBytes>(SyncCrypto::newRecoveryCode());
-    const QByteArray sealed = SyncCrypto::sealWithRecovery(dataKey(), *code);
+    auto pending = std::make_shared<PendingRecovery>();
+    pending->code = SyncCrypto::newRecoveryCode();
+    pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
     // Until the new code is stored, the code in the keyring may not be the server's.
-    const QVariant previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
     writeSetting(kRecoveryUpdatedAt, kPendingStamp);
     Settings::sync(*m_settings);
     setRecoveryShowable(false);
-    m_api->putRecovery(sealed, [this, code, previousStamp](const SyncReply &reply) {
-        m_regenerating = false;
-        if (m_phase != Phase::Ready) {
+    m_pendingRecovery = pending;
+    sendRecovery();
+}
+
+void SyncAccount::sendRecovery()
+{
+    const std::shared_ptr<PendingRecovery> pending = m_pendingRecovery;
+    if (!pending || m_phase != Phase::Ready || m_signingOut) {
+        return;
+    }
+    m_api->putRecovery(pending->sealed, [this, pending](const SyncReply &reply) {
+        if (m_phase != Phase::Ready || pending != m_pendingRecovery) {
             return;
         }
+        // An unreadable success (Format: a proxy's page, a cut body) is no certain answer either.
+        if (!reply.ok() && (reply.error.transient() || reply.error.kind == SyncError::Kind::Format)) {
+            // No certain answer: the copy may be on the server already. The same copy goes again,
+            // never a new code, until the server says yes or no.
+            if (reply.error.kind != SyncError::Kind::RateLimited) {
+                pending->mayHaveArrived = true;
+            }
+            if (pending->attempt == 0) {
+                Q_EMIT recoveryCodeRetrying(reply.error);
+            }
+            constexpr int steps = int(std::size(kRecoveryRetrySeconds));
+            const int wait = std::max(kRecoveryRetrySeconds[std::min(pending->attempt, steps - 1)], reply.error.retryAfter);
+            ++pending->attempt;
+            m_recoveryTimer.start(std::clamp(wait, 1, kMaxWaitSeconds) * m_unitMs);
+            return;
+        }
+        m_pendingRecovery.reset();
+        m_regenerating = false;
         if (!reply.ok()) {
-            if (!reply.error.transient()) {
-                writeSetting(kRecoveryUpdatedAt, previousStamp); // the server kept the old copy
+            if (!pending->mayHaveArrived) {
+                writeSetting(kRecoveryUpdatedAt, pending->previousStamp); // the server kept the old copy
                 Settings::sync(*m_settings);
             }
-            Q_EMIT recoveryCodeFailed(reply.error);
+            Q_EMIT recoveryCodeFailed(reply.error, !pending->mayHaveArrived);
             refreshRecoveryStatus();
             return;
         }
-        const QString text = SyncCrypto::formatRecoveryCode(*code);
-        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(*code); });
+        const QString text = SyncCrypto::formatRecoveryCode(pending->code);
+        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(pending->code); });
         if (!saved) {
             Q_EMIT keyringWriteFailed();
         }
@@ -943,6 +1049,9 @@ void SyncAccount::signOut()
     }
     // Nothing else may run meanwhile; then, success or not, everything here goes.
     m_keyTimer.stop();
+    m_recoveryTimer.stop(); // a new recovery copy must not replace the server's during the sign-out
+    m_pendingRecovery.reset();
+    m_regenerating = false;
     m_api->reset();
     m_signingOut = true;
     m_api->disconnectDevice(deviceId(), [this](const SyncReply &reply) {
@@ -958,13 +1067,21 @@ void SyncAccount::signOutLocally()
     m_signingOut = false;
     m_usingRecoveryCode = false;
     m_regenerating = false;
+    m_recoveryTimer.stop();
+    m_pendingRecovery.reset();
     m_checkingPending = false;
     setRecoveryShowable(false);
     clearSignInCode();
     m_keyTimer.stop();
     m_devices.clear();
+    const bool wasConfirmed = verificationConfirmed();
     m_approver = Device();
     m_verificationCode.clear();
+    m_confirmedKey.clear();
+    m_heldKey.reset();
+    if (wasConfirmed) {
+        Q_EMIT verificationConfirmedChanged(false); // else the next sign-in would start confirmed
+    }
     m_asked.clear();
     m_ignored.clear();
     m_api->reset();

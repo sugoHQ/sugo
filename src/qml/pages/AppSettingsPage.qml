@@ -40,6 +40,7 @@ QQC2.Page {
     readonly property string calProvider: CalendarSync ? CalendarSync.provider : "nextcloud"
     readonly property bool calCustom: calProvider === "caldav"
     readonly property bool calHasPassword: CalendarSync ? CalendarSync.hasPassword : false
+    readonly property bool calPasswordOutsideKeyring: CalendarSync ? CalendarSync.passwordOutsideKeyring : false
     readonly property bool calConnected: calHasPassword && !calCustom
     readonly property int calStatus: CalendarSync ? CalendarSync.status : 0
     readonly property bool calWaiting: CalendarSync ? calStatus === CalendarSync.WaitingForBrowser : false
@@ -80,6 +81,9 @@ QQC2.Page {
     // Why the address just typed was refused (the field keeps it to be corrected); cleared by the
     // next edit.
     property string calInputError: ""
+    // How many addresses were refused so far: tells commitCalendarFields() whether the refusal it
+    // finds was just announced or is an older one, whose toast may be gone.
+    property int calRejections: 0
     // A refused address leaves its field unbound. Once the stored addresses change, or the service
     // (each keeps its own), both fields show what is stored again and the refusal no longer applies.
     function resetCalFields() {
@@ -91,6 +95,7 @@ QQC2.Page {
         target: CalendarSync
         function onInputRejected(message) {
             page.calInputError = message;
+            ++page.calRejections;
             applicationWindow().showPassiveNotification(message);
         }
         function onProviderChanged() {
@@ -138,12 +143,22 @@ QQC2.Page {
     // The calendar fields store what was typed when they lose the focus (editingFinished). A
     // click on a button does not take it from them (SButton takes the focus by Tab only), so each
     // button that uses what they hold calls this first: the focus moves here, the field being
-    // edited stores its text, and the action runs with what is on screen.
+    // edited stores its text, and the action runs with what is on screen. An address on screen
+    // that was refused is not the one stored: then this returns false and the action must not run
+    // (it would use the stored address, not the one shown), and the toast says why again.
     Item {
         id: calFocusSink
     }
-    function commitCalendarFields(): void {
+    function commitCalendarFields(): bool {
+        const rejections = page.calRejections;
         calFocusSink.forceActiveFocus();
+        if (page.calInputError.length === 0) {
+            return true;
+        }
+        if (page.calRejections === rejections) {
+            applicationWindow().showPassiveNotification(page.calInputError);
+        }
+        return false;
     }
 
     // The timers, for the Timers category: one group per category, in the order of the list
@@ -153,6 +168,7 @@ QQC2.Page {
         target: PresetModel
         function onCountChanged() {
             ++page.presetsRevision;
+            page.pruneTimerSelection();
         }
         function onPresetChanged() {
             ++page.presetsRevision;
@@ -162,6 +178,7 @@ QQC2.Page {
         }
         function onModelReset() {
             ++page.presetsRevision;
+            page.pruneTimerSelection();
         }
     }
     readonly property var timerGroups: {
@@ -182,7 +199,8 @@ QQC2.Page {
                     groups.push(group);
                 }
             }
-            group.timers.push({ uuid: uuid, index: i, name: preset.name || "", summary: timerSummary(preset), icon: preset.iconName || "" });
+            group.timers.push({ uuid: uuid, index: i, name: preset.name || "", summary: timerSummary(preset), icon: preset.iconName || "",
+                                 builtin: preset.builtin === true });
         }
         if (other.timers.length > 0) {
             groups.push(other);
@@ -202,6 +220,158 @@ QQC2.Page {
         }
         return i18nc("a timer: work · short break, in minutes; then that it has no long break",
                      "%1 · %2 min · %3", work, shortBreak, i18n("no long break"));
+    }
+
+    // Several timers can be chosen and deleted at once: with the box that takes the place of a
+    // timer's icon, Ctrl+click (one more) or Shift+click (all those between). While some are
+    // chosen, a click on a row chooses it too, and the header offers Delete instead of New timer.
+    property var selectedTimers: []
+    /// The timer a Shift+click counts from: the last one chosen or unchosen.
+    property string selectionAnchor: ""
+    readonly property bool selectingTimers: selectedTimers.length > 0
+    /// The Timers category is shown with some timers chosen.
+    readonly property bool choosingTimers: category === "timers" && selectingTimers
+
+    function clearTimerSelection(): void {
+        selectedTimers = [];
+        selectionAnchor = "";
+    }
+    /// The timers in the order of the page (by category), as their rows show them.
+    function shownTimers(): var {
+        return timerGroups.reduce((all, group) => all.concat(group.timers), []);
+    }
+    /// The timer in use while it runs cannot be deleted, nor can the default one.
+    function timerLocked(uuid: string): bool {
+        return PresetModel.currentUuid === uuid && TimerEngine.active;
+    }
+    function timerSelectable(timer: var): bool {
+        return !timer.builtin && !timerLocked(timer.uuid);
+    }
+    function timerSelected(uuid: string): bool {
+        return selectedTimers.indexOf(uuid) >= 0;
+    }
+    function setTimerSelected(uuid: string, selected: bool): void {
+        const others = selectedTimers.filter(other => other !== uuid);
+        selectedTimers = selected ? others.concat([uuid]) : others;
+        selectionAnchor = uuid;
+    }
+    /// Chooses every timer from the anchor to `uuid`, both included.
+    function selectTimerRange(uuid: string): void {
+        const timers = shownTimers();
+        const from = timers.findIndex(timer => timer.uuid === selectionAnchor);
+        const to = timers.findIndex(timer => timer.uuid === uuid);
+        if (from < 0 || to < 0) {
+            return;
+        }
+        const chosen = selectedTimers.slice();
+        for (let i = Math.min(from, to); i <= Math.max(from, to); ++i) {
+            if (timerSelectable(timers[i]) && chosen.indexOf(timers[i].uuid) < 0) {
+                chosen.push(timers[i].uuid);
+            }
+        }
+        selectedTimers = chosen;
+    }
+    function selectAllTimers(): void {
+        selectedTimers = shownTimers().filter(timer => timerSelectable(timer)).map(timer => timer.uuid);
+    }
+    /// A click on a timer's row: opens it, or chooses it (with Ctrl or Shift, or while choosing).
+    function timerRowClicked(timer: var, modifiers: int): void {
+        const shift = (modifiers & Qt.ShiftModifier) !== 0;
+        const control = (modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0;
+        if (!shift && !control && !selectingTimers) {
+            applicationWindow().openTimer(timer.uuid);
+            return;
+        }
+        if (!timerSelectable(timer)) {
+            return;
+        }
+        if (shift && selectionAnchor.length > 0) {
+            selectTimerRange(timer.uuid);
+        } else {
+            setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
+        }
+    }
+    /// A click on a timer's box: chooses or lets go of it, or with Shift all those between.
+    function timerBoxClicked(timer: var, modifiers: int): void {
+        if (!timerSelectable(timer) && !timerSelected(timer.uuid)) {
+            return;
+        }
+        if ((modifiers & Qt.ShiftModifier) !== 0 && selectionAnchor.length > 0) {
+            selectTimerRange(timer.uuid);
+        } else {
+            setTimerSelected(timer.uuid, !timerSelected(timer.uuid));
+        }
+    }
+    /// Timers deleted meanwhile (here, on another page, by Sugo Sync) leave the selection.
+    function pruneTimerSelection(): void {
+        const kept = selectedTimers.filter(uuid => PresetModel.indexOf(uuid) >= 0);
+        if (kept.length !== selectedTimers.length) {
+            selectedTimers = kept;
+        }
+    }
+    function requestDeleteTimers(): void {
+        if (selectingTimers) {
+            deleteTimersDialog.uuids = selectedTimers.slice();
+            deleteTimersDialog.open();
+        }
+    }
+    readonly property bool deleteTimersConfirming: deleteTimersDialog.visible
+
+    ConfirmDialog {
+        id: deleteTimersDialog
+        property var uuids: []
+        readonly property var names: {
+            void page.presetsRevision;
+            return uuids.map(uuid => PresetModel.get(uuid).name || "");
+        }
+        title: i18ncp("@title:window the timers chosen on the Timers page", "Delete this timer?", "Delete %1 timers?", uuids.length)
+        // At most three names, so a long selection keeps the dialog inside the window.
+        readonly property int namesShown: 3
+        readonly property string listedNames: names.slice(0, namesShown)
+            .map(name => i18nc("a timer's name, in a list", "“%1”", name))
+            .join(i18nc("between the names of a list", ", "))
+        text: uuids.length === 1
+              ? i18n("Delete “%1”? Statistics already recorded with it are kept.", names[0] || "")
+              : uuids.length <= namesShown
+                ? i18n("Delete %1? Statistics already recorded with them are kept.", listedNames)
+                : i18np("Delete %2 and 1 more? Statistics already recorded with them are kept.",
+                        "Delete %2 and %1 more? Statistics already recorded with them are kept.",
+                        uuids.length - namesShown, listedNames)
+        confirmText: i18n("Delete")
+        confirmKind: "danger"
+        onConfirmed: {
+            deleteTimersDialog.close();
+            // The timer in use may have been started meanwhile (tray, shortcut, D-Bus).
+            const kept = [];
+            for (const uuid of uuids) {
+                if (page.timerLocked(uuid)) {
+                    kept.push(PresetModel.get(uuid).name || "");
+                } else {
+                    PresetModel.remove(uuid);
+                }
+            }
+            page.clearTimerSelection();
+            if (kept.length > 0) {
+                applicationWindow().showPassiveNotification(
+                    i18n("“%1” was started meanwhile, so it was not deleted. Stop it to delete it.", kept[0]));
+            }
+        }
+    }
+
+    Shortcut {
+        sequences: [StandardKey.SelectAll]
+        enabled: page.visible && page.category === "timers" && !page.deleteTimersConfirming
+        onActivated: page.selectAllTimers()
+    }
+    Shortcut {
+        sequences: [StandardKey.Delete]
+        enabled: page.visible && page.selectingTimers && !page.deleteTimersConfirming
+        onActivated: page.requestDeleteTimers()
+    }
+    Shortcut {
+        sequences: [StandardKey.Cancel]
+        enabled: page.visible && page.selectingTimers && !page.deleteTimersConfirming
+        onActivated: page.clearTimerSelection()
     }
 
     // About: who we are, and the updates.
@@ -238,6 +408,9 @@ QQC2.Page {
     readonly property bool syncOff: !SyncController || syncState === SyncController.Off
     readonly property bool syncSigningIn: SyncController !== null && syncState === SyncController.SigningIn
     readonly property bool syncWaiting: SyncController !== null && syncState === SyncController.WaitingForApproval
+    readonly property string syncVerificationCode: SyncController ? SyncController.verificationCode : ""
+    readonly property string syncApproverName: SyncController ? SyncController.approverName : ""
+    readonly property bool syncVerificationConfirmed: SyncController ? SyncController.verificationConfirmed : false
     readonly property bool syncSyncing: SyncController !== null && syncState === SyncController.Syncing
     readonly property bool syncError: SyncController !== null && syncState === SyncController.Error
     /// Linked, with the timers' key: the status, the devices and the recovery code.
@@ -273,8 +446,9 @@ QQC2.Page {
     // approval: read it again whenever the Sync tab is shown, so a device signed out or
     // disconnected elsewhere since then disappears from it.
     onCategoryChanged: {
-        // Another category starts at its top.
+        // Another category starts at its top, with no timer chosen.
         flickable.contentY = 0;
+        clearTimerSelection();
         // When linked, onSyncDevicesShownChanged does it.
         if (category === "sync" && SyncController && !syncDevicesShown) {
             SyncController.refreshDevices();
@@ -331,7 +505,7 @@ QQC2.Page {
         id: syncSignOutDialog
         title: i18n("Sign out of Sugo Sync?")
         text: i18n("This computer stops syncing and leaves your list of devices. Your timers stay on this computer.")
-        confirmText: i18n("Sign Out")
+        confirmText: i18n("Sign out")
         confirmKind: "danger"
         onConfirmed: {
             syncSignOutDialog.close();
@@ -361,7 +535,7 @@ QQC2.Page {
         id: syncNewRecoveryDialog
         title: i18n("Create a new recovery code?")
         text: i18n("The recovery code you have now stops working. Sugo shows you the new one, to keep in a safe place.")
-        confirmText: i18n("Create New Code")
+        confirmText: i18n("Create new code")
         onConfirmed: {
             syncNewRecoveryDialog.close();
             if (SyncController) {
@@ -458,7 +632,7 @@ QQC2.Page {
 
     ConfirmDialog {
         id: disconnectDialog
-        title: i18n("Disconnect the Calendar?")
+        title: i18n("Disconnect the calendar?")
         text: i18n("Sugo forgets the password for this calendar service and stops sending events. You can sign in again at any time.")
         confirmText: i18n("Disconnect")
         confirmKind: "danger"
@@ -503,7 +677,7 @@ QQC2.Page {
         id: clearHistoryDialog
         title: i18n("Clear session history?")
         text: i18n("This permanently removes all recorded sessions and statistics. Presets and settings will remain.")
-        confirmText: i18n("Clear History")
+        confirmText: i18n("Clear history")
         confirmKind: "danger"
         onConfirmed: {
             DataManager.clearHistory();
@@ -526,7 +700,7 @@ QQC2.Page {
         text: months === 12
             ? i18n("This permanently removes the sessions recorded more than 1 year ago. More recent sessions, presets and settings will remain.")
             : i18n("This permanently removes the sessions recorded more than %1 months ago. More recent sessions, presets and settings will remain.", months)
-        confirmText: i18n("Remove Sessions")
+        confirmText: i18n("Remove sessions")
         confirmKind: "danger"
         onConfirmed: {
             DataManager.clearHistoryOlderThan(months);
@@ -844,9 +1018,45 @@ QQC2.Page {
         text: timer.name
         Accessible.name: timer.name
         Accessible.description: timer.summary
-        onClicked: applicationWindow().openTimer(timer.uuid)
+        // From the keyboard; the mouse goes through rowMouse, which knows Ctrl and Shift.
+        onClicked: page.timerRowClicked(timer, Qt.NoModifier)
+        // Ctrl (⌘) or Shift with Space or Enter chooses the timer, as Ctrl/Shift+click does,
+        // instead of opening it. Taken here, the press never reaches the button, so no click follows.
+        Keys.onPressed: event => {
+            const choosing = (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.ShiftModifier)) !== 0;
+            if (choosing && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                // A held key chooses once: its repeats would undo and redo the choice.
+                if (!event.isAutoRepeat) {
+                    page.timerRowClicked(timer, event.modifiers);
+                }
+                event.accepted = true;
+            }
+        }
+
+        readonly property bool pointed: rowMouse.containsMouse || boxMouse.containsMouse
+        readonly property bool selected: page.timerSelected(timer.uuid)
+        // The box shows while timers are chosen, under the pointer, or on the row with keyboard focus.
+        readonly property bool showBox: !timer.builtin && (page.selectingTimers || pointed || visualFocus)
+
+        MouseArea {
+            id: rowMouse
+            // Under the row's content, so the box above it gets its own clicks.
+            z: -0.5
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: mouse => page.timerRowClicked(timerRow.timer, mouse.modifiers)
+        }
 
         background: Item {
+            // A chosen timer's row, tinted across the whole card.
+            Rectangle {
+                x: -Theme.settingsRowPaddingX
+                width: parent.width + Theme.settingsRowPaddingX * 2
+                height: parent.height
+                color: Theme.hover
+                opacity: timerRow.selected ? 1 : 0
+            }
             // The line above the row, across the whole card.
             Rectangle {
                 visible: !timerRow.first
@@ -869,12 +1079,64 @@ QQC2.Page {
         contentItem: RowLayout {
             id: timerRowContent
             spacing: Theme.spaceLg
-            // The timer's own icon, in the accent like the other accents of the interface.
-            TimerIcon {
-                visible: timerRow.timer.icon.length > 0
-                iconName: timerRow.timer.icon
-                size: Theme.iconMd
-                color: Theme.accent
+            // The timer's own icon, in the accent like the other accents of the interface; the
+            // box that chooses the timer takes its place.
+            Item {
+                implicitWidth: Theme.iconMd
+                implicitHeight: Theme.iconMd
+                TimerIcon {
+                    anchors.centerIn: parent
+                    visible: timerRow.timer.icon.length > 0
+                    opacity: timerRow.showBox ? 0 : 1
+                    iconName: timerRow.timer.icon
+                    size: Theme.iconMd
+                    color: Theme.accent
+                }
+                QQC2.AbstractButton {
+                    id: selectBox
+                    anchors.fill: parent
+                    visible: !timerRow.timer.builtin
+                    opacity: timerRow.showBox ? 1 : 0
+                    // The running timer's box stays enabled, faded, so its tooltip can say why.
+                    readonly property bool locked: !timerRow.selected && page.timerLocked(timerRow.timer.uuid)
+                    focusPolicy: Qt.NoFocus
+                    checkable: true
+                    checked: timerRow.selected
+                    Accessible.name: i18n("Select “%1”", timerRow.timer.name)
+                    QQC2.ToolTip.visible: boxMouse.containsMouse && locked
+                    QQC2.ToolTip.text: i18n("This timer is running. Stop it to delete it.")
+                    QQC2.ToolTip.delay: Theme.toolTipDelay
+                    // From assistive tools; the mouse goes through boxMouse, which knows Shift.
+                    onClicked: {
+                        checked = Qt.binding(() => timerRow.selected);
+                        page.timerBoxClicked(timerRow.timer, Qt.NoModifier);
+                    }
+                    MouseArea {
+                        id: boxMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mouse => page.timerBoxClicked(timerRow.timer, mouse.modifiers)
+                    }
+                    contentItem: null
+                    background: Rectangle {
+                        anchors.centerIn: parent
+                        width: Theme.iconSm
+                        height: Theme.iconSm
+                        radius: Theme.radiusXs
+                        color: selectBox.checked ? Theme.accent : "transparent"
+                        border.width: selectBox.checked ? 0 : Theme.hairline * 2
+                        border.color: boxMouse.containsMouse && !selectBox.locked ? Theme.foreground : Theme.subtle
+                        opacity: selectBox.locked ? 0.5 : 1
+                        LineIcon {
+                            anchors.centerIn: parent
+                            visible: selectBox.checked
+                            name: "check"
+                            size: Theme.iconSm
+                            color: Theme.accentText
+                        }
+                    }
+                }
             }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -907,7 +1169,7 @@ QQC2.Page {
             LineIcon {
                 name: "chevron-right"
                 size: Theme.iconSm
-                color: timerRow.hovered ? Theme.foreground : Theme.subtle
+                color: timerRow.pointed ? Theme.foreground : Theme.subtle
             }
         }
     }
@@ -994,7 +1256,8 @@ QQC2.Page {
                 SComboBox {
                     id: categoryBox
                     objectName: "settingsCategoryBox"
-                    visible: page.narrow
+                    // While timers are chosen, the count takes its place.
+                    visible: page.narrow && !page.choosingTimers
                     textRole: "text"
                     valueRole: "id"
                     model: page.categories
@@ -1006,9 +1269,11 @@ QQC2.Page {
                     }
                 }
                 Text {
-                    visible: !page.narrow
+                    visible: !page.narrow || page.choosingTimers
                     Layout.fillWidth: true
-                    text: page.categories[page.categoryIndex()].text
+                    text: page.choosingTimers
+                          ? i18np("1 timer chosen", "%1 timers chosen", page.selectedTimers.length)
+                          : page.categories[page.categoryIndex()].text
                     color: Theme.foreground
                     font.pixelSize: Theme.fontSettingsTitle
                     font.weight: Font.DemiBold
@@ -1016,24 +1281,45 @@ QQC2.Page {
                     Accessible.role: Accessible.Heading
                 }
                 Item {
-                    visible: page.narrow
+                    visible: page.narrow && !page.choosingTimers
                     Layout.fillWidth: true
                 }
                 // The button is taller than the title: it is centred on the row without making it
                 // taller, so the Timers page starts at the same height as the others.
+                // While timers are chosen, Cancel and Delete take its place.
                 Item {
                     visible: page.category === "timers"
                     Layout.fillHeight: true
-                    implicitWidth: newTimerButton.implicitWidth
+                    implicitWidth: page.selectingTimers ? selectionButtons.implicitWidth : newTimerButton.implicitWidth
                     SButton {
                         id: newTimerButton
                         objectName: "newTimerButton"
+                        visible: !page.selectingTimers
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         kind: "primary"
                         iconName: "plus"
                         text: i18n("New timer")
                         onClicked: applicationWindow().newTimer()
+                    }
+                    RowLayout {
+                        id: selectionButtons
+                        visible: page.selectingTimers
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spaceSm
+                        SButton {
+                            kind: "ghost"
+                            text: i18n("Cancel")
+                            onClicked: page.clearTimerSelection()
+                        }
+                        SButton {
+                            objectName: "deleteTimersButton"
+                            kind: "danger"
+                            iconName: "trash"
+                            text: i18n("Delete")
+                            onClicked: page.requestDeleteTimers()
+                        }
                     }
                 }
             }
@@ -1481,12 +1767,12 @@ QQC2.Page {
 
                 SettingRow {
                     first: true
-                    title: i18n("Add an event to your calendar each time you finish a work session.")
+                    title: i18n("Add an event to your calendar each time you finish a work session")
                     description: i18n("Sugo then sends the name of your timer, its category and the time of each finished work session to the calendar server you choose.")
                     SSwitch {
                         id: calendarSwitch
                         checked: page.calOn
-                        Accessible.name: i18n("Add an event to your calendar each time you finish a work session.")
+                        Accessible.name: i18n("Add an event to your calendar each time you finish a work session")
                         onToggled: {
                             if (CalendarSync) {
                                 CalendarSync.enabled = checked;
@@ -1515,8 +1801,11 @@ QQC2.Page {
                             ]
                             currentIndex: page.valueIndex(model, page.calProvider)
                             Accessible.name: i18n("Calendar service")
+                            objectName: "calendarProviderBox"
                             onActivated: {
-                                page.calInputError = "";
+                                // A refusal is cleared with the fields (resetCalFields(), when the
+                                // service changes): the same service chosen again leaves the refused
+                                // address on screen, and the refusal with it.
                                 if (CalendarSync) {
                                     CalendarSync.provider = currentValue;
                                     // Each service keeps its own settings: if the one just chosen is
@@ -1592,8 +1881,9 @@ QQC2.Page {
                                     text: i18n("Log in")
                                     iconName: "external"
                                     onClicked: {
-                                        page.commitCalendarFields();
-                                        CalendarSync.startNextcloudLogin();
+                                        if (page.commitCalendarFields()) {
+                                            CalendarSync.startNextcloudLogin();
+                                        }
                                     }
                                 }
                                 SButton {
@@ -1613,7 +1903,9 @@ QQC2.Page {
                                     // Not while any request runs: the test would not run, yet look passed.
                                     enabled: !page.calWorking
                                     onClicked: {
-                                        page.commitCalendarFields();
+                                        if (!page.commitCalendarFields()) {
+                                            return;
+                                        }
                                         page.calAction = "test";
                                         CalendarSync.testConnection();
                                         // Nothing was started (e.g. not signed in yet): a later request's
@@ -1713,7 +2005,9 @@ QQC2.Page {
                             // Not while any request runs: the test would not run, yet look passed.
                             enabled: !page.calWorking
                             onClicked: {
-                                page.commitCalendarFields();
+                                if (!page.commitCalendarFields()) {
+                                    return;
+                                }
                                 page.calAction = "test";
                                 CalendarSync.testConnection();
                                 // Nothing was started (e.g. not signed in yet): a later request's
@@ -1730,6 +2024,44 @@ QQC2.Page {
                             iconName: "close"
                             onClicked: page.requestDisconnect()
                         }
+                    }
+                    // No keyring answered when the password was saved: it is in the settings file.
+                    // Shown with the other rows of a signed-in account, so it comes with them; once
+                    // shown it stays while the account does (the password saved again into the
+                    // keyring changes its text, not the layout). A password saved outside the
+                    // keyring while the account's rows are already shown (a custom account's
+                    // password edited) would push them down: the toast says it instead, and the
+                    // row comes with the account's rows the next time they appear.
+                    SettingRow {
+                        id: calKeyringRow
+                        objectName: "calendarPasswordOutsideKeyring"
+                        readonly property bool outside: page.calPasswordOutsideKeyring
+                        readonly property bool configured: page.calConfigured
+                        // Copied once, not bound: a binding would follow `outside` and show the
+                        // row under the account's rows after all.
+                        property bool seen: false
+                        Component.onCompleted: seen = outside
+                        onOutsideChanged: {
+                            if (!outside) {
+                                return;
+                            }
+                            if (configured && !seen) {
+                                applicationWindow().showPassiveNotification(outsideText);
+                            } else {
+                                seen = true;
+                            }
+                        }
+                        onConfiguredChanged: if (!configured) seen = outside
+                        visible: configured && seen
+                        readonly property string outsideText: DesktopStyle.macos
+                            ? i18n("The Keychain could not be used, so the password is kept in Sugo's settings file, readable only by your account. Sugo moves it to the Keychain the next time it starts with one available.")
+                            : i18n("No system keyring was available, so the password is kept in Sugo's settings file, readable only by your account. Install or unlock one (for example KWallet or GNOME Keyring) and Sugo moves it there at its next start.")
+                        readonly property string insideText: DesktopStyle.macos
+                            ? i18n("The password is now kept in the Keychain.")
+                            : i18n("The password is now kept in the system keyring.")
+                        title: outside ? i18n("Password not in the keyring") : i18n("Password in the keyring")
+                        description: outside ? outsideText : insideText
+                        descriptionVariants: [outsideText, insideText]
                     }
                     // Calendar choice, with a refresh button to reload the list from the server.
                     SettingRow {
@@ -1807,7 +2139,9 @@ QQC2.Page {
                             QQC2.ToolTip.visible: hovered
                             QQC2.ToolTip.delay: Theme.toolTipDelay
                             onClicked: {
-                                page.commitCalendarFields();
+                                if (!page.commitCalendarFields()) {
+                                    return;
+                                }
                                 page.calAction = "refresh";
                                 CalendarSync.refreshCalendars();
                                 // Nothing was started (e.g. not signed in yet): a later request's
@@ -1975,16 +2309,41 @@ QQC2.Page {
                     first: true
                     visible: page.syncWaiting
                     title: i18n("Approve this computer on another device")
-                    description: SyncController && SyncController.verificationCode.length > 0
-                        ? i18n("Open Sugo on a device that already syncs and approve this computer there. Check that it shows the same code as here.")
+                    description: page.syncVerificationCode.length > 0 && page.syncApproverName.length > 0
+                        ? i18n("Open Sugo on %1 and approve this computer there.", page.syncApproverName)
                         : i18n("Open Sugo on a device that already syncs and approve this computer there.")
-                    descriptionVariants: [i18n("Open Sugo on a device that already syncs and approve this computer there. Check that it shows the same code as here."),
+                    descriptionVariants: [i18n("Open Sugo on %1 and approve this computer there.", page.syncApproverName),
                                           i18n("Open Sugo on a device that already syncs and approve this computer there.")]
                 }
                 SyncCode {
                     visible: page.syncWaiting
-                    caption: i18n("Check that your other device shows the same code")
-                    code: SyncController ? SyncController.verificationCode : ""
+                    caption: page.syncApproverName.length > 0
+                        ? i18n("Check that %1 shows the same code", page.syncApproverName)
+                        : i18n("Check that your other device shows the same code")
+                    code: page.syncVerificationCode
+                }
+                // The key is taken only once the user saw the same code on the other device: else a
+                // server could list a device of its own and hand this computer a key it knows.
+                SettingRow {
+                    visible: page.syncWaiting
+                    title: i18n("Same code on both devices?")
+                    description: page.syncVerificationConfirmed
+                        ? i18n("Confirmed. This computer takes the key once the other device approves it.")
+                        : i18n("Confirm only if the other device shows exactly this code. Until then this computer takes no key.")
+                    descriptionVariants: [i18n("Confirmed. This computer takes the key once the other device approves it."),
+                                          i18n("Confirm only if the other device shows exactly this code. Until then this computer takes no key.")]
+                    SButton {
+                        id: syncConfirmCodeButton
+                        text: page.syncVerificationConfirmed ? i18n("Confirmed") : i18n("Same code")
+                        labels: [i18n("Same code"), i18n("Confirmed")]
+                        Accessible.name: i18n("The other device shows the same code")
+                        enabled: page.syncVerificationCode.length > 0 && !page.syncVerificationConfirmed
+                        onClicked: {
+                            if (enabled) {
+                                SyncController.confirmVerificationCode(page.syncVerificationCode);
+                            }
+                        }
+                    }
                 }
                 SettingRow {
                     visible: page.syncWaiting
@@ -2220,7 +2579,7 @@ QQC2.Page {
                 SettingRow {
                     first: true
                     title: i18n("Share anonymous usage statistics")
-                    description: i18n("Helps us see which features to improve. Nothing about you is sent.")
+                    description: i18n("Optional, used only to improve Sugo. Never your name, notes or files.")
                     SettingSwitch { setting: "shareUsageStats" }
                 }
             }

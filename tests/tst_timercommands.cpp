@@ -42,6 +42,10 @@ private Q_SLOTS:
         QTest::newRow("resume") << "sugo://resume" << Action::Resume << "";
         QTest::newRow("stop") << "sugo://stop" << Action::Stop << "";
         QTest::newRow("skip") << "sugo://skip" << Action::Skip << "";
+        QTest::newRow("extend") << "sugo://extend" << Action::Extend << "";
+        QTest::newRow("extend 10") << "sugo://extend/10" << Action::Extend << "10";
+        QTest::newRow("extend 0") << "sugo://extend/0" << Action::Invalid << "";
+        QTest::newRow("extend words") << "sugo://extend/lots" << Action::Invalid << "";
         QTest::newRow("show") << "sugo://show" << Action::Show << "";
         QTest::newRow("any case") << "SUGO://Toggle" << Action::Toggle << "";
         QTest::newRow("trailing slash") << "sugo://pause/" << Action::Pause << "";
@@ -79,6 +83,11 @@ private Q_SLOTS:
         QVERIFY(f.engine.isRunning());
         QVERIFY(f.commands.run(TimerCommands::parseUrl(QUrl(QStringLiteral("sugo://toggle")))).ok());
         QVERIFY(f.engine.isPaused());
+        const int total = f.engine.totalSeconds();
+        QVERIFY(f.commands.run(TimerCommands::parseUrl(QUrl(QStringLiteral("sugo://extend")))).ok());
+        QCOMPARE(f.engine.totalSeconds(), total + TimerEngine::kExtendSeconds);
+        QVERIFY(f.commands.run(TimerCommands::parseUrl(QUrl(QStringLiteral("sugo://extend/2")))).ok());
+        QCOMPARE(f.engine.totalSeconds(), total + TimerEngine::kExtendSeconds + 2 * 60);
         QVERIFY(f.commands.run(TimerCommands::parseUrl(QUrl(QStringLiteral("sugo://skip")))).ok());
         QVERIFY(f.commands.run(TimerCommands::parseUrl(QUrl(QStringLiteral("sugo://stop")))).ok());
         QVERIFY(f.engine.isIdle());

@@ -12,6 +12,8 @@
 
 #include <functional>
 
+#include "SyncKind.h"
+
 class QNetworkAccessManager;
 class QNetworkReply;
 class SyncSecrets;
@@ -30,7 +32,8 @@ struct SyncError {
         RateLimited,          ///< 429; `retryAfter` seconds.
         PreconditionFailed,   ///< 412: the blob changed; `extra["etag"]`.
         PreconditionRequired, ///< 428: a blob PUT without a precondition (a bug).
-        TooLarge,             ///< 413.
+        TooLarge,             ///< 413; `extra["max_bytes"]` holds the kind's limit.
+        PlusRequired,         ///< 403: a blob kind that syncs only with Plus, on an account without it.
         InvalidBlob,
         InvalidRequest,
         NotFound,             ///< 404: no such device, key, recovery copy or blob.
@@ -67,7 +70,7 @@ struct SyncReply {
     SyncError error;
     int http = 0;
     QJsonObject json;       ///< The JSON body, if it was an object.
-    QByteArray body;        ///< The raw body (the blob for GET /v1/blob/presets).
+    QByteArray body;        ///< The raw body (the blob for GET /v1/blob/{kind}).
     QByteArray etag;        ///< ETag without quotes; empty if none.
     int pendingDevices = -1; ///< Sugo-Pending-Devices, or -1 when absent.
 
@@ -84,7 +87,10 @@ struct SyncReply {
  * - The access token is renewed in ONE place, ensureAccessToken(): never two renewals at once,
  *   and the new refresh token is written to the keyring before anything else happens (each
  *   refresh token works once). An authenticated request that gets 401 renews once and tries
- *   again once.
+ *   again once. A renewal that gets no answer (or a server error) is sent again after 2 s and
+ *   5 s, with a 15 s timeout: the server takes back a refresh token whose answer was lost only
+ *   within its grace (a minute before sugo-sync#51, 24 h since), and afterwards treats it as
+ *   stolen and signs the device out.
  * - reset() (sign out, cancel) drops every pending answer: their callbacks are never called.
  */
 class SyncApi : public QObject
@@ -126,16 +132,17 @@ public:
     void getRecovery(Callback done);
     /// PUT /v1/recovery; `sealed` raw.
     void putRecovery(const QByteArray &sealed, Callback done);
-    /// GET /v1/blob/presets, with If-None-Match when `etag` is not empty (304 is not an error).
-    void getBlob(const QByteArray &etag, Callback done);
-    /// PUT /v1/blob/presets: If-Match `etag`, or If-None-Match: * when it is empty.
-    void putBlob(const QByteArray &blob, const QByteArray &etag, Callback done);
+    /// GET /v1/blob/{kind}, with If-None-Match when `etag` is not empty (304 is not an error).
+    void getBlob(SyncKind kind, const QByteArray &etag, Callback done);
+    /// PUT /v1/blob/{kind}: If-Match `etag`, or If-None-Match: * when it is empty.
+    void putBlob(SyncKind kind, const QByteArray &blob, const QByteArray &etag, Callback done);
 
     /**
      * Calls `done` with no error once there is an access token valid for over a minute,
      * renewing it if needed. While a renewal runs, later callers wait for it (no second POST).
      * Errors: Unauthorized (no refresh token), InvalidGrant (signedOutRemotely() is emitted too),
-     * Network/RateLimited/Server (the refresh token is kept; try again later).
+     * Network/RateLimited/Server (the refresh token is kept; try again later). Network and Server
+     * come only after the quick retries of the renewal.
      */
     void ensureAccessToken(TokenCallback done);
     bool hasAccessToken() const;
@@ -147,6 +154,8 @@ public:
 
     /// The monotonic clock for the access token's expiry, in ms (tests set their own).
     void setNowProvider(std::function<qint64()> nowMs);
+    /// The waits before the retries of a renewal without an answer, in ms (tests set shorter ones).
+    void setRefreshRetryDelaysMs(const QList<int> &delays);
 
 Q_SIGNALS:
     /// The refresh token was refused (invalid_grant): the device was disconnected or its token reused.
@@ -166,6 +175,7 @@ private:
         QList<QPair<QByteArray, QByteArray>> headers;
         bool auth = true;
         bool expectJson = true;
+        int timeoutMs = 0; ///< 0: the usual transfer timeout.
     };
 
     void call(const Request &request, Callback done);
@@ -173,6 +183,8 @@ private:
     void send(const Request &request, const QString &accessToken, Callback done);
     /// Takes the tokens of a 200 of /v1/auth/token; false if the answer lacks them.
     bool takeTokens(const QJsonObject &json);
+    /// POSTs the refresh token; `attempt` 0 is the first try, sent at `firstSentAt` (now()).
+    void sendRefresh(const QString &refreshToken, int attempt, qint64 firstSentAt);
     void finishRefresh(const SyncError &error);
     qint64 now() const;
     QNetworkAccessManager *network();
@@ -187,5 +199,6 @@ private:
     qint64 m_accessExpiresAt = 0;
     bool m_refreshInFlight = false;
     QList<TokenCallback> m_refreshWaiters;
+    QList<int> m_refreshRetryDelaysMs{2000, 5000};
     std::function<qint64()> m_now;
 };

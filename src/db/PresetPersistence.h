@@ -27,7 +27,8 @@ public:
 
     /// True while the latest changes could not be stored.
     bool isSaveFailing() const { return m_saveFailing; }
-    /// True when the stored timers could not be read at startup: nothing is saved this session
+    /// True when the stored timers could not be read at startup: nothing is saved this session,
+    /// until a restored backup puts them in the model (adoptStored())
     /// (the model holds only the built-in timer, and saving it would delete the stored ones).
     bool loadFailed() const { return m_loadFailed; }
     void setRetryIntervalForTesting(int ms) { m_retryTimer.setInterval(ms); }
@@ -41,6 +42,13 @@ public:
      */
     bool save(const QList<PresetTombstone> &received = {});
 
+    /**
+     * The model now holds the stored timers (a backup was restored into it): after a failed
+     * load, changes are saved again from here on. Call it after PresetModel::setPresets(); it
+     * does not save by itself. Nothing happens if the load did not fail.
+     */
+    void adoptStored();
+
 Q_SIGNALS:
     void saveFailingChanged();
     /// The timers were stored (not for a change of the selection alone).
@@ -50,6 +58,7 @@ private:
     void savePresets();
     void saveSelection();
     void setSaveFailing(bool failing);
+    void connectModel();
 
     PresetModel *m_model;
     PresetRepository *m_repository;

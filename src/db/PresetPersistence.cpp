@@ -34,8 +34,24 @@ PresetPersistence::PresetPersistence(PresetModel *model, PresetRepository *repos
     }
 
     // Connect only after loading, so loading never writes back.
-    connect(model, &PresetModel::modified, this, &PresetPersistence::savePresets);
-    connect(model, &PresetModel::currentChanged, this, &PresetPersistence::saveSelection);
+    connectModel();
+}
+
+void PresetPersistence::connectModel()
+{
+    connect(m_model, &PresetModel::modified, this, &PresetPersistence::savePresets);
+    connect(m_model, &PresetModel::currentChanged, this, &PresetPersistence::saveSelection);
+}
+
+void PresetPersistence::adoptStored()
+{
+    if (!m_loadFailed) {
+        return;
+    }
+    m_loadFailed = false;
+    connectModel();
+    // loadFailed() changed: DataManager::timersUnreadable() follows this signal.
+    Q_EMIT saveFailingChanged();
 }
 
 void PresetPersistence::savePresets()

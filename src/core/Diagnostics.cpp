@@ -18,7 +18,6 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QSysInfo>
 #include <QTime>
 
@@ -272,6 +271,14 @@ QString Diagnostics::redact(const QString &text)
     for (const QRegularExpression &pattern : std::as_const(accounts)) {
         replaceWord(result, pattern, QStringLiteral("<account>"));
     }
+    // The user in a CalDAV path, which can differ from the login (Nextcloud signed in with an
+    // e-mail address, a server that names principals by id): /calendars/<user>/,
+    // /principals/<user>/, /principals/users/<user>/. In URLs Sugo or Qt log. The whole segment
+    // goes, also when the login was only part of it ("<account>.smith"); a segment that is the
+    // login alone keeps its "<account>".
+    static const QRegularExpression &davUserRegex = *new QRegularExpression(QStringLiteral(
+        R"((/(?:calendars|principals/users|principals)/)(?!<account>(?:[/\s?#'"]|$))[^/\s?#'"]+)"));
+    result.replace(davUserRegex, QStringLiteral("\\1<user>"));
 
     // 1. Redact the home directory path (and its resolved form, if it is a symlink), only where
     // the path ends: /home/alice next to the home /home/al does not become "~ice".
@@ -414,35 +421,6 @@ QString Diagnostics::generateReport() const
     lines << QString();
 
     return lines.join(QLatin1Char('\n'));
-}
-
-bool Diagnostics::exportReport(const QUrl &fileUrl) const
-{
-    m_lastExportError.clear();
-
-    QString path;
-    if (fileUrl.isLocalFile()) {
-        path = fileUrl.toLocalFile();
-    } else if (fileUrl.scheme().isEmpty() && QDir::isAbsolutePath(fileUrl.path())) {
-        path = fileUrl.path();
-    } else {
-        m_lastExportError = i18n("The report can only be saved to a local file.");
-        qWarning() << "Diagnostics export refused for non-local location" << fileUrl.toDisplayString();
-        return false;
-    }
-
-    // Written in full or not at all: a failure never leaves a truncated report behind.
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        m_lastExportError = i18n("Could not open %1 for writing: %2", path, file.errorString());
-        return false;
-    }
-    const QByteArray data = generateReport().toUtf8();
-    if (file.write(data) != data.size() || !file.commit()) {
-        m_lastExportError = i18n("Could not write %1: %2", path, file.errorString());
-        return false;
-    }
-    return true;
 }
 
 void Diagnostics::copyToClipboard() const

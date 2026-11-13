@@ -51,6 +51,9 @@ class CalendarSync : public QObject
     Q_PROPERTY(QString serverUrl READ serverUrl WRITE setServerUrl NOTIFY serverUrlChanged)
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(bool hasPassword READ hasPassword NOTIFY hasPasswordChanged)
+    /// A password is stored, but in the settings file rather than the keyring (no keyring
+    /// answered when it was saved). It moves to the keyring at a start that finds one.
+    Q_PROPERTY(bool passwordOutsideKeyring READ passwordOutsideKeyring NOTIFY passwordStorageChanged)
     Q_PROPERTY(QString calendarUrl READ calendarUrl WRITE setCalendarUrl NOTIFY calendarUrlChanged)
     Q_PROPERTY(QString calendarName READ calendarName NOTIFY calendarNameChanged)
     Q_PROPERTY(bool includeNote READ includeNote WRITE setIncludeNote NOTIFY includeNoteChanged)
@@ -145,10 +148,15 @@ public:
     void setOpenUrlHandler(std::function<void(const QUrl &)> handler) { m_openUrl = std::move(handler); }
     bool isSendingPaused() const { return m_paused; }
     bool isPasswordInKeyring() const { return m_passwordInKeyring; }
+    bool passwordOutsideKeyring() const { return hasPassword() && !m_passwordInKeyring; }
 
 public Q_SLOTS:
     void enqueueWorkSession(const SessionRecord &record);
     void onNoteChanged(qint64 sessionId, const QString &note);
+    /// A session was deleted: its event is not sent any more, and with `fromCalendar` the event
+    /// already sent is deleted from the calendar (tried again after the next event that goes
+    /// through, if the server cannot be reached now).
+    void onSessionDeleted(const SessionRecord &record, bool fromCalendar);
 
 Q_SIGNALS:
     void enabledChanged();
@@ -156,6 +164,8 @@ Q_SIGNALS:
     void serverUrlChanged();
     void usernameChanged();
     void hasPasswordChanged();
+    /// passwordOutsideKeyring() may have changed.
+    void passwordStorageChanged();
     void calendarUrlChanged();
     void calendarNameChanged();
     void includeNoteChanged();
@@ -183,7 +193,11 @@ private:
         SessionRecord record;
         QString uid;
         QString account; ///< currentAccount() when it was queued.
+        /// Every place it was put or tried, oldest first (saved before each request goes): a
+        /// calendar chosen later is another place, and an answer lost may hide that it got there.
+        QStringList urls;
     };
+    /// An event Sugo put on the server that must go: a connection test's, or a deleted session's.
     struct LeftoverTest {
         QString uid;
         QString account;
@@ -289,6 +303,7 @@ private:
     /// Connection-test events the server did not let us remove yet.
     QList<LeftoverTest> m_leftoverTests;
     SessionRecord m_inFlightRecord; ///< What the request on its way carries.
+    QString m_inFlightUrl;          ///< Where the request on its way puts it.
     bool m_paused = false;
     /// 403s in a row to the events sent and the test's, with nothing accepted between.
     int m_forbiddenStreak = 0;
