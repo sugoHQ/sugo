@@ -124,7 +124,7 @@ public:
     bool offline = false;
     /// The next n requests are carried out, but their answers are lost (the connection closes).
     int loseAnswers = 0;
-    /// Within the server's grace minute: a spent refresh token whose successor was never used gives
+    /// Within the server's grace (a minute, as before sugo-sync#51): a spent refresh token whose successor was never used gives
     /// a new pair and revokes that successor (docs/api.md, "Lost refresh response"). Off, any
     /// spent token is theft.
     bool refreshGrace = false;
