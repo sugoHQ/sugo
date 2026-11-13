@@ -408,6 +408,9 @@ QQC2.Page {
     readonly property bool syncOff: !SyncController || syncState === SyncController.Off
     readonly property bool syncSigningIn: SyncController !== null && syncState === SyncController.SigningIn
     readonly property bool syncWaiting: SyncController !== null && syncState === SyncController.WaitingForApproval
+    readonly property string syncVerificationCode: SyncController ? SyncController.verificationCode : ""
+    readonly property string syncApproverName: SyncController ? SyncController.approverName : ""
+    readonly property bool syncVerificationConfirmed: SyncController ? SyncController.verificationConfirmed : false
     readonly property bool syncSyncing: SyncController !== null && syncState === SyncController.Syncing
     readonly property bool syncError: SyncController !== null && syncState === SyncController.Error
     /// Linked, with the timers' key: the status, the devices and the recovery code.
@@ -2306,16 +2309,41 @@ QQC2.Page {
                     first: true
                     visible: page.syncWaiting
                     title: i18n("Approve this computer on another device")
-                    description: SyncController && SyncController.verificationCode.length > 0
-                        ? i18n("Open Sugo on a device that already syncs and approve this computer there. Check that it shows the same code as here.")
+                    description: page.syncVerificationCode.length > 0 && page.syncApproverName.length > 0
+                        ? i18n("Open Sugo on %1 and approve this computer there.", page.syncApproverName)
                         : i18n("Open Sugo on a device that already syncs and approve this computer there.")
-                    descriptionVariants: [i18n("Open Sugo on a device that already syncs and approve this computer there. Check that it shows the same code as here."),
+                    descriptionVariants: [i18n("Open Sugo on %1 and approve this computer there.", page.syncApproverName),
                                           i18n("Open Sugo on a device that already syncs and approve this computer there.")]
                 }
                 SyncCode {
                     visible: page.syncWaiting
-                    caption: i18n("Check that your other device shows the same code")
-                    code: SyncController ? SyncController.verificationCode : ""
+                    caption: page.syncApproverName.length > 0
+                        ? i18n("Check that %1 shows the same code", page.syncApproverName)
+                        : i18n("Check that your other device shows the same code")
+                    code: page.syncVerificationCode
+                }
+                // The key is taken only once the user saw the same code on the other device: else a
+                // server could list a device of its own and hand this computer a key it knows.
+                SettingRow {
+                    visible: page.syncWaiting
+                    title: i18n("Same code on both devices?")
+                    description: page.syncVerificationConfirmed
+                        ? i18n("Confirmed. This computer takes the key once the other device approves it.")
+                        : i18n("Confirm only if the other device shows exactly this code. Until then this computer takes no key.")
+                    descriptionVariants: [i18n("Confirmed. This computer takes the key once the other device approves it."),
+                                          i18n("Confirm only if the other device shows exactly this code. Until then this computer takes no key.")]
+                    SButton {
+                        id: syncConfirmCodeButton
+                        text: page.syncVerificationConfirmed ? i18n("Confirmed") : i18n("Same code")
+                        labels: [i18n("Same code"), i18n("Confirmed")]
+                        Accessible.name: i18n("The other device shows the same code")
+                        enabled: page.syncVerificationCode.length > 0 && !page.syncVerificationConfirmed
+                        onClicked: {
+                            if (enabled) {
+                                SyncController.confirmVerificationCode(page.syncVerificationCode);
+                            }
+                        }
+                    }
                 }
                 SettingRow {
                     visible: page.syncWaiting

@@ -219,6 +219,9 @@ class SyncControllerTest : public QObject
         QCOMPARE(pending.value(QStringLiteral("id")).toString(), b.account()->deviceId());
         QCOMPARE(pending.value(QStringLiteral("name")).toString(), name);
         QCOMPARE(pending.value(QStringLiteral("verificationCode")).toString(), b.sync->verificationCode());
+        QCOMPARE(b.sync->approverName(), a.sync->deviceName());
+        QVERIFY(b.sync->confirmVerificationCode(b.sync->verificationCode()));
+        QVERIFY(b.sync->verificationConfirmed());
         a.sync->approveDevice(pending.value(QStringLiteral("id")).toString());
         QVERIFY(a.sync->pendingApproval().isEmpty());
         QTRY_COMPARE_WITH_TIMEOUT(b.sync->state(), SyncController::Idle, 5000);

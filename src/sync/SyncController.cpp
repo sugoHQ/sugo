@@ -173,6 +173,10 @@ void SyncController::connectAccount()
         Q_EMIT verificationCodeChanged();
         updateState();
     });
+    connect(a, &SyncAccount::verificationConfirmedChanged, this, [this]() {
+        Q_EMIT verificationConfirmedChanged();
+        updateState(); // the status text
+    });
     connect(a, &SyncAccount::keyRejected, this, [this]() {
         m_keyRejected = true;
         Q_EMIT message(i18n("The key that arrived did not come from the device with this code, so it was refused."));
@@ -933,7 +937,10 @@ QString SyncController::statusText() const
         if (verificationCode().isEmpty()) {
             return i18n("Waiting for another device to approve this one, or for the recovery code.");
         }
-        return i18n("Check that your other device shows the same code, then approve it there.");
+        if (m_account->verificationConfirmed()) {
+            return i18n("Waiting for your other device to approve this one.");
+        }
+        return i18n("Check that your other device shows the same code, confirm it here and approve it there.");
     case Idle:
         return i18n("Up to date.");
     case Syncing:
@@ -1129,6 +1136,16 @@ QString SyncController::verificationCode() const
     return m_account->verificationCode();
 }
 
+QString SyncController::approverName() const
+{
+    return m_account->approverName();
+}
+
+bool SyncController::verificationConfirmed() const
+{
+    return m_account->verificationConfirmed();
+}
+
 QVariantList SyncController::devices() const
 {
     return m_account->devicesAsVariantList();
@@ -1271,6 +1288,11 @@ void SyncController::refreshDevices()
 void SyncController::useRecoveryCode(const QString &code)
 {
     m_account->useRecoveryCode(code);
+}
+
+bool SyncController::confirmVerificationCode(const QString &code)
+{
+    return m_account->confirmVerificationCode(code);
 }
 
 QString SyncController::recoveryCode() const

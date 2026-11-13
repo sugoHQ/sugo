@@ -92,6 +92,10 @@ class SyncController : public QObject
     Q_PROPERTY(QUrl verificationUriComplete READ verificationUriComplete NOTIFY signInCodeChanged FINAL)
     Q_PROPERTY(bool deviceLimitReached READ deviceLimitReached NOTIFY deviceLimitReachedChanged FINAL)
     Q_PROPERTY(QString verificationCode READ verificationCode NOTIFY verificationCodeChanged FINAL)
+    /// The name of the device verificationCode was computed with, the one to approve this computer on.
+    Q_PROPERTY(QString approverName READ approverName NOTIFY verificationCodeChanged FINAL)
+    /// The user confirmed that approverName shows verificationCode (confirmVerificationCode()).
+    Q_PROPERTY(bool verificationConfirmed READ verificationConfirmed NOTIFY verificationConfirmedChanged FINAL)
 
     Q_PROPERTY(QVariantList devices READ devices NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString deviceName READ deviceName NOTIFY deviceNameChanged FINAL)
@@ -184,6 +188,8 @@ public:
     QUrl verificationUriComplete() const;
     bool deviceLimitReached() const;
     QString verificationCode() const;
+    QString approverName() const;
+    bool verificationConfirmed() const;
 
     QVariantList devices() const;
     /// This device's name; while signed out, the name sign-in suggests: the one last signed in
@@ -221,6 +227,9 @@ public:
 
     // --- Recovery code ------------------------------------------------------------------------
     Q_INVOKABLE void useRecoveryCode(const QString &code);
+    /// While waiting for approval: the other device shows `code` too, so its key may be taken.
+    /// False if `code` is no longer the one shown.
+    Q_INVOKABLE bool confirmVerificationCode(const QString &code);
     /// The recovery code, when recoveryCodeShowable (from memory, no keyring access).
     Q_INVOKABLE QString recoveryCode() const;
     Q_INVOKABLE void regenerateRecoveryCode();
@@ -246,6 +255,7 @@ Q_SIGNALS:
     void signInCodeChanged();
     void deviceLimitReachedChanged();
     void verificationCodeChanged();
+    void verificationConfirmedChanged();
     void devicesChanged();
     void deviceNameChanged();
     void recoveryCodeShowableChanged();
