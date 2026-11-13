@@ -124,6 +124,8 @@ public:
     bool offline = false;
     /// The next n requests are carried out, but their answers are lost (the connection closes).
     int loseAnswers = 0;
+    /// The next n requests are carried out, but answered by a 200 that is not JSON (a proxy's page).
+    int garbleAnswers = 0;
     /// Within the server's grace (a minute, as before sugo-sync#51): a spent refresh token whose successor was never used gives
     /// a new pair and revokes that successor (docs/api.md, "Lost refresh response"). Off, any
     /// spent token is theft.
@@ -344,6 +346,12 @@ private:
                 buf.clear();
                 s->abort();
                 return;
+            } else if (garbleAnswers > 0) {
+                --garbleAnswers;
+                m_muted = true;
+                respond(s, req);
+                m_muted = false;
+                reply(s, 200, "<html>Not Sugo Sync</html>", {}, "text/html");
             } else {
                 respond(s, req);
             }
