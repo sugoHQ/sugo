@@ -1050,6 +1050,35 @@ private Q_SLOTS:
         server->device(c.account->deviceId())->ready = true;
     }
 
+    void refusedCodeTheKeyringKeepsIsNeverSentAgain()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QByteArray copy = server->accounts.value(kUser).recovery;
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        server->device(c.account->deviceId())->ready = false; // key_exists: refused for good
+        c.account->regenerateRecoveryCode(); // the pending code is in the keyring now
+        *c.store.failWrites = true;          // and its removal is refused
+        QVERIFY(failed.wait(5000));
+        QVERIFY(c.item().contains(QLatin1String("pendingRecoveryCode")));
+        server->device(c.account->deviceId())->ready = true;
+
+        // The next start removes it instead of sending it.
+        *c.store.failWrites = false;
+        const int puts = server->count("PUT", "/v1/recovery");
+        c.build(*server);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QTRY_COMPARE(c.account->phase(), SyncAccount::Phase::Ready);
+        QTRY_VERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(created.size(), 0);
+        QCOMPARE(server->accounts.value(kUser).recovery, copy);
+    }
+
     void lostRegenerationAnswerSendsTheSameCodeAgain()
     {
         Client c(*server);
