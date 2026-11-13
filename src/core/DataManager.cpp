@@ -155,7 +155,7 @@ void DataManager::setSessionRecorder(SessionRecorder *recorder)
 
 qint64 DataManager::lastWorkSessionId() const
 {
-    return m_recorder ? m_recorder->lastWorkSessionId() : -1;
+    return m_recorder ? m_recorder->noteTargetId() : -1;
 }
 
 bool DataManager::clearHistory()
@@ -480,6 +480,15 @@ bool DataManager::updateSessionNote(qint64 sessionId, const QString &note)
 {
     if (!m_sessions) {
         return false;
+    }
+    if (SessionRecorder::isUnsavedNoteTarget(sessionId)) {
+        // A session that waited to be stored: its row if a retry stored it meanwhile, else the
+        // note waits with it and is stored together.
+        const qint64 row = m_recorder ? m_recorder->rowFor(sessionId) : -1;
+        if (row <= 0) {
+            return m_recorder && m_recorder->setUnsavedNote(sessionId, note);
+        }
+        sessionId = row;
     }
     const bool ok = m_sessions->updateNote(sessionId, note);
     if (ok) {

@@ -104,7 +104,9 @@ void PhaseNotifier::onPhaseFinished(TimerEngine::Phase finished, TimerEngine::Ph
         notification.text = text;
         notification.iconName = QStringLiteral("stream.sugo.app");
 
-        const bool offerNote = finished == TimerEngine::Phase::Work && sessionId > 0 && m_settings && m_settings->promptTaskNote();
+        // A session still waiting to be stored has an id below -1: its note waits with it.
+        const bool offerNote = finished == TimerEngine::Phase::Work && (sessionId > 0 || sessionId < -1) && m_settings
+            && m_settings->promptTaskNote();
         if (offerNote) {
             Notifier::Reply reply;
             reply.label = i18n("Log Task");

@@ -201,7 +201,8 @@ QQC2.ApplicationWindow {
     /// is stored on; without one the most recent work session is used.
     function openTaskNotePrompt(presetName, sessionId) {
         let id = (sessionId === undefined || sessionId === null) ? DataManager.lastWorkSessionId() : Number(sessionId);
-        if (!(id > 0)) {
+        // Below -1: a session still waiting to be stored, whose note waits with it.
+        if (!(id > 0 || id < -1)) {
             return;
         }
         // One at a time: a note being typed stays with its own session, and this one is asked
@@ -219,7 +220,7 @@ QQC2.ApplicationWindow {
 
     function saveTaskNote(note: string): void {
         const text = note.trim();
-        if (text.length > 0 && taskNoteDialog.sessionId > 0) {
+        if (text.length > 0 && (taskNoteDialog.sessionId > 0 || taskNoteDialog.sessionId < -1)) {
             DataManager.updateSessionNote(taskNoteDialog.sessionId, text);
         }
         taskNoteDialog.close();

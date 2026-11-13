@@ -62,7 +62,8 @@ public:
     void setSessionRecorder(SessionRecorder *recorder);
     /// Reports failed timer saves through saveFailing.
     void setPresetPersistence(PresetPersistence *persistence);
-    /// Row id of the most recently ended Work phase, or -1 if it was not recorded or there is no recorder.
+    /// Where a note for the most recently ended Work phase goes (SessionRecorder::noteTargetId()):
+    /// its row id, an id below -1 while it waits to be stored, or -1 if it was not recorded.
     Q_INVOKABLE qint64 lastWorkSessionId() const;
 
     Q_INVOKABLE bool clearHistory();
