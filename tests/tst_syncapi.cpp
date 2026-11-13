@@ -341,6 +341,20 @@ private Q_SLOTS:
         QCOMPARE(storedItem(store).value(QLatin1String("refreshToken")).toString(), secrets->refreshToken());
     }
 
+    void resetWhileTheNewTokenIsSavedSendsNoOtherRenewal()
+    {
+        link();
+        *store.failWrites = true;
+        // Signed out while the keyring was asked (its prompt lets events run): no renewal follows.
+        connect(api.get(), &SyncApi::tokenNotSaved, this, [this]() { api->reset(); }, Qt::SingleShotConnection);
+        bool answered = false;
+        api->listDevices([&](const SyncReply &) { answered = true; });
+        QTRY_COMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QTest::qWait(300);
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QVERIFY(!answered);
+    }
+
     void invalidGrantSignsOut()
     {
         link();

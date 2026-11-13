@@ -370,10 +370,14 @@ void SyncApi::sendRefresh(const QString &refreshToken, int attempt, qint64 first
     r.auth = false;
     r.timeoutMs = kRefreshTimeoutMs;
     send(r, QString(), [this, refreshToken, attempt, firstSentAt](const SyncReply &reply) {
+        const quint64 gen = m_generation;
         if (reply.ok() && takeTokens(reply.json)) {
             m_refreshInFlight = false;
             finishRefresh(SyncError());
             return;
+        }
+        if (gen != m_generation) {
+            return; // reset() while the token was saved (a sign-out during the keyring's prompt)
         }
         SyncError error = reply.error;
         if (reply.ok()) { // a success without the tokens
