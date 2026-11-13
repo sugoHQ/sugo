@@ -75,6 +75,7 @@ private Q_SLOTS:
         store = FakeSecretStore();
         secrets = std::make_unique<SyncSecrets>(&store);
         api = std::make_unique<SyncApi>(secrets.get(), QUrl(server->base()));
+        api->setRefreshRetryDelaysMs({20, 50});
     }
     void cleanup()
     {
@@ -394,6 +395,95 @@ private Q_SLOTS:
         QCOMPARE(secrets->refreshToken(), token);
         server->offline = false;
         QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+    }
+
+    void lostRenewalAnswerIsRetriedWithinTheGrace()
+    {
+        link();
+        const QString first = secrets->refreshToken();
+        server->refreshGrace = true;
+        server->loseAnswers = 1; // the server takes the token, its answer never comes
+        QSignalSpy signedOut(api.get(), &SyncApi::signedOutRemotely);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 2);
+        QCOMPARE(signedOut.size(), 0);
+        // Only the pair given to the retry lives: the one whose answer was lost is revoked.
+        QVERIFY(secrets->refreshToken() != first);
+        QCOMPARE(server->refreshTokens.size(), 1);
+        QVERIFY(server->refreshTokens.contains(secrets->refreshToken()));
+        // And the chain goes on.
+        api->dropAccessToken();
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(signedOut.size(), 0);
+    }
+
+    void renewalServerErrorIsRetried()
+    {
+        link();
+        server->failNext("/v1/auth/token", 503);
+        server->failNext("/v1/auth/token", 0);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 3);
+    }
+
+    void renewalRetriesAreFew()
+    {
+        link();
+        server->offline = true;
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 3); // the first try and two retries
+    }
+
+    void renewalRetriesStayWithinTheGrace_data()
+    {
+        QTest::addColumn<qint64>("tryTakesMs");
+        QTest::addColumn<int>("tries");
+        QTest::newRow("quick") << qint64(1000) << 3;
+        QTest::newRow("second retry would start after 40 s") << qint64(20000) << 2;
+        QTest::newRow("first retry would start after 40 s") << qint64(40000) << 1;
+    }
+    void renewalRetriesStayWithinTheGrace()
+    {
+        // The server takes a spent token back only within a minute of its first use: no retry
+        // starts more than 40 s after the first try, however long the tries took.
+        QFETCH(qint64, tryTakesMs);
+        QFETCH(int, tries);
+        link();
+        qint64 clock = 0;
+        api->setNowProvider([&clock]() { return clock; });
+        server->offline = true;
+        server->onRequest = [&](const FakeSyncServer::Request &r) {
+            if (r.path == "/v1/auth/token") {
+                clock += tryTakesMs;
+            }
+        };
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), tries);
+    }
+
+    void renewalRateLimitIsNotRetried()
+    {
+        link();
+        server->failNext("/v1/auth/token", 429);
+        const SyncReply reply = wait([&](auto cb) { api->listDevices(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::RateLimited));
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+    }
+
+    void resetStopsTheRenewalRetries()
+    {
+        link();
+        api->setRefreshRetryDelaysMs({200, 200});
+        server->offline = true;
+        bool answered = false;
+        api->listDevices([&](const SyncReply &) { answered = true; });
+        QTRY_COMPARE(server->count("POST", "/v1/auth/token"), 1);
+        api->reset();
+        QTest::qWait(500);
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 1);
+        QVERIFY(!answered);
     }
 
     void noRefreshToken()
