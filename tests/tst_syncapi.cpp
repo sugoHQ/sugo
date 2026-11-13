@@ -417,6 +417,20 @@ private Q_SLOTS:
         QCOMPARE(signedOut.size(), 0);
     }
 
+    void unreadableRenewalAnswerIsRetriedWithinTheGrace()
+    {
+        link();
+        const QString first = secrets->refreshToken();
+        server->refreshGrace = true;
+        server->garbleAnswers = 1; // the server takes the token, its answer cannot be read
+        QSignalSpy signedOut(api.get(), &SyncApi::signedOutRemotely);
+        QVERIFY(wait([&](auto cb) { api->listDevices(cb); }).ok());
+        QCOMPARE(server->count("POST", "/v1/auth/token"), 2);
+        QCOMPARE(signedOut.size(), 0);
+        QVERIFY(secrets->refreshToken() != first);
+        QVERIFY(server->refreshTokens.contains(secrets->refreshToken()));
+    }
+
     void renewalServerErrorIsRetried()
     {
         link();
