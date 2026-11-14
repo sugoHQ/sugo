@@ -133,6 +133,7 @@ public:
         RateLimited,
         Server,             ///< The server failed, or the blob kept changing during an upload.
         LocalSaveFailed,    ///< Downloaded timers could not be stored here; downloaded again later.
+        KeyMismatch,        ///< The account's ready verifier is not this device's K: start over on sugo.stream.
     };
     Q_ENUM(ErrorKind)
 

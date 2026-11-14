@@ -63,6 +63,9 @@ bool SessionRecorder::store(const SessionRecord &record)
     if (!m_repository->insert(record, &id)) {
         return false;
     }
+    if (record.kind == SessionKind::Work && record.startedAtMs > 1) {
+        m_storedLate.insert(record.startedAtMs, id);
+    }
     // The phase that ended last, stored only now by a retry: a phase taken up again updates this row.
     if (record.startedAtMs == m_lastEndedStartMs && record.kind == m_lastEndedKind) {
         m_lastSessionId = id;
@@ -81,6 +84,43 @@ bool SessionRecorder::store(const SessionRecord &record)
         Q_EMIT workSessionRecorded(stored);
     }
     return true;
+}
+
+qint64 SessionRecorder::noteTargetId() const
+{
+    if (m_lastWorkSessionId > 0) {
+        return m_lastWorkSessionId;
+    }
+    if (m_lastWorkStartMs > 1) {
+        for (const SessionRecord &r : m_unsaved) {
+            if (r.id <= 0 && r.kind == SessionKind::Work && r.startedAtMs == m_lastWorkStartMs) {
+                return -m_lastWorkStartMs; // its start stands for it until it has a row
+            }
+        }
+    }
+    return -1;
+}
+
+qint64 SessionRecorder::rowFor(qint64 target) const
+{
+    if (!isUnsavedNoteTarget(target)) {
+        return target > 0 ? target : -1;
+    }
+    return m_storedLate.value(-target, -1);
+}
+
+bool SessionRecorder::setUnsavedNote(qint64 target, const QString &note)
+{
+    if (!isUnsavedNoteTarget(target)) {
+        return false;
+    }
+    for (SessionRecord &r : m_unsaved) {
+        if (r.id <= 0 && r.kind == SessionKind::Work && r.startedAtMs == -target) {
+            r.note = note;
+            return true;
+        }
+    }
+    return false;
 }
 
 void SessionRecorder::storeEnded(const SessionRecord &record, qint64 activeMs)
@@ -119,6 +159,8 @@ void SessionRecorder::forgetHistory()
     m_reopenedId = 0;
     m_reopenedUnsaved = false;
     m_lastEndedStartMs = -1;
+    m_lastWorkStartMs = -1;
+    m_storedLate.clear();
     m_retryTimer.stop();
     if (isSaveFailing()) {
         m_unsaved.clear();
@@ -140,6 +182,7 @@ void SessionRecorder::forgetSession(qint64 sessionId)
     if (m_reopenedId == sessionId) {
         m_reopenedId = 0;
     }
+    m_storedLate.removeIf([sessionId](const auto &it) { return it.value() == sessionId; });
     // A new end waiting for the deleted row would be refused forever.
     const bool wasFailing = isSaveFailing();
     m_unsaved.removeIf([sessionId](const SessionRecord &r) { return r.id == sessionId; });
@@ -176,6 +219,7 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     if (!completed && activeMs < kMinInterruptedMs) {
         if (isWork) {
             m_lastWorkSessionId = -1;
+            m_lastWorkStartMs = -1;
         }
         m_lastSessionId = -1;
         return;
@@ -191,6 +235,9 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
     record.presetUuid = m_active.uuid;
     record.presetName = m_active.name;
     record.category = m_active.category;
+    if (isWork) {
+        m_lastWorkStartMs = record.startedAtMs;
+    }
     if (reopenedId <= 0) {
         m_lastEndedStartMs = record.startedAtMs;
         m_lastEndedKind = record.kind;
@@ -223,7 +270,8 @@ void SessionRecorder::onSessionEnded(TimerEngine::Phase phase,
         return;
     }
     if (reopenedUnsaved && !m_unsaved.isEmpty() && m_unsaved.last().startedAtMs == record.startedAtMs) {
-        m_unsaved.last() = record; // not stored yet: it will be, with the new end
+        record.note = m_unsaved.last().note; // a note already written for it stays
+        m_unsaved.last() = record;           // not stored yet: it will be, with the new end
         return;
     }
 

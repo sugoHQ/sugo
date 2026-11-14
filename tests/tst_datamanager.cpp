@@ -425,6 +425,50 @@ private Q_SLOTS:
         QCOMPARE(manager->lastWorkSessionId(), -1);
     }
 
+    void noteForASessionWaitingToBeStoredReachesItsRow_data()
+    {
+        QTest::addColumn<bool>("storedBeforeTheNote");
+        QTest::newRow("note first, then the session is stored") << false;
+        QTest::newRow("the session is stored, then the note") << true;
+    }
+
+    void noteForASessionWaitingToBeStoredReachesItsRow()
+    {
+        QFETCH(bool, storedBeforeTheNote);
+        FakeClock clock;
+        TimerEngine engine(&clock, nullptr);
+        SessionRecorder recorder(&engine, presetModel.get(), sessions.get());
+        recorder.setRetryIntervalForTesting(30);
+        manager->setSessionRecorder(&recorder);
+        QSqlQuery query(QSqlDatabase::database(database->connectionName()));
+        QVERIFY(query.exec(QStringLiteral("CREATE TEMP TRIGGER refuse BEFORE INSERT ON session BEGIN SELECT RAISE(ABORT, 'disk full'); END")));
+
+        engine.start();
+        clock.advanceSeconds(60);
+        engine.refresh();
+        engine.stop();
+        QVERIFY(recorder.isSaveFailing());
+        // What the note prompt and the notification are given while the session waits.
+        const qint64 target = manager->lastWorkSessionId();
+        QVERIFY(SessionRecorder::isUnsavedNoteTarget(target));
+
+        if (storedBeforeTheNote) {
+            QVERIFY(query.exec(QStringLiteral("DROP TRIGGER refuse")));
+            QTRY_VERIFY(!recorder.isSaveFailing());
+        }
+        QVERIFY(manager->updateSessionNote(target, QStringLiteral("Wrote tests")));
+        if (!storedBeforeTheNote) {
+            QVERIFY(query.exec(QStringLiteral("DROP TRIGGER refuse")));
+            QTRY_VERIFY(!recorder.isSaveFailing());
+        }
+
+        const QList<SessionRecord> rows = sessions->between(0, std::numeric_limits<qint64>::max());
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().note, QStringLiteral("Wrote tests"));
+        QCOMPARE(manager->lastWorkSessionId(), rows.first().id);
+        manager->setSessionRecorder(nullptr);
+    }
+
     void noteForAMissingSessionChangesNothing()
     {
         SessionRecord record;

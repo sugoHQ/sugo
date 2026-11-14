@@ -602,10 +602,10 @@ int main(int argc, char *argv[])
     // Desktop notifications; where there is no notification server, messages from the tray icon.
     auto *notifications = createNotifier([tray]() { return tray->icon(); }, &services).release();
     auto *notifier = new PhaseNotifier(timer, presets, inhibitor.get(), notifications, settings, &services);
-    notifier->setLastWorkSessionIdProvider([recorder]() { return recorder->lastWorkSessionId(); });
+    notifier->setLastWorkSessionIdProvider([recorder]() { return recorder->noteTargetId(); });
     // Direct inline reply from the notification.
     QObject::connect(notifier, &PhaseNotifier::taskNoteSubmitted, dataManager, [dataManager](qint64 sessionId, const QString &note) {
-        if (sessionId > 0) {
+        if (SessionRecorder::isNoteTarget(sessionId)) {
             dataManager->updateSessionNote(sessionId, note);
         }
     });

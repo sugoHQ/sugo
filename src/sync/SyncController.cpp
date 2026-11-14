@@ -181,6 +181,18 @@ void SyncController::connectAccount()
         m_keyRejected = true;
         Q_EMIT message(i18n("The key that arrived did not come from the device with this code, so it was refused."));
     });
+    connect(a, &SyncAccount::readyVerifierMismatchChanged, this, [this](bool mismatch) {
+        updateErrorKind();
+        if (!mismatch) {
+            return;
+        }
+        if (m_account->phase() == SyncAccount::Phase::WaitingForKey) {
+            m_keyRejected = true; // waits again when the window comes back
+            Q_EMIT message(i18n("The key this device received is not the one your account checks, so it was not used."));
+        } else {
+            Q_EMIT message(errorText(KeyMismatch));
+        }
+    });
 
     connect(a, &SyncAccount::recoveryCodeCreated, this, [this](const QString &code) {
         m_recoveryToConfirm = code;
@@ -867,6 +879,10 @@ void SyncController::updateErrorKind()
     for (auto it = m_channels.cbegin(); kind == NoError && it != m_channels.cend(); ++it) {
         kind = (*it)->error;
     }
+    // Before any other: it lasts until the user starts over, while the others pass by themselves.
+    if (m_account->phase() == SyncAccount::Phase::Ready && m_account->readyVerifierMismatch()) {
+        kind = KeyMismatch;
+    }
     m_errorKind = kind;
     updateState();
 }
@@ -938,6 +954,9 @@ QString SyncController::statusText() const
         }
         return i18n("Enter this code on sugo.stream.");
     case WaitingForApproval:
+        if (m_account->readyVerifierMismatch()) {
+            return i18n("The key this device received is not the one your account checks, so it was not used. Check your devices on sugo.stream, or start over there.");
+        }
         if (verificationCode().isEmpty()) {
             return i18n("Waiting for another device to approve this one, or for the recovery code.");
         }
@@ -1017,6 +1036,8 @@ QString SyncController::errorText(ErrorKind kind, SyncKind dataKind)
         return i18n("Sugo could not save the synced timers on this device. Trying again later.");
     case SignedOutRemotely:
         return i18n("This device was disconnected. Sign in again.");
+    case KeyMismatch:
+        return i18n("Your devices disagree about the Sugo Sync key, so no new device can be added. Start over on sugo.stream.");
     case NoError:
         break;
     }

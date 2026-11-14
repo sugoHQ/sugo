@@ -20,11 +20,16 @@ const QLatin1String kGroup("Sync");
 const char kDeviceId[] = "DeviceId";
 const char kUserId[] = "UserId";
 const char kDeviceName[] = "DeviceName";
-/// The server knows this device holds K (recovery copy uploaded, or DELETE /v1/key done).
+/// The server knows this device holds K (recovery copy uploaded, proof accepted, or DELETE /v1/key done).
 const char kKeyConfirmed[] = "KeyConfirmed";
+/// The account's ready verifier is the one this device's K gives: not checked again. It changes only
+/// when the account starts over, which disconnects every device (and this group goes with it).
+const char kVerifierChecked[] = "ReadyVerifierChecked";
 /// updated_at of the recovery copy this device wrote last ("pending" while it writes one).
 const char kRecoveryUpdatedAt[] = "RecoveryUpdatedAt";
 const QLatin1String kPendingStamp("pending");
+/// The keyring kept a pending recovery code the server refused (its removal failed): never sent again.
+const char kRecoveryPendingDropped[] = "RecoveryPendingDropped";
 /// The name this computer last signed in with, kept after sign-out (outside the group `Sync`,
 /// which goes) so that signing in again offers it.
 const QLatin1String kLastDeviceName("SyncSignIn/DeviceName");
@@ -53,6 +58,28 @@ QDateTime parseTime(const QJsonValue &value)
 {
     return value.isString() ? QDateTime::fromString(value.toString(), Qt::ISODateWithMs) : QDateTime();
 }
+
+/// The `ready_verifier` of GET /v1/key/verifier: empty for null (the account has none), nullopt
+/// for an answer that is not one.
+std::optional<QByteArray> readVerifier(const QJsonObject &json)
+{
+    const QJsonValue value = json.value(QLatin1String("ready_verifier"));
+    if (value.isNull()) {
+        return QByteArray();
+    }
+    const QByteArray verifier = QByteArray::fromBase64(value.toString().toLatin1());
+    if (!value.isString() || verifier.size() != SyncCrypto::ReadyVerifierBytes) {
+        return std::nullopt;
+    }
+    return verifier;
+}
+
+SyncError formatError()
+{
+    SyncError e;
+    e.kind = SyncError::Kind::Format;
+    return e;
+}
 } // namespace
 
 SyncAccount::SyncAccount(SyncApi *api, SyncSecrets *secrets, Settings::Ptr settings, QObject *parent)
@@ -70,6 +97,8 @@ SyncAccount::SyncAccount(SyncApi *api, SyncSecrets *secrets, Settings::Ptr setti
     connect(&m_keyTimer, &QTimer::timeout, this, [this]() { runKeyStep(m_keyStep); });
     m_recoveryTimer.setSingleShot(true);
     connect(&m_recoveryTimer, &QTimer::timeout, this, &SyncAccount::sendRecovery);
+    m_verifierTimer.setSingleShot(true);
+    connect(&m_verifierTimer, &QTimer::timeout, this, &SyncAccount::checkReadyVerifier);
     connect(m_api, &SyncApi::signedOutRemotely, this, &SyncAccount::onSignedOutRemotely);
 }
 
@@ -417,7 +446,9 @@ void SyncAccount::runKeyStep(KeyStep step)
     case KeyStep::List:
         m_keyListTaken.start();
         m_api->listDevices([this](const SyncReply &reply) {
-            if (m_phase != Phase::WaitingForKey) {
+            // An answer that comes after another step began (the recovery code opened K) is late:
+            // that step goes on, and this one must not plan a wait of its own beside it.
+            if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::List) {
                 return;
             }
             if (!takeDevices(reply)) {
@@ -511,8 +542,8 @@ void SyncAccount::createDataKeyUnlessRecovery()
     // recovery copy (its devices signed out or were disconnected), K exists and only the recovery code
     // opens it: the server would refuse a new one, and a new one would not open the synced timers.
     m_api->getRecovery([this](const SyncReply &reply) {
-        if (m_phase != Phase::WaitingForKey) {
-            return;
+        if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::List) {
+            return; // late, as in runKeyStep(List)
         }
         if (reply.error.kind == SyncError::Kind::NotFound) {
             createDataKey();
@@ -547,7 +578,8 @@ void SyncAccount::uploadRecovery()
 {
     const SyncSecrets::Values &values = m_secrets->values();
     const QByteArray sealed = SyncCrypto::sealWithRecovery(values.dataKey, values.recoveryCode);
-    m_api->putRecovery(sealed, [this](const SyncReply &reply) {
+    // The first device sets the account's ready verifier with K itself: no proof is asked of it.
+    m_api->putRecovery(sealed, SyncCrypto::readyVerifier(values.dataKey), [this](const SyncReply &reply) {
         if (m_phase != Phase::WaitingForKey) {
             return;
         }
@@ -577,8 +609,8 @@ void SyncAccount::pollKey()
 {
     m_keyStep = KeyStep::PollKey;
     m_api->getKey([this](const SyncReply &reply) {
-        if (m_phase != Phase::WaitingForKey) {
-            return;
+        if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::PollKey) {
+            return; // late, as in runKeyStep(List)
         }
         if (reply.ok()) {
             receiveKey(reply.json);
@@ -677,11 +709,51 @@ void SyncAccount::rejectKey()
 
 void SyncAccount::confirmKey()
 {
+    // A wait planned before (a poll whose answer came late) would start a second confirmation beside
+    // this one, and two proofs spend each other's nonces: each step of the confirmation stops it.
+    m_keyTimer.stop();
+    m_keyStep = KeyStep::ConfirmKey;
+    m_proofAttempts = 0;
+    // The account's verifier says how this device becomes ready (by a proof, or with DELETE /v1/key
+    // when it has none), and whether the K it holds is the account's at all.
+    m_api->getReadyVerifier([this](const SyncReply &reply) {
+        if (m_phase != Phase::WaitingForKey) {
+            return;
+        }
+        if (reply.error.kind == SyncError::Kind::NotFound) {
+            confirmKeyWithoutProof(); // a server from before the verifier
+            return;
+        }
+        if (!reply.ok()) {
+            retryKeyStep(KeyStep::ConfirmKey, reply.error);
+            return;
+        }
+        const std::optional<QByteArray> verifier = readVerifier(reply.json);
+        if (!verifier) {
+            retryKeyStep(KeyStep::ConfirmKey, formatError());
+            return;
+        }
+        if (verifier->isEmpty()) {
+            confirmKeyWithoutProof();
+            return;
+        }
+        if (*verifier != SyncCrypto::readyVerifier(dataKey())) {
+            dropMismatchedKey();
+            return;
+        }
+        proveKey();
+    });
+}
+
+void SyncAccount::confirmKeyWithoutProof()
+{
+    m_keyTimer.stop();
     m_keyStep = KeyStep::ConfirmKey;
     m_api->confirmKey([this](const SyncReply &reply) {
         if (m_phase != Phase::WaitingForKey) {
             return;
         }
+        // proof_required: the account got a verifier since it was read; the retry reads it again.
         if (!reply.ok()) {
             retryKeyStep(KeyStep::ConfirmKey, reply.error);
             return;
@@ -690,6 +762,64 @@ void SyncAccount::confirmKey()
         Settings::sync(*m_settings);
         becomeReady();
     });
+}
+
+void SyncAccount::proveKey()
+{
+    m_keyTimer.stop();
+    m_keyStep = KeyStep::ConfirmKey;
+    m_api->getReadyChallenge([this](const SyncReply &challenge) {
+        if (m_phase != Phase::WaitingForKey) {
+            return;
+        }
+        if (!challenge.ok()) {
+            retryKeyStep(KeyStep::ConfirmKey, challenge.error);
+            return;
+        }
+        const QByteArray nonce = QByteArray::fromBase64(challenge.json.value(QLatin1String("nonce")).toString().toLatin1());
+        const QByteArray signature = SyncCrypto::signReady(dataKey(), nonce, deviceId(), userId());
+        if (signature.isEmpty()) {
+            retryKeyStep(KeyStep::ConfirmKey, formatError()); // not a nonce this version can sign
+            return;
+        }
+        m_api->proveKey(nonce, signature, [this](const SyncReply &reply) {
+            if (m_phase != Phase::WaitingForKey) {
+                return;
+            }
+            if (reply.ok()) {
+                writeSetting(kKeyConfirmed, true);
+                Settings::sync(*m_settings);
+                becomeReady();
+                return;
+            }
+            if (reply.error.kind == SyncError::Kind::NoVerifier) {
+                confirmKeyWithoutProof(); // the account has none after all (started over meanwhile)
+                return;
+            }
+            // The verifier matched this K, so a refused proof is a nonce spent or replaced under it
+            // (a lost answer, another challenge): one fresh nonce at once, then the usual wait.
+            if (reply.error.kind == SyncError::Kind::InvalidProof && ++m_proofAttempts < 2) {
+                proveKey();
+                return;
+            }
+            retryKeyStep(KeyStep::ConfirmKey, reply.error);
+        });
+    });
+}
+
+void SyncAccount::dropMismatchedKey()
+{
+    // The K this device got (from a device it approved, or with the recovery code) is not the one
+    // the account's verifier was made from: the account's devices disagree about the key. It is
+    // not used, and polling stops until waitForKey(), as for a key refused on arrival.
+    m_keyTimer.stop();
+    setVerifierMismatch(true);
+    if (!m_secrets->update([](SyncSecrets::Values &v) { v.dataKey = SecretBytes(); })) {
+        // Still in the keyring: never used (this device cannot become ready with it), and removed
+        // again later, the verifier read once more meanwhile.
+        Q_EMIT keyringWriteFailed();
+        scheduleKeyStep(KeyStep::ConfirmKey, kRetrySeconds);
+    }
 }
 
 void SyncAccount::becomeReady()
@@ -702,6 +832,78 @@ void SyncAccount::becomeReady()
     }
     setPhase(Phase::Ready);
     Q_EMIT keyReady();
+    resumePendingRecovery();
+    m_verifierRetries = 0;
+    checkReadyVerifier();
+}
+
+void SyncAccount::checkReadyVerifier()
+{
+    m_verifierTimer.stop();
+    const QByteArray mine = SyncCrypto::readyVerifier(dataKey());
+    if (m_phase != Phase::Ready || mine.isEmpty() || m_settings->value(key(kVerifierChecked)).toBool()) {
+        return;
+    }
+    const auto matched = [this]() {
+        m_verifierRetries = 0;
+        writeSetting(kVerifierChecked, true);
+        Settings::sync(*m_settings);
+        setVerifierMismatch(false);
+    };
+    // Without a certain answer, asked again later: 30 s, then twice as long each time, up to an hour.
+    const auto again = [this](const SyncError &error) {
+        const int seconds = std::max(kRetrySeconds << std::min(m_verifierRetries, 7), error.retryAfter);
+        ++m_verifierRetries;
+        m_verifierTimer.start(std::clamp(seconds, 1, kMaxWaitSeconds) * m_unitMs);
+    };
+    m_api->getReadyVerifier([this, mine, again, matched](const SyncReply &reply) {
+        if (m_phase != Phase::Ready || reply.error.kind == SyncError::Kind::NotFound) {
+            return; // NotFound: a server from before the verifier
+        }
+        if (!reply.ok()) {
+            again(reply.error);
+            return;
+        }
+        const std::optional<QByteArray> verifier = readVerifier(reply.json);
+        if (!verifier) {
+            again(formatError());
+            return;
+        }
+        if (*verifier == mine) {
+            matched();
+            return;
+        }
+        if (!verifier->isEmpty()) {
+            m_verifierRetries = 0;
+            setVerifierMismatch(true); // never replaced: only starting over does; asked again at each start
+            return;
+        }
+        // An account from before the verifier: this device holds K, so it sets it (trust on first use).
+        m_api->putReadyVerifier(mine, [this, again, matched](const SyncReply &put) {
+            if (m_phase != Phase::Ready || put.error.kind == SyncError::Kind::NotFound) {
+                return;
+            }
+            if (put.ok()) {
+                matched();
+                return;
+            }
+            if (put.error.kind == SyncError::Kind::VerifierExists) {
+                m_verifierRetries = 0;
+                setVerifierMismatch(true); // another one was set first
+                return;
+            }
+            again(put.error);
+        });
+    });
+}
+
+void SyncAccount::setVerifierMismatch(bool mismatch)
+{
+    if (m_verifierMismatch == mismatch) {
+        return;
+    }
+    m_verifierMismatch = mismatch;
+    Q_EMIT readyVerifierMismatchChanged(mismatch);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -925,6 +1127,21 @@ void SyncAccount::regenerateRecoveryCode()
     auto pending = std::make_shared<PendingRecovery>();
     pending->code = SyncCrypto::newRecoveryCode();
     pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    // In the keyring before it is sent: a quit before the answer would lose a code the server may
+    // hold. If the keyring refuses, it is kept in memory only, as before — unless it still holds
+    // an older pending code: sending this one would let the next start send that older code again
+    // (resumePendingRecovery()) and make this one stop working.
+    const bool olderKept = !m_secrets->values().pendingRecoveryCode.isEmpty();
+    const SecretBytes kept = pending->code.copy();
+    if (!m_secrets->update([&](SyncSecrets::Values &v) { v.pendingRecoveryCode = kept.copy(); })) {
+        if (olderKept) {
+            m_regenerating = false;
+            Q_EMIT keyringWriteFailed();
+            return;
+        }
+    } else {
+        m_settings->remove(key(kRecoveryPendingDropped)); // this one is new: it may be sent again
+    }
     // Until the new code is stored, the code in the keyring may not be the server's.
     pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
     writeSetting(kRecoveryUpdatedAt, kPendingStamp);
@@ -934,13 +1151,55 @@ void SyncAccount::regenerateRecoveryCode()
     sendRecovery();
 }
 
+void SyncAccount::resumePendingRecovery()
+{
+    if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
+        return;
+    }
+    const SecretBytes &code = m_secrets->values().pendingRecoveryCode;
+    if (code.isEmpty()) {
+        return;
+    }
+    if (m_settings->value(key(kRecoveryPendingDropped)).toBool()) {
+        // Refused by the server before: only its removal from the keyring is left to do.
+        dropPendingRecovery();
+        return;
+    }
+    // An earlier run created this code and quit before a certain answer: the server may hold its
+    // copy, so the same code goes again (sealed anew: any copy opens with it).
+    m_regenerating = true;
+    auto pending = std::make_shared<PendingRecovery>();
+    pending->code = code.copy();
+    pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
+    pending->previousStamp = m_settings->value(key(kRecoveryUpdatedAt));
+    pending->mayHaveArrived = true;
+    writeSetting(kRecoveryUpdatedAt, kPendingStamp);
+    Settings::sync(*m_settings);
+    setRecoveryShowable(false);
+    m_pendingRecovery = pending;
+    sendRecovery();
+}
+
+void SyncAccount::dropPendingRecovery()
+{
+    const bool removed = m_secrets->update([](SyncSecrets::Values &v) { v.pendingRecoveryCode = SecretBytes(); });
+    // A refused removal is remembered outside the keyring, so the next start does not send it.
+    if (removed) {
+        m_settings->remove(key(kRecoveryPendingDropped));
+    } else {
+        writeSetting(kRecoveryPendingDropped, true);
+    }
+    Settings::sync(*m_settings);
+}
+
 void SyncAccount::sendRecovery()
 {
     const std::shared_ptr<PendingRecovery> pending = m_pendingRecovery;
     if (!pending || m_phase != Phase::Ready || m_signingOut) {
         return;
     }
-    m_api->putRecovery(pending->sealed, [this, pending](const SyncReply &reply) {
+    // No verifier: the server ignores it for a ready device (checkReadyVerifier() sets it).
+    m_api->putRecovery(pending->sealed, QByteArray(), [this, pending](const SyncReply &reply) {
         if (m_phase != Phase::Ready || pending != m_pendingRecovery) {
             return;
         }
@@ -963,6 +1222,7 @@ void SyncAccount::sendRecovery()
         m_pendingRecovery.reset();
         m_regenerating = false;
         if (!reply.ok()) {
+            dropPendingRecovery();
             if (!pending->mayHaveArrived) {
                 writeSetting(kRecoveryUpdatedAt, pending->previousStamp); // the server kept the old copy
                 Settings::sync(*m_settings);
@@ -972,7 +1232,10 @@ void SyncAccount::sendRecovery()
             return;
         }
         const QString text = SyncCrypto::formatRecoveryCode(pending->code);
-        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) { v.recoveryCode = std::move(pending->code); });
+        const bool saved = m_secrets->update([&](SyncSecrets::Values &v) {
+            v.recoveryCode = std::move(pending->code);
+            v.pendingRecoveryCode = SecretBytes();
+        });
         if (!saved) {
             Q_EMIT keyringWriteFailed();
         }
@@ -1070,6 +1333,10 @@ void SyncAccount::signOutLocally()
     m_recoveryTimer.stop();
     m_pendingRecovery.reset();
     m_checkingPending = false;
+    m_verifierTimer.stop();
+    m_verifierRetries = 0;
+    m_proofAttempts = 0;
+    setVerifierMismatch(false);
     setRecoveryShowable(false);
     clearSignInCode();
     m_keyTimer.stop();

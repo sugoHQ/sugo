@@ -15,6 +15,7 @@ const QLatin1String kRefreshToken("refreshToken");
 const QLatin1String kDeviceKey("deviceKey");
 const QLatin1String kDataKey("dataKey");
 const QLatin1String kRecoveryCode("recoveryCode");
+const QLatin1String kPendingRecoveryCode("pendingRecoveryCode");
 
 void wipe(QByteArray &bytes)
 {
@@ -49,6 +50,7 @@ SyncSecrets::Values SyncSecrets::Values::copy() const
     v.deviceKey = deviceKey.copy();
     v.dataKey = dataKey.copy();
     v.recoveryCode = recoveryCode.copy();
+    v.pendingRecoveryCode = pendingRecoveryCode.copy();
     return v;
 }
 
@@ -158,6 +160,9 @@ QByteArray SyncSecrets::toJson(const Values &values)
     if (!values.recoveryCode.isEmpty()) {
         object.insert(kRecoveryCode, SyncCrypto::formatRecoveryCode(values.recoveryCode));
     }
+    if (!values.pendingRecoveryCode.isEmpty()) {
+        object.insert(kPendingRecoveryCode, SyncCrypto::formatRecoveryCode(values.pendingRecoveryCode));
+    }
     return QJsonDocument(object).toJson(QJsonDocument::Compact);
 }
 
@@ -197,6 +202,13 @@ std::optional<SyncSecrets::Values> SyncSecrets::fromJson(const QByteArray &json,
             return fail(LoadResult::Unreadable);
         }
         values.recoveryCode = std::move(*parsed);
+    }
+    // Only a convenience: an unreadable pending code is dropped, never the keys with it.
+    const QJsonValue pendingCode = object.value(kPendingRecoveryCode);
+    if (pendingCode.isString()) {
+        if (std::optional<SecretBytes> parsed = SyncCrypto::parseRecoveryCode(pendingCode.toString())) {
+            values.pendingRecoveryCode = std::move(*parsed);
+        }
     }
     if (result) {
         *result = LoadResult::Loaded;

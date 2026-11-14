@@ -129,8 +129,10 @@ Uguale su Linux e macOS, nessuno schema URL da registrare, funziona anche su un 
      `crypto_box_seal`, il server potrebbe consegnare una sua `K'` e poi leggere i preset caricati dal nuovo
      dispositivo.)
   2. *Codice di recupero*, se nessun altro dispositivo è acceso o collegato.
-- In entrambi i casi il nuovo dispositivo, avuta `K`, conferma con `DELETE /v1/key` e smette di essere
-  "in attesa" (`pending`). `GET /v1/key` da solo non cancella la chiave sigillata.
+- In entrambi i casi il nuovo dispositivo, avuta `K`, smette di essere "in attesa" (`pending`): su un
+  account con verificatore dimostrando di avere `K` (`POST /v1/key/challenge`, poi `POST /v1/key/ready`
+  con la firma del nonce), altrimenti con `DELETE /v1/key`. `GET /v1/key` da solo non cancella la chiave
+  sigillata. Vedi "Sicurezza", punto 2.
 - Chi perde tutti i dispositivi **e** il codice di recupero perde i dati sincronizzati (non quelli locali).
   Va detto chiaramente nell'interfaccia e sul sito.
 
@@ -207,7 +209,9 @@ JSON in chiaro:
 | `DELETE /v1/devices/{id}` | token o sessione Clerk | Scollega: cancella il dispositivo e i suoi token. |
 | `PUT /v1/devices/{id}/key` | token | Deposita `K` cifrata (`crypto_box`) per un dispositivo in attesa. |
 | `GET /v1/key` | token | Il dispositivo nuovo ritira la sua `K` cifrata, con `from_device_id` e `from_public_key`. |
-| `DELETE /v1/key` | token | Il dispositivo conferma di avere `K` e smette di essere in attesa. |
+| `DELETE /v1/key` | token | Il dispositivo conferma di avere `K` e smette di essere in attesa; solo su un account senza verificatore, altrimenti `403 proof_required`. |
+| `GET`/`PUT /v1/key/verifier` | token | Il verificatore `V` dell'account (`null` se non c'è); `PUT` solo da un dispositivo pronto e solo se è vuoto. |
+| `POST /v1/key/challenge`, `POST /v1/key/ready` | token | Nonce di 32 byte (5 minuti, usa e getta) e prova firmata con la chiave derivata da `K`: il dispositivo diventa pronto. |
 | `GET`/`PUT /v1/recovery` | token | `K` cifrata col codice di recupero (`PUT` solo dal primo dispositivo o dopo rigenerazione). |
 | `GET`/`PUT /v1/blob/presets` | token | Blob con ETag e header `Sugo-Pending-Devices`. `PUT` con `If-Match` → `204`, o `If-None-Match: *` la prima volta → `201`; `412` con l'ETag attuale, `428` senza precondizione, `413` sopra 256 KB, `400 invalid_blob` se non inizia con `"SUGO"`. |
 | `DELETE /v1/account` | sessione Clerk | Cancella utente, dispositivi e blob, e anche l'utente Clerk (dal Worker, con la secret key). |
@@ -298,7 +302,8 @@ Totale: circa **3–4 settimane** per una persona.
 
 ## Sicurezza: da fare
 
-Tre lavori rinviati dalla revisione di novembre 2026 (sugo#218 e #220, sugo-sync#51–#53). Ognuno
+Tre lavori rinviati dalla revisione di novembre 2026 (sugo#218 e #220, sugo-sync#51–#53); il secondo è
+fatto (sugo-sync#57 e questo client). Ognuno
 cambia il protocollo o lo storage. Va fatto con una PR per repository e una migrazione compatibile con
 la versione in produzione: si aggiunge prima, si toglie in un rilascio successivo.
 
@@ -326,25 +331,28 @@ la versione in produzione: si aggiunge prima, si toglie in un rilascio successiv
   usa sempre lo schema nuovo, e dalla versione che lo introduce non accetta più l'altro: va scelta una
   versione minima, dopo la quale i client vecchi vanno aggiornati per approvare.
 
-### 2. "Pronto" dimostrato con un verificatore derivato da `K`
+### 2. "Pronto" dimostrato con un verificatore derivato da `K` (fatto)
 
-- **Oggi.** Qualsiasi dispositivo collegato diventa pronto con `DELETE /v1/key` se l'account ha una
-  copia di recupero, cioè quasi sempre. Da pronto può scollegare gli altri dispositivi, sovrascrivere
-  blob e copia di recupero e inviare box. Non può leggere nulla, ma può fare danni: oggi è solo un
-  paletto contro errori del client (`docs/api.md`).
-- **Proposta.** Una chiave di firma Ed25519 derivata da `K` (seme = BLAKE2b(`K`, "SugoReadyKey")). Il
-  server conserva solo la chiave pubblica `V` (`user.ready_verifier`). Per diventare pronto il
-  dispositivo:
-  1. chiede un nonce;
-  2. chiama `DELETE /v1/key` con la firma di `nonce ‖ device_id ‖ user_id`.
-
-  `key_ready_at`, che abilita le azioni da pronto, si ottiene allora solo con `K`. `V` cambia insieme
-  a `K` ("Start over").
-- **Migrazione.** La colonna parte vuota. Il primo dispositivo la scrive insieme alla copia di
-  recupero, e i dispositivi già pronti la caricano al primo avvio, solo se è vuota. Questa prima
-  scrittura si accetta sulla fiducia (trust on first use). Finché `V` è vuota, `DELETE /v1/key` senza
-  firma resta valido.
-- **Limite.** Non protegge da un dispositivo che ha davvero `K`.
+- **Prima.** Qualsiasi dispositivo collegato diventava pronto con `DELETE /v1/key` se l'account aveva
+  una copia di recupero, cioè quasi sempre. Chi faceva collegare un proprio dispositivo (un codice di
+  accesso carpito) poteva così scollegare gli altri, sostituire la copia di recupero e sovrascrivere i
+  blob: i dati sul server diventavano illeggibili per tutti.
+- **Ora.** Una chiave di firma Ed25519 derivata da `K` (seme = BLAKE2b(`K`, personal "SugoReadyKey"),
+  `SyncCrypto::readyVerifier()`/`signReady()`). Il server conserva solo la chiave pubblica `V`. Un
+  dispositivo in attesa che ha aperto `K` legge `V` (`GET /v1/key/verifier`): se manca usa
+  `DELETE /v1/key` come prima; se è la sua chiede un nonce e firma `"sugo-ready-v1" 0 ‖ nonce ‖
+  device_id 0 ‖ user_id` (`POST /v1/key/ready`); se è diversa, la `K` ricevuta non è dell'account e
+  viene scartata. Il formato esatto è in `docs/api.md` di sugo-sync, "Proof of holding the key".
+- **Migrazione.** `V` parte vuota. Il primo dispositivo la manda insieme alla copia di recupero
+  (`ready_verifier` in `PUT /v1/recovery`); un dispositivo pronto di un account che non l'ha la imposta
+  al primo avvio (`PUT /v1/key/verifier`, trust on first use) e poi non la controlla più
+  (`Sync/ReadyVerifierChecked`). Se ne trova una diversa dalla sua non la sostituisce: lo stato del sync
+  dice "Check your devices" finché l'utente non fa "Start over" sul sito, e il sync dei dati continua.
+  Con un server senza questi endpoint (`404`) il client si comporta come prima.
+- **Limiti.** Non protegge da un dispositivo che ha davvero `K` (per esempio con il codice di
+  recupero). Un dispositivo diventato pronto prima del verificatore resta pronto, e su un account vecchio
+  può impostare per primo una `V` sua: i dispositivi veri lo segnalano, ma da lì nessun nuovo
+  dispositivo diventa pronto senza "Start over".
 
 ### 3. Blob di un'epoca vecchia rimasti in R2
 

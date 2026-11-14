@@ -41,9 +41,16 @@ public:
         SecretBytes deviceKey;    ///< X25519 private key (32 bytes); its public key is derived.
         SecretBytes dataKey;      ///< K (32 bytes); empty while waiting for it.
         SecretBytes recoveryCode; ///< The 16 raw bytes; empty if this device did not create it.
+        /// A new recovery code on its way to the server (SyncAccount::regenerateRecoveryCode()): kept
+        /// so that a restart sends it again instead of losing it. Older versions ignore it.
+        SecretBytes pendingRecoveryCode;
 
         Values copy() const;
-        bool isEmpty() const { return refreshToken.isEmpty() && deviceKey.isEmpty() && dataKey.isEmpty() && recoveryCode.isEmpty(); }
+        bool isEmpty() const
+        {
+            return refreshToken.isEmpty() && deviceKey.isEmpty() && dataKey.isEmpty() && recoveryCode.isEmpty()
+                && pendingRecoveryCode.isEmpty();
+        }
     };
 
     enum class LoadResult {

@@ -2,6 +2,9 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -77,6 +80,14 @@ class SyncAccountTest : public QObject
         QVERIFY(!code.isEmpty());
         QVERIFY(server->approve(code, kUser).startsWith(QLatin1String("dev_")));
         QTRY_COMPARE_WITH_TIMEOUT(c.account->phase(), phase, 5000);
+    }
+
+    /// Restarts `c` on the same keyring and settings, as at the next launch.
+    void restart(Client &c)
+    {
+        c.build(*server);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
     }
 
     /// A is the first device (Ready, with the recovery code), B waits for the key.
@@ -412,10 +423,12 @@ private Q_SLOTS:
         QVERIFY(b.account->dataKey() == a.account->dataKey());
         QVERIFY(b.account->verificationCode().isEmpty());
 
-        // K was in B's keyring before the server heard of it.
+        // K was in B's keyring before the server heard of it; A's account has a verifier (A sent it
+        // with the recovery copy), so B proved holding K instead of declaring it.
         const auto keyWrites = b.store.accesses(SyncSecrets::itemKey(), FakeSecretStore::Access::Write);
-        const auto confirm = server->of("DELETE", "/v1/key");
+        const auto confirm = server->of("POST", "/v1/key/ready");
         QCOMPARE(confirm.size(), 1);
+        QCOMPARE(server->count("DELETE", "/v1/key"), 0);
         QVERIFY(QJsonDocument::fromJson(keyWrites.last().value.toUtf8()).object().contains(QLatin1String("dataKey")));
         QVERIFY(keyWrites.last().sequence < confirm.first().sequence);
         QVERIFY(!b.item().contains(QLatin1String("recoveryCode")));
@@ -792,7 +805,7 @@ private Q_SLOTS:
         QVERIFY(ready.wait(5000));
         QVERIFY(b.account->dataKey() == a.account->dataKey());
         const auto keyWrites = b.store.accesses(SyncSecrets::itemKey(), FakeSecretStore::Access::Write);
-        const auto confirm = server->of("DELETE", "/v1/key");
+        const auto confirm = server->of("POST", "/v1/key/ready");
         QCOMPARE(confirm.size(), 1);
         QVERIFY(keyWrites.last().sequence < confirm.first().sequence);
         // B did not create the code: it does not keep it.
@@ -850,10 +863,10 @@ private Q_SLOTS:
         Client b(*server);
         QString code;
         twoDevices(a, b, &code);
-        server->failNext("/v1/key", 500, "DELETE"); // the confirmation fails, a retry is planned
+        server->failNext("/v1/key/ready", 500, "POST"); // the confirmation fails, a retry is planned
         b.account->useRecoveryCode(code);
         QTRY_VERIFY(b.item().contains(QLatin1String("dataKey")));
-        QTRY_COMPARE(server->count("DELETE", "/v1/key"), 1);
+        QTRY_COMPARE(server->count("POST", "/v1/key/ready"), 1);
 
         b.build(*server); // restarted before the retry
         QVERIFY(server->device(b.account->deviceId()) && !server->device(b.account->deviceId())->ready);
@@ -862,6 +875,254 @@ private Q_SLOTS:
         QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
         QVERIFY(server->device(b.account->deviceId())->ready);
         QVERIFY(b.account->dataKey() == a.account->dataKey());
+    }
+
+    // --- Ready verifier (docs/api.md of sugo-sync, "Proof of holding the key") ---------------------
+
+    void firstDeviceSetsTheVerifierWithTheRecoveryCopy()
+    {
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        const QByteArray verifier = SyncCrypto::readyVerifier(a.account->dataKey());
+        QCOMPARE(verifier.size(), SyncCrypto::ReadyVerifierBytes);
+        const auto puts = server->of("PUT", "/v1/recovery");
+        QCOMPARE(puts.size(), 1);
+        QCOMPARE(QByteArray::fromBase64(puts.first().json().value(QLatin1String("ready_verifier")).toString().toLatin1()), verifier);
+        QCOMPARE(server->accounts.value(kUser).readyVerifier, verifier);
+        // Checked once, then never asked again: it changes only when the account starts over.
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        QCOMPARE(server->count("PUT", "/v1/key/verifier"), 0);
+        restart(a);
+        QTest::qWait(50);
+        QCOMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        QVERIFY(!a.account->readyVerifierMismatch());
+    }
+
+    void readyDeviceSetsTheVerifierOfAnOlderAccount()
+    {
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        // An account from before the verifier, and a device that has not checked it yet.
+        server->accounts[kUser].readyVerifier.clear();
+        a.settings->remove(QStringLiteral("Sync/ReadyVerifierChecked"));
+        restart(a);
+        QTRY_COMPARE(server->count("PUT", "/v1/key/verifier"), 1);
+        QTRY_COMPARE(server->accounts.value(kUser).readyVerifier, SyncCrypto::readyVerifier(a.account->dataKey()));
+        QVERIFY(!a.account->readyVerifierMismatch());
+    }
+
+    void pendingDeviceOfAnOlderAccountConfirmsWithoutProof()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        server->accounts[kUser].readyVerifier.clear(); // no verifier yet (A has not set it again)
+        a.settings->setValue(QStringLiteral("Sync/ReadyVerifierChecked"), true);
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        QCOMPARE(server->count("DELETE", "/v1/key"), 1);
+        QCOMPARE(server->count("POST", "/v1/key/ready"), 0);
+        // Ready, B sets the verifier itself.
+        QTRY_COMPARE(server->accounts.value(kUser).readyVerifier, SyncCrypto::readyVerifier(a.account->dataKey()));
+    }
+
+    void deviceLinkedWithoutTheKeyCannotDeclareItselfReady()
+    {
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        // Someone linked a device of their own to the account (a phished sign-in code).
+        QString intruder;
+        server->addLinkedDevice(kUser, SyncCrypto::generateKeyPair().publicKey, false, &intruder, QStringLiteral("A"));
+        const QString access = QStringLiteral("at_intruder");
+        server->accessTokens.insert(access, intruder);
+        QNetworkAccessManager nam;
+        QNetworkRequest request(QUrl(server->base() + QStringLiteral("/v1/key")));
+        request.setRawHeader("Authorization", "Bearer " + access.toLatin1());
+        QNetworkReply *reply = nam.sendCustomRequest(request, "DELETE");
+        QSignalSpy finished(reply, &QNetworkReply::finished);
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 403);
+        QVERIFY(reply->readAll().contains("proof_required"));
+        reply->deleteLater();
+        QVERIFY(!server->device(intruder)->ready);
+    }
+
+    void keyThatIsNotTheAccountsIsDropped()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        // The account's verifier was made from another K than the one the recovery copy holds.
+        server->accounts[kUser].readyVerifier = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        QSignalSpy mismatch(b.account.get(), &SyncAccount::readyVerifierMismatchChanged);
+        b.account->useRecoveryCode(code);
+        QVERIFY(mismatch.wait(5000));
+        QCOMPARE(mismatch.first().first().toBool(), true);
+        QVERIFY(b.account->readyVerifierMismatch());
+        QCOMPARE(b.account->phase(), SyncAccount::Phase::WaitingForKey);
+        QVERIFY(!b.item().contains(QLatin1String("dataKey")));
+        QCOMPARE(server->count("DELETE", "/v1/key"), 0);
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 0);
+        QVERIFY(!server->device(b.account->deviceId())->ready);
+        b.account->signOutLocally();
+        QVERIFY(!b.account->readyVerifierMismatch());
+    }
+
+    void keyThatIsNotTheAccountsIsDroppedOnceTheKeyringTakesIt()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        server->accounts[kUser].readyVerifier = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        QSignalSpy failed(b.account.get(), &SyncAccount::keyringWriteFailed);
+        // The keyring takes K from the recovery code, then refuses to drop it.
+        int writes = 0;
+        server->onRequest = [&](const FakeSyncServer::Request &r) {
+            if (r.method == "GET" && r.path == "/v1/key/verifier" && ++writes == 1) {
+                *b.store.failWrites = true;
+            }
+        };
+        b.account->useRecoveryCode(code);
+        QVERIFY(failed.wait(5000));
+        QVERIFY(b.account->readyVerifierMismatch());
+        QVERIFY(b.item().contains(QLatin1String("dataKey")));
+        // Tried again: the verifier is read once more, and K goes once the keyring takes the write.
+        *b.store.failWrites = false;
+        QTRY_VERIFY(!b.item().contains(QLatin1String("dataKey")));
+        QVERIFY(server->count("GET", "/v1/key/verifier") >= 2);
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 0);
+        QVERIFY(!server->device(b.account->deviceId())->ready);
+        server->onRequest = nullptr;
+    }
+
+    void readyDeviceReportsAVerifierThatIsNotItsOwn()
+    {
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        // A device that became ready before the verifier finds another one set (an intruder set it first).
+        const QByteArray theirs = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        server->accounts[kUser].readyVerifier = theirs;
+        a.settings->remove(QStringLiteral("Sync/ReadyVerifierChecked"));
+        restart(a);
+        QTRY_VERIFY(a.account->readyVerifierMismatch());
+        QCOMPARE(a.account->phase(), SyncAccount::Phase::Ready); // it keeps syncing
+        QCOMPARE(server->count("PUT", "/v1/key/verifier"), 0);
+        QCOMPARE(server->accounts.value(kUser).readyVerifier, theirs); // never replaced
+        // Asked again at the next start: the warning stays.
+        restart(a);
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 3);
+        QTRY_VERIFY(a.account->readyVerifierMismatch());
+    }
+
+    void verifierSetFirstByAnotherDeviceIsReported()
+    {
+        Client a(*server);
+        signIn(a, SyncAccount::Phase::Ready, QStringLiteral("A"));
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        server->accounts[kUser].readyVerifier.clear();
+        a.settings->remove(QStringLiteral("Sync/ReadyVerifierChecked"));
+        // Between A's read and A's write, another device sets a verifier of its own.
+        const QByteArray theirs = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        server->onRequest = [this, theirs](const FakeSyncServer::Request &r) {
+            if (r.method == "PUT" && r.path == "/v1/key/verifier") {
+                server->accounts[kUser].readyVerifier = theirs;
+            }
+        };
+        restart(a);
+        QTRY_VERIFY(a.account->readyVerifierMismatch());
+        QCOMPARE(server->accounts.value(kUser).readyVerifier, theirs);
+        QVERIFY(!a.settings->value(QStringLiteral("Sync/ReadyVerifierChecked")).toBool());
+    }
+
+    void spentNonceIsReplacedOnce()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        // The first nonce is replaced under B (another challenge, a lost answer).
+        bool replaced = false;
+        server->onRequest = [this, &replaced](const FakeSyncServer::Request &r) {
+            if (!replaced && r.method == "POST" && r.path == "/v1/key/ready") {
+                replaced = true;
+                for (auto it = server->nonces.begin(); it != server->nonces.end(); ++it) {
+                    it.value().fill(char(0x5a));
+                }
+            }
+        };
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 2);
+        QCOMPARE(server->count("POST", "/v1/key/ready"), 2);
+        QVERIFY(!b.account->readyVerifierMismatch());
+        server->onRequest = nullptr;
+    }
+
+    void proofIsBoundToTheDeviceAndAccount()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        const auto proofs = server->of("POST", "/v1/key/ready");
+        QCOMPARE(proofs.size(), 1);
+        const QByteArray nonce = QByteArray::fromBase64(proofs.first().json().value(QLatin1String("nonce")).toString().toLatin1());
+        const QByteArray signature = QByteArray::fromBase64(proofs.first().json().value(QLatin1String("signature")).toString().toLatin1());
+        QCOMPARE(signature, SyncCrypto::signReady(a.account->dataKey(), nonce, b.account->deviceId(), kUser));
+    }
+
+    void aPollAnsweredLateStartsNoSecondConfirmation()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        // B's poll for a box is on its way when the recovery code opens K, and its answer (none
+        // yet) comes back only after the confirmation began. Then the proof starts while the next
+        // poll is planned, and the proof is slow: the planned poll must not start a second
+        // confirmation beside it (two proofs spend each other's nonces).
+        QByteArray holding = "GET /v1/key";
+        server->holdIf = [&](const FakeSyncServer::Request &r) { return holding == r.method + ' ' + r.path; };
+        QTRY_COMPARE(server->held(), 1);
+        holding = "GET /v1/key/verifier";
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(server->held(), 2);
+        holding = "POST /v1/key/challenge";
+        server->release(); // the poll's 404 first, then the verifier
+        QTRY_COMPARE(server->held(), 1);
+        QTest::qWait(kUnitMs * 20); // longer than the wait before the next poll
+        holding.clear();
+        server->release();
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        QTest::qWait(kUnitMs * 20);
+        server->holdIf = nullptr;
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 1);
+        QCOMPARE(server->count("POST", "/v1/key/ready"), 1);
+    }
+
+    void olderServerStillConfirmsWithoutProof()
+    {
+        server->oldServer = true;
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        QVERIFY(server->accounts.value(kUser).readyVerifier.isEmpty());
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        QCOMPARE(server->count("DELETE", "/v1/key"), 1);
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 0);
+        QTest::qWait(50);
+        QCOMPARE(server->count("PUT", "/v1/key/verifier"), 0);
+        QVERIFY(!a.account->readyVerifierMismatch());
+        QVERIFY(!b.account->readyVerifierMismatch());
     }
 
     void signOutWithNetwork()
@@ -999,6 +1260,84 @@ private Q_SLOTS:
         c.account->retryKeyringWipe();
         QVERIFY(!c.account->keyringWipePending());
         QVERIFY(!c.store.secrets->contains(SyncSecrets::itemKey()));
+    }
+
+    void quitBeforeTheRegenerationAnswerSendsTheSameCodeAtTheNextStart()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QString oldCode = c.account->recoveryCode();
+        QSignalSpy retrying(c.account.get(), &SyncAccount::recoveryCodeRetrying);
+        // The server stores the copy, its answer is lost, and Sugo quits before the next try.
+        server->loseAnswers = 0;
+        int puts = 0;
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery" && ++puts == 1) {
+                server->loseAnswers = 1;
+            }
+        };
+        c.account->regenerateRecoveryCode();
+        QVERIFY(retrying.wait(5000));
+        server->onRequest = nullptr; // it holds this function's locals
+        const QString kept = c.item().value(QLatin1String("pendingRecoveryCode")).toString();
+        QVERIFY(!kept.isEmpty());
+        QVERIFY(kept != oldCode);
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(kept)));
+
+        c.build(*server);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QVERIFY(created.wait(5000));
+        QCOMPARE(created.first().first().toString(), kept);
+        QCOMPARE(c.item().value(QLatin1String("recoveryCode")).toString(), kept);
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(kept)));
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QCOMPARE(c.account->recoveryCode(), kept);
+    }
+
+    void refusedRegenerationForgetsTheKeptCode()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        server->device(c.account->deviceId())->ready = false; // key_exists: refused for good
+        c.account->regenerateRecoveryCode();
+        QVERIFY(failed.wait(5000));
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        server->device(c.account->deviceId())->ready = true;
+    }
+
+    void refusedCodeTheKeyringKeepsIsNeverSentAgain()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+        const QByteArray copy = server->accounts.value(kUser).recovery;
+        QSignalSpy failed(c.account.get(), &SyncAccount::recoveryCodeFailed);
+        server->device(c.account->deviceId())->ready = false; // key_exists: refused for good
+        c.account->regenerateRecoveryCode(); // the pending code is in the keyring now
+        *c.store.failWrites = true;          // and its removal is refused
+        QVERIFY(failed.wait(5000));
+        QVERIFY(c.item().contains(QLatin1String("pendingRecoveryCode")));
+        server->device(c.account->deviceId())->ready = true;
+
+        // The next start removes it instead of sending it.
+        *c.store.failWrites = false;
+        const int puts = server->count("PUT", "/v1/recovery");
+        c.build(*server);
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QTRY_COMPARE(c.account->phase(), SyncAccount::Phase::Ready);
+        QTRY_VERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(created.size(), 0);
+        QCOMPARE(server->accounts.value(kUser).recovery, copy);
     }
 
     void lostRegenerationAnswerSendsTheSameCodeAgain()
@@ -1172,6 +1511,54 @@ private Q_SLOTS:
         c.account->refreshRecoveryStatus();
         QTest::qWait(100);
         QVERIFY(!c.account->recoveryCodeShowable()); // the keyring holds the old code
+    }
+
+    void aNewCodeIsNotSentWhileAnOlderPendingOneCannotBeReplaced()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+
+        // A reaches the server, but the keyring refuses the write that would make it the saved
+        // code: A stays pending, and the keyring keeps the old recovery code.
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy keyringFailed(c.account.get(), &SyncAccount::keyringWriteFailed);
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery") {
+                *c.store.failWrites = true;
+            }
+        };
+        c.account->regenerateRecoveryCode();
+        QVERIFY(created.wait(5000));
+        QCOMPARE(keyringFailed.size(), 1);
+        const QString pendingCode = created.first().first().toString();
+        QCOMPARE(c.item().value(QLatin1String("pendingRecoveryCode")).toString(), pendingCode);
+        server->onRequest = nullptr; // it holds this function's locals
+
+        // The keyring still refuses writes. Sending a second code would keep the older pending one
+        // in the keyring; the next start would send that one again and the new code would stop
+        // working. So no new code goes out until the keyring can replace A.
+        const int puts = server->count("PUT", "/v1/recovery");
+        QSignalSpy createdAgain(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy failedAgain(c.account.get(), &SyncAccount::keyringWriteFailed);
+        c.account->regenerateRecoveryCode();
+        QCOMPARE(failedAgain.size(), 1);
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(createdAgain.size(), 0);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(c.item().value(QLatin1String("pendingRecoveryCode")).toString(), pendingCode);
+
+        // The keyring works again: the next start sends A, which the server already holds, and the
+        // code shown is the one that works.
+        *c.store.failWrites = false;
+        c.build(*server);
+        QSignalSpy restarted(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QVERIFY(restarted.wait(5000));
+        QCOMPARE(restarted.first().first().toString(), pendingCode);
+        QCOMPARE(c.item().value(QLatin1String("recoveryCode")).toString(), pendingCode);
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
     }
 };
 

@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <functional>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QTimer>
@@ -45,6 +46,18 @@ public:
     /// (too short, or the insert failed) or no Work phase has ended yet. Breaks leave it as is,
     /// so a note typed during the following break still lands on the right session.
     qint64 lastWorkSessionId() const { return m_lastWorkSessionId; }
+
+    /// Where a note for the most recently ended Work phase goes: its row id once stored; while it
+    /// waits to be stored (the database refused it), an id below -1 that stands for it
+    /// (isUnsavedNoteTarget()); -1 if there is none.
+    qint64 noteTargetId() const;
+    static bool isUnsavedNoteTarget(qint64 id) { return id < -1; }
+    static bool isNoteTarget(qint64 id) { return id > 0 || isUnsavedNoteTarget(id); }
+    /// The row id of `target` (noteTargetId()) now, stored meanwhile or not: > 0 for a row, -1 if
+    /// the session still waits to be stored (setUnsavedNote() then keeps the note with it) or is gone.
+    qint64 rowFor(qint64 target) const;
+    /// Keeps `note` with the waiting session `target` (isUnsavedNoteTarget()); it is stored with it.
+    bool setUnsavedNote(qint64 target, const QString &note);
 
     /// Called when the stored history is replaced (cleared or restored). Forgets that id, so a
     /// later note cannot land on an unrelated row that happens to reuse the id, and drops the
@@ -115,5 +128,8 @@ private:
     TimerPreset m_lastEndedTimer; ///< m_active of that phase: a phase taken up again keeps its name and category.
     /// Ended sessions the database refused, oldest first; one with an id is a new end of that row.
     QList<SessionRecord> m_unsaved;
+    qint64 m_lastWorkStartMs = -1; ///< Start of the Work phase that ended last, if it is to be recorded.
+    /// Work sessions a retry stored late, by start: a note asked for while they waited finds its row.
+    QHash<qint64, qint64> m_storedLate;
     QTimer m_retryTimer;
 };

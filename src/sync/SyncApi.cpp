@@ -94,6 +94,10 @@ SyncError::Kind SyncError::kindForCode(const QString &code, int http)
         {QStringLiteral("not_ready"), Kind::NotReady},
         {QStringLiteral("already_ready"), Kind::AlreadyReady},
         {QStringLiteral("key_exists"), Kind::KeyExists},
+        {QStringLiteral("proof_required"), Kind::ProofRequired},
+        {QStringLiteral("invalid_proof"), Kind::InvalidProof},
+        {QStringLiteral("no_verifier"), Kind::NoVerifier},
+        {QStringLiteral("verifier_exists"), Kind::VerifierExists},
         {QStringLiteral("server"), Kind::Server},
     };
     const auto it = kinds.constFind(code);
@@ -285,10 +289,52 @@ void SyncApi::getRecovery(Callback done)
     call(r, std::move(done));
 }
 
-void SyncApi::putRecovery(const QByteArray &sealed, Callback done)
+void SyncApi::getReadyVerifier(Callback done)
+{
+    Request r;
+    r.verb = "GET";
+    r.path = QStringLiteral("/v1/key/verifier");
+    call(r, std::move(done));
+}
+
+void SyncApi::putReadyVerifier(const QByteArray &verifier, Callback done)
+{
+    QJsonObject body;
+    body.insert(QLatin1String("ready_verifier"), QString::fromLatin1(verifier.toBase64()));
+    Request r;
+    r.verb = "PUT";
+    r.path = QStringLiteral("/v1/key/verifier");
+    r.body = jsonBody(body);
+    call(r, std::move(done));
+}
+
+void SyncApi::getReadyChallenge(Callback done)
+{
+    Request r;
+    r.verb = "POST";
+    r.path = QStringLiteral("/v1/key/challenge");
+    call(r, std::move(done));
+}
+
+void SyncApi::proveKey(const QByteArray &nonce, const QByteArray &signature, Callback done)
+{
+    QJsonObject body;
+    body.insert(QLatin1String("nonce"), QString::fromLatin1(nonce.toBase64()));
+    body.insert(QLatin1String("signature"), QString::fromLatin1(signature.toBase64()));
+    Request r;
+    r.verb = "POST";
+    r.path = QStringLiteral("/v1/key/ready");
+    r.body = jsonBody(body);
+    call(r, std::move(done));
+}
+
+void SyncApi::putRecovery(const QByteArray &sealed, const QByteArray &readyVerifier, Callback done)
 {
     QJsonObject body;
     body.insert(QLatin1String("recovery"), QString::fromLatin1(sealed.toBase64()));
+    if (!readyVerifier.isEmpty()) {
+        body.insert(QLatin1String("ready_verifier"), QString::fromLatin1(readyVerifier.toBase64()));
+    }
     Request r;
     r.verb = "PUT";
     r.path = QStringLiteral("/v1/recovery");

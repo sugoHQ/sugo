@@ -2179,9 +2179,11 @@ QQC2.Page {
                     objectName: "syncStatusText"
                     Layout.fillWidth: true
                     Layout.maximumWidth: implicitWidth
-                    labels: [i18n("Syncing"), i18n("Offline"), i18n("Not synced"), i18n("Up to date")]
+                    labels: [i18n("Syncing"), i18n("Offline"), i18n("Not synced"), i18n("Check your devices"), i18n("Up to date")]
                     text: page.syncSyncing ? i18n("Syncing")
-                        : page.syncError ? (page.syncErrorKind === SyncController.Network ? i18n("Offline") : i18n("Not synced"))
+                        : page.syncError ? (page.syncErrorKind === SyncController.Network ? i18n("Offline")
+                                            : page.syncErrorKind === SyncController.KeyMismatch ? i18n("Check your devices")
+                                            : i18n("Not synced"))
                         : i18n("Up to date")
                     iconName: page.syncSyncing ? "refresh" : page.syncError ? "warning" : "check"
                     iconColor: page.syncError ? (page.syncErrorKind === SyncController.Network || page.syncErrorKind === SyncController.RateLimited
