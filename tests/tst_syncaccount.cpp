@@ -1512,6 +1512,54 @@ private Q_SLOTS:
         QTest::qWait(100);
         QVERIFY(!c.account->recoveryCodeShowable()); // the keyring holds the old code
     }
+
+    void aNewCodeIsNotSentWhileAnOlderPendingOneCannotBeReplaced()
+    {
+        Client c(*server);
+        signIn(c, SyncAccount::Phase::Ready);
+        QTRY_VERIFY(c.account->recoveryCodeShowable());
+
+        // A reaches the server, but the keyring refuses the write that would make it the saved
+        // code: A stays pending, and the keyring keeps the old recovery code.
+        QSignalSpy created(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy keyringFailed(c.account.get(), &SyncAccount::keyringWriteFailed);
+        server->onRequest = [&](const FakeSyncServer::Request &req) {
+            if (req.method == "PUT" && req.path == "/v1/recovery") {
+                *c.store.failWrites = true;
+            }
+        };
+        c.account->regenerateRecoveryCode();
+        QVERIFY(created.wait(5000));
+        QCOMPARE(keyringFailed.size(), 1);
+        const QString pendingCode = created.first().first().toString();
+        QCOMPARE(c.item().value(QLatin1String("pendingRecoveryCode")).toString(), pendingCode);
+        server->onRequest = nullptr; // it holds this function's locals
+
+        // The keyring still refuses writes. Sending a second code would keep the older pending one
+        // in the keyring; the next start would send that one again and the new code would stop
+        // working. So no new code goes out until the keyring can replace A.
+        const int puts = server->count("PUT", "/v1/recovery");
+        QSignalSpy createdAgain(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QSignalSpy failedAgain(c.account.get(), &SyncAccount::keyringWriteFailed);
+        c.account->regenerateRecoveryCode();
+        QCOMPARE(failedAgain.size(), 1);
+        QTest::qWait(30 * kUnitMs);
+        QCOMPARE(createdAgain.size(), 0);
+        QCOMPARE(server->count("PUT", "/v1/recovery"), puts);
+        QCOMPARE(c.item().value(QLatin1String("pendingRecoveryCode")).toString(), pendingCode);
+
+        // The keyring works again: the next start sends A, which the server already holds, and the
+        // code shown is the one that works.
+        *c.store.failWrites = false;
+        c.build(*server);
+        QSignalSpy restarted(c.account.get(), &SyncAccount::recoveryCodeCreated);
+        QCOMPARE(int(c.secrets->load()), int(SyncSecrets::LoadResult::Loaded));
+        QVERIFY(c.account->restore());
+        QVERIFY(restarted.wait(5000));
+        QCOMPARE(restarted.first().first().toString(), pendingCode);
+        QCOMPARE(c.item().value(QLatin1String("recoveryCode")).toString(), pendingCode);
+        QVERIFY(!c.item().contains(QLatin1String("pendingRecoveryCode")));
+    }
 };
 
 QTEST_GUILESS_MAIN(SyncAccountTest)

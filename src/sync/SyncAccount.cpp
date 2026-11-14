@@ -1128,9 +1128,18 @@ void SyncAccount::regenerateRecoveryCode()
     pending->code = SyncCrypto::newRecoveryCode();
     pending->sealed = SyncCrypto::sealWithRecovery(dataKey(), pending->code);
     // In the keyring before it is sent: a quit before the answer would lose a code the server may
-    // hold. If the keyring refuses, it is kept in memory only, as before.
+    // hold. If the keyring refuses, it is kept in memory only, as before — unless it still holds
+    // an older pending code: sending this one would let the next start send that older code again
+    // (resumePendingRecovery()) and make this one stop working.
+    const bool olderKept = !m_secrets->values().pendingRecoveryCode.isEmpty();
     const SecretBytes kept = pending->code.copy();
-    if (m_secrets->update([&](SyncSecrets::Values &v) { v.pendingRecoveryCode = kept.copy(); })) {
+    if (!m_secrets->update([&](SyncSecrets::Values &v) { v.pendingRecoveryCode = kept.copy(); })) {
+        if (olderKept) {
+            m_regenerating = false;
+            Q_EMIT keyringWriteFailed();
+            return;
+        }
+    } else {
         m_settings->remove(key(kRecoveryPendingDropped)); // this one is new: it may be sent again
     }
     // Until the new code is stored, the code in the keyring may not be the server's.
