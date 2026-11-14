@@ -446,7 +446,9 @@ void SyncAccount::runKeyStep(KeyStep step)
     case KeyStep::List:
         m_keyListTaken.start();
         m_api->listDevices([this](const SyncReply &reply) {
-            if (m_phase != Phase::WaitingForKey) {
+            // An answer that comes after another step began (the recovery code opened K) is late:
+            // that step goes on, and this one must not plan a wait of its own beside it.
+            if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::List) {
                 return;
             }
             if (!takeDevices(reply)) {
@@ -540,8 +542,8 @@ void SyncAccount::createDataKeyUnlessRecovery()
     // recovery copy (its devices signed out or were disconnected), K exists and only the recovery code
     // opens it: the server would refuse a new one, and a new one would not open the synced timers.
     m_api->getRecovery([this](const SyncReply &reply) {
-        if (m_phase != Phase::WaitingForKey) {
-            return;
+        if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::List) {
+            return; // late, as in runKeyStep(List)
         }
         if (reply.error.kind == SyncError::Kind::NotFound) {
             createDataKey();
@@ -607,8 +609,8 @@ void SyncAccount::pollKey()
 {
     m_keyStep = KeyStep::PollKey;
     m_api->getKey([this](const SyncReply &reply) {
-        if (m_phase != Phase::WaitingForKey) {
-            return;
+        if (m_phase != Phase::WaitingForKey || m_keyStep != KeyStep::PollKey) {
+            return; // late, as in runKeyStep(List)
         }
         if (reply.ok()) {
             receiveKey(reply.json);
@@ -707,6 +709,9 @@ void SyncAccount::rejectKey()
 
 void SyncAccount::confirmKey()
 {
+    // A wait planned before (a poll whose answer came late) would start a second confirmation beside
+    // this one, and two proofs spend each other's nonces: each step of the confirmation stops it.
+    m_keyTimer.stop();
     m_keyStep = KeyStep::ConfirmKey;
     m_proofAttempts = 0;
     // The account's verifier says how this device becomes ready (by a proof, or with DELETE /v1/key
@@ -742,6 +747,7 @@ void SyncAccount::confirmKey()
 
 void SyncAccount::confirmKeyWithoutProof()
 {
+    m_keyTimer.stop();
     m_keyStep = KeyStep::ConfirmKey;
     m_api->confirmKey([this](const SyncReply &reply) {
         if (m_phase != Phase::WaitingForKey) {
@@ -760,6 +766,7 @@ void SyncAccount::confirmKeyWithoutProof()
 
 void SyncAccount::proveKey()
 {
+    m_keyTimer.stop();
     m_keyStep = KeyStep::ConfirmKey;
     m_api->getReadyChallenge([this](const SyncReply &challenge) {
         if (m_phase != Phase::WaitingForKey) {

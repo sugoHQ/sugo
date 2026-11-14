@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimeZone>
@@ -148,6 +149,19 @@ public:
         failures.append(Failure{pathPrefix, status, method});
     }
     std::function<void(const Request &)> onRequest; ///< Called before each request is answered.
+    /// A request it returns true for is carried out and answered only at release() (a slow answer).
+    std::function<bool(const Request &)> holdIf;
+    /// Answers the held requests, in the order they came.
+    void release()
+    {
+        const auto held = std::exchange(m_held, {});
+        for (const auto &h : held) {
+            if (h.first) {
+                respond(h.first, h.second);
+            }
+        }
+    }
+    int held() const { return int(m_held.size()); }
     /// Changes GET /v1/key's answer before it goes out (a compromised server).
     std::function<void(QJsonObject &)> keyFilter;
 
@@ -346,6 +360,8 @@ private:
             }
             if (failure > 0) {
                 fail(s, failure);
+            } else if (holdIf && holdIf(req)) {
+                m_held.append({QPointer<QTcpSocket>(s), req});
             } else if (loseAnswers > 0) {
                 --loseAnswers;
                 m_muted = true;
@@ -859,4 +875,5 @@ private:
     int m_counter = 0;
     int m_clockTicks = 0;
     bool m_muted = false; ///< The answer being written is lost.
+    QList<QPair<QPointer<QTcpSocket>, Request>> m_held;
 };

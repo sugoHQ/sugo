@@ -1050,6 +1050,35 @@ private Q_SLOTS:
         QCOMPARE(signature, SyncCrypto::signReady(a.account->dataKey(), nonce, b.account->deviceId(), kUser));
     }
 
+    void aPollAnsweredLateStartsNoSecondConfirmation()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        // B's poll for a box is on its way when the recovery code opens K, and its answer (none
+        // yet) comes back only after the confirmation began. Then the proof starts while the next
+        // poll is planned, and the proof is slow: the planned poll must not start a second
+        // confirmation beside it (two proofs spend each other's nonces).
+        QByteArray holding = "GET /v1/key";
+        server->holdIf = [&](const FakeSyncServer::Request &r) { return holding == r.method + ' ' + r.path; };
+        QTRY_COMPARE(server->held(), 1);
+        holding = "GET /v1/key/verifier";
+        b.account->useRecoveryCode(code);
+        QTRY_COMPARE(server->held(), 2);
+        holding = "POST /v1/key/challenge";
+        server->release(); // the poll's 404 first, then the verifier
+        QTRY_COMPARE(server->held(), 1);
+        QTest::qWait(kUnitMs * 20); // longer than the wait before the next poll
+        holding.clear();
+        server->release();
+        QTRY_COMPARE(b.account->phase(), SyncAccount::Phase::Ready);
+        QTest::qWait(kUnitMs * 20);
+        server->holdIf = nullptr;
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 1);
+        QCOMPARE(server->count("POST", "/v1/key/ready"), 1);
+    }
+
     void olderServerStillConfirmsWithoutProof()
     {
         server->oldServer = true;
