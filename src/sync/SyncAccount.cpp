@@ -813,8 +813,13 @@ void SyncAccount::dropMismatchedKey()
     // the account's verifier was made from: the account's devices disagree about the key. It is
     // not used, and polling stops until waitForKey(), as for a key refused on arrival.
     m_keyTimer.stop();
-    m_secrets->update([](SyncSecrets::Values &v) { v.dataKey = SecretBytes(); });
     setVerifierMismatch(true);
+    if (!m_secrets->update([](SyncSecrets::Values &v) { v.dataKey = SecretBytes(); })) {
+        // Still in the keyring: never used (this device cannot become ready with it), and removed
+        // again later, the verifier read once more meanwhile.
+        Q_EMIT keyringWriteFailed();
+        scheduleKeyStep(KeyStep::ConfirmKey, kRetrySeconds);
+    }
 }
 
 void SyncAccount::becomeReady()

@@ -971,6 +971,34 @@ private Q_SLOTS:
         QVERIFY(!b.account->readyVerifierMismatch());
     }
 
+    void keyThatIsNotTheAccountsIsDroppedOnceTheKeyringTakesIt()
+    {
+        Client a(*server);
+        Client b(*server);
+        QString code;
+        twoDevices(a, b, &code);
+        server->accounts[kUser].readyVerifier = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        QSignalSpy failed(b.account.get(), &SyncAccount::keyringWriteFailed);
+        // The keyring takes K from the recovery code, then refuses to drop it.
+        int writes = 0;
+        server->onRequest = [&](const FakeSyncServer::Request &r) {
+            if (r.method == "GET" && r.path == "/v1/key/verifier" && ++writes == 1) {
+                *b.store.failWrites = true;
+            }
+        };
+        b.account->useRecoveryCode(code);
+        QVERIFY(failed.wait(5000));
+        QVERIFY(b.account->readyVerifierMismatch());
+        QVERIFY(b.item().contains(QLatin1String("dataKey")));
+        // Tried again: the verifier is read once more, and K goes once the keyring takes the write.
+        *b.store.failWrites = false;
+        QTRY_VERIFY(!b.item().contains(QLatin1String("dataKey")));
+        QVERIFY(server->count("GET", "/v1/key/verifier") >= 2);
+        QCOMPARE(server->count("POST", "/v1/key/challenge"), 0);
+        QVERIFY(!server->device(b.account->deviceId())->ready);
+        server->onRequest = nullptr;
+    }
+
     void readyDeviceReportsAVerifierThatIsNotItsOwn()
     {
         Client a(*server);
