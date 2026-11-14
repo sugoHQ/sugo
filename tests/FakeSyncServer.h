@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimeZone>
@@ -16,13 +17,16 @@
 #include <functional>
 #include <limits>
 
+#include <sodium.h>
+
 #include "FakeSecretStore.h" // nextFakeEventSequence()
 
 /**
  * The Sugo Sync API (docs/api.md of sugo-sync) in memory, over a local QTcpServer: sign-in
  * codes, rotating refresh tokens (a reused one blocks the device), devices, boxed keys, the
- * recovery copy and one blob per kind with ETags, the kinds' size limits and Plus. The site's part
- * (approving a code) is approve().
+ * recovery copy, the ready verifier with its challenges and proofs (checked with libsodium, against
+ * the message as docs/api.md spells it), and one blob per kind with ETags, the kinds' size limits
+ * and Plus. The site's part (approving a code) is approve().
  *
  * Every request is logged with nextFakeEventSequence(), so a test can order it against the
  * keyring accesses of FakeSecretStore. Failures can be programmed per path.
@@ -83,6 +87,7 @@ public:
         QString recoveryUpdatedBy;
         QHash<QByteArray, Blob> blobs; ///< By kind ("presets", ...).
         bool plus = false;             ///< The Plus kinds answer 403 plus_required without it.
+        QByteArray readyVerifier;      ///< Raw, 32 bytes; empty: none (an account from before it).
     };
 
     /// A failure answered instead of the real thing, once, to the next request whose path
@@ -130,6 +135,9 @@ public:
     /// a new pair and revokes that successor (docs/api.md, "Lost refresh response"). Off, any
     /// spent token is theft.
     bool refreshGrace = false;
+    /// A Worker from before the ready verifier: /v1/key/verifier, /challenge and /ready answer 404,
+    /// PUT /v1/recovery ignores `ready_verifier` and DELETE /v1/key always makes a device ready.
+    bool oldServer = false;
     /// The blob kinds and their limits; a kind missing here is unknown, 404 to GET and PUT, as
     /// on a Worker older than the kind.
     QHash<QByteArray, int> blobKinds = {
@@ -141,6 +149,19 @@ public:
         failures.append(Failure{pathPrefix, status, method});
     }
     std::function<void(const Request &)> onRequest; ///< Called before each request is answered.
+    /// A request it returns true for is carried out and answered only at release() (a slow answer).
+    std::function<bool(const Request &)> holdIf;
+    /// Answers the held requests, in the order they came.
+    void release()
+    {
+        const auto held = std::exchange(m_held, {});
+        for (const auto &h : held) {
+            if (h.first) {
+                respond(h.first, h.second);
+            }
+        }
+    }
+    int held() const { return int(m_held.size()); }
     /// Changes GET /v1/key's answer before it goes out (a compromised server).
     std::function<void(QJsonObject &)> keyFilter;
 
@@ -154,6 +175,7 @@ public:
     QHash<QString, QString> accessTokens;      ///< Token → device id.
     QHash<QString, Box> boxes;           ///< By receiving device id.
     QHash<QString, Account> accounts;    ///< By user id.
+    QHash<QString, QByteArray> nonces;   ///< The current challenge of each device, by device id.
 
     // --- Helpers ------------------------------------------------------------------------------------
     int count(const QByteArray &method, const QByteArray &path) const
@@ -338,6 +360,8 @@ private:
             }
             if (failure > 0) {
                 fail(s, failure);
+            } else if (holdIf && holdIf(req)) {
+                m_held.append({QPointer<QTcpSocket>(s), req});
             } else if (loseAnswers > 0) {
                 --loseAnswers;
                 m_muted = true;
@@ -648,11 +672,87 @@ private:
                 return;
             }
             if (req.method == "DELETE") {
+                if (!me->ready && !oldServer && !account.readyVerifier.isEmpty()) {
+                    error(s, 403, "proof_required");
+                    return;
+                }
                 me->ready = true;
                 boxes.remove(caller);
                 reply(s, 204);
                 return;
             }
+        }
+        if (path.startsWith("/v1/key/") && oldServer) {
+            error(s, 404, "not_found");
+            return;
+        }
+        if (path == "/v1/key/verifier") {
+            if (req.method == "GET") {
+                QJsonObject json;
+                json.insert(QStringLiteral("ready_verifier"), account.readyVerifier.isEmpty()
+                                                                  ? QJsonValue(QJsonValue::Null)
+                                                                  : QJsonValue(QString::fromLatin1(account.readyVerifier.toBase64())));
+                replyJson(s, 200, json);
+                return;
+            }
+            if (req.method == "PUT") {
+                if (!me->ready) {
+                    error(s, 403, "not_ready");
+                    return;
+                }
+                const QByteArray verifier = QByteArray::fromBase64(body.value(QStringLiteral("ready_verifier")).toString().toLatin1());
+                if (verifier.size() != 32) {
+                    error(s, 400, "invalid_request");
+                    return;
+                }
+                if (account.readyVerifier.isEmpty()) {
+                    account.readyVerifier = verifier; // set once, on trust
+                } else if (account.readyVerifier != verifier) {
+                    error(s, 409, "verifier_exists");
+                    return;
+                }
+                reply(s, 204);
+                return;
+            }
+        }
+        if (req.method == "POST" && path == "/v1/key/challenge") {
+            QByteArray nonce(32, Qt::Uninitialized);
+            randombytes_buf(nonce.data(), size_t(nonce.size()));
+            nonces.insert(caller, nonce); // replaces the device's previous one
+            QJsonObject json;
+            json.insert(QStringLiteral("nonce"), QString::fromLatin1(nonce.toBase64()));
+            json.insert(QStringLiteral("expires_in"), 300);
+            replyJson(s, 200, json);
+            return;
+        }
+        if (req.method == "POST" && path == "/v1/key/ready") {
+            if (account.readyVerifier.isEmpty()) {
+                error(s, 409, "no_verifier");
+                return;
+            }
+            const QByteArray nonce = QByteArray::fromBase64(body.value(QStringLiteral("nonce")).toString().toLatin1());
+            const QByteArray signature = QByteArray::fromBase64(body.value(QStringLiteral("signature")).toString().toLatin1());
+            if (nonce.size() != 32 || signature.size() != 64) {
+                error(s, 400, "invalid_request");
+                return;
+            }
+            const bool current = nonces.value(caller) == nonce;
+            nonces.remove(caller); // used up, whether the proof holds or not
+            // docs/api.md: "sugo-ready-v1" NUL | nonce | device id NUL | user id.
+            QByteArray message("sugo-ready-v1");
+            message.append('\0').append(nonce).append(caller.toUtf8()).append('\0').append(userId.toUtf8());
+            if (!current
+                || crypto_sign_verify_detached(reinterpret_cast<const unsigned char *>(signature.constData()),
+                                               reinterpret_cast<const unsigned char *>(message.constData()), size_t(message.size()),
+                                               reinterpret_cast<const unsigned char *>(account.readyVerifier.constData()))
+                       != 0) {
+                error(s, 403, "invalid_proof");
+                return;
+            }
+            me->ready = true;
+            boxes.remove(caller);
+            reply(s, 204);
+            return;
         }
         if (path == "/v1/recovery") {
             if (req.method == "GET") {
@@ -678,9 +778,14 @@ private:
                     return;
                 }
                 const QByteArray sealed = QByteArray::fromBase64(body.value(QStringLiteral("recovery")).toString().toLatin1());
-                if (sealed.size() < 32 || sealed.size() > 512) {
+                const bool withVerifier = !oldServer && body.contains(QStringLiteral("ready_verifier"));
+                const QByteArray verifier = QByteArray::fromBase64(body.value(QStringLiteral("ready_verifier")).toString().toLatin1());
+                if (sealed.size() < 32 || sealed.size() > 512 || (withVerifier && verifier.size() != 32)) {
                     error(s, 400, "invalid_request");
                     return;
+                }
+                if (!me->ready && !oldServer) {
+                    account.readyVerifier = withVerifier ? verifier : QByteArray(); // the first device: K's verifier, or none
                 }
                 me->ready = true;
                 account.recovery = sealed;
@@ -770,4 +875,5 @@ private:
     int m_counter = 0;
     int m_clockTicks = 0;
     bool m_muted = false; ///< The answer being written is lost.
+    QList<QPair<QPointer<QTcpSocket>, Request>> m_held;
 };
