@@ -140,4 +140,24 @@ std::optional<SecretBytes> parseRecoveryCode(const QString &text);
 /// K encrypted with a key derived from the recovery code: version | nonce | ciphertext and tag.
 QByteArray sealWithRecovery(const SecretBytes &dataKey, const SecretBytes &recoveryCode);
 std::optional<SecretBytes> openWithRecovery(const QByteArray &sealed, const SecretBytes &recoveryCode);
+
+// --- Proof of holding the key ------------------------------------------------------------------
+//
+// An Ed25519 key pair derived from K (BLAKE2b with "SugoReadyKey", then crypto_sign_seed_keypair):
+// the server keeps only its public key, the account's ready verifier, and makes a pending device
+// ready only when it signs the server's nonce with the private one (docs/api.md of sugo-sync,
+// "Proof of holding the key"). A device linked by someone who does not hold K stays pending.
+
+constexpr qsizetype ReadyVerifierBytes = 32;
+constexpr qsizetype ReadyNonceBytes = 32;
+constexpr qsizetype ReadySignatureBytes = 64;
+
+/// The account's ready verifier for `dataKey`; empty if K is not KeyBytes long.
+QByteArray readyVerifier(const SecretBytes &dataKey);
+/// What signReady() signs: "sugo-ready-v1" NUL | nonce | device id NUL | user id (UTF-8).
+QByteArray readyMessage(const QByteArray &nonce, const QString &deviceId, const QString &userId);
+/// The detached signature of readyMessage() with the key derived from `dataKey`; empty if K is not
+/// KeyBytes long, the nonce not ReadyNonceBytes long, or an id empty or holding a NUL.
+QByteArray signReady(const SecretBytes &dataKey, const QByteArray &nonce, const QString &deviceId,
+                     const QString &userId);
 } // namespace SyncCrypto

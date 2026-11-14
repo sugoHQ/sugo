@@ -42,7 +42,14 @@ class SyncSecrets;
  *   not confirmed). A confirmation holds only for the approver it was given for: when the
  *   code moves to another device, it lapses.
  * - A device can also open K with the recovery code (useRecoveryCode()).
- * - K is stored before the server is told (DELETE /v1/key), so it can never be lost between.
+ * - K is stored before the server is told, so it can never be lost between. The server is told by a
+ *   proof: the device signs the server's nonce with a key derived from K, which the account's ready
+ *   verifier checks (docs/api.md of sugo-sync, "Proof of holding the key"); a device someone else
+ *   linked, without K, cannot become ready. An account without a verifier (from before it, or an
+ *   older server) takes DELETE /v1/key as before. The first device sends the verifier with the
+ *   recovery copy; a ready device sets it on an account that has none (trust on first use), and one
+ *   that finds a verifier different from its own reports it (readyVerifierMismatch()), never
+ *   replacing it.
  * - The recovery code stays in the keyring of the device that made it; it can be shown again
  *   only while the server's copy is still the one this device wrote (recoveryCodeShowable()).
  * - signOut() frees the device's slot on the server if it can, and always forgets everything here.
@@ -121,6 +128,10 @@ public:
     QString approverName() const { return m_approver.name; }
     /// The user confirmed that the approver shows verificationCode(): its key will be taken.
     bool verificationConfirmed() const;
+    /// The account's ready verifier is not the one this device derives from its K: the account's
+    /// devices disagree about the key (only starting over fixes it). Ready: this device keeps syncing,
+    /// but no new device can become ready with its K. Waiting: the key it got was dropped, not used.
+    bool readyVerifierMismatch() const { return m_verifierMismatch; }
     /// The devices of the last list.
     QList<Device> devices() const { return m_devices; }
     QVariantList devicesAsVariantList() const;
@@ -232,6 +243,7 @@ Q_SIGNALS:
     void keyRejected();
     /// K is stored and confirmed: phase() is Ready.
     void keyReady();
+    void readyVerifierMismatchChanged(bool mismatch);
     /// This device created K: the code to show once and have the user confirm.
     void recoveryCodeCreated(const QString &code);
 
@@ -282,8 +294,17 @@ private:
     void rejectKey();
     /// The approver the code is shown for; a confirmation of another one lapses.
     void setApprover(const Device &approver);
+    /// A pending device holding K becomes ready: by a proof when the account has a ready verifier,
+    /// else with DELETE /v1/key.
     void confirmKey();
+    void confirmKeyWithoutProof();
+    void proveKey();
+    /// The key this pending device holds is not the account's (its verifier differs): dropped.
+    void dropMismatchedKey();
     void becomeReady();
+    /// On a ready device: sets the account's verifier if it has none, reports one that differs.
+    void checkReadyVerifier();
+    void setVerifierMismatch(bool mismatch);
     int keyPollSeconds() const { return m_windowActive ? 5 : 30; }
     /// Reads a device list; false if the answer is not one.
     bool takeDevices(const SyncReply &reply);
@@ -324,6 +345,10 @@ private:
     QByteArray m_confirmedKey; ///< The approver's public key the user confirmed the code of.
     std::optional<QJsonObject> m_heldKey; ///< A box from the approver, before the user confirmed.
     QElapsedTimer m_keyListTaken; ///< When the devices were last read: paces the re-list while waiting.
+    int m_proofAttempts = 0;      ///< Proofs refused for the current confirmation (a nonce can be spent under us).
+    bool m_verifierMismatch = false;
+    QTimer m_verifierTimer;       ///< Retries checkReadyVerifier() after an answer that was not certain.
+    int m_verifierRetries = 0;
 
     // Approval of other devices
     bool m_checkingPending = false;

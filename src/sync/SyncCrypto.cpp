@@ -451,4 +451,65 @@ std::optional<SecretBytes> openWithRecovery(const QByteArray &sealed, const Secr
     }
     return dataKey;
 }
+
+// --- Proof of holding the key --------------------------------------------------------------------
+
+namespace
+{
+static_assert(ReadyVerifierBytes == crypto_sign_PUBLICKEYBYTES, "Ed25519 public key");
+static_assert(ReadyNonceBytes == 32, "the server's challenge");
+static_assert(ReadySignatureBytes == crypto_sign_BYTES, "Ed25519 signature");
+
+/// The Ed25519 key pair derived from K (docs/api.md, "Proof of holding the key"); false if K is
+/// not KeyBytes long.
+bool readyKeyPair(const SecretBytes &dataKey, unsigned char *publicKey, SecretBytes &secretKey)
+{
+    if (!init() || dataKey.size() != KeyBytes) {
+        return false;
+    }
+    SecretBytes seed(crypto_sign_SEEDBYTES);
+    hash(seed.data(), size_t(seed.size()), dataKey.data(), size_t(dataKey.size()), "SugoReadyKey");
+    secretKey = SecretBytes(crypto_sign_SECRETKEYBYTES);
+    return crypto_sign_seed_keypair(publicKey, secretKey.data(), seed.data()) == 0;
+}
+} // namespace
+
+QByteArray readyVerifier(const SecretBytes &dataKey)
+{
+    QByteArray publicKey(ReadyVerifierBytes, Qt::Uninitialized);
+    SecretBytes secretKey;
+    if (!readyKeyPair(dataKey, bytes(publicKey), secretKey)) {
+        return {};
+    }
+    return publicKey;
+}
+
+QByteArray readyMessage(const QByteArray &nonce, const QString &deviceId, const QString &userId)
+{
+    QByteArray message = QByteArrayLiteral("sugo-ready-v1");
+    message.append('\0');
+    message.append(nonce);
+    message.append(deviceId.toUtf8());
+    message.append('\0');
+    message.append(userId.toUtf8());
+    return message;
+}
+
+QByteArray signReady(const SecretBytes &dataKey, const QByteArray &nonce, const QString &deviceId, const QString &userId)
+{
+    // An id holding a NUL would let two (device, user) pairs sign the same bytes.
+    if (nonce.size() != ReadyNonceBytes || deviceId.isEmpty() || userId.isEmpty() || deviceId.contains(QChar(0))
+        || userId.contains(QChar(0))) {
+        return {};
+    }
+    QByteArray publicKey(ReadyVerifierBytes, Qt::Uninitialized);
+    SecretBytes secretKey;
+    if (!readyKeyPair(dataKey, bytes(publicKey), secretKey)) {
+        return {};
+    }
+    const QByteArray message = readyMessage(nonce, deviceId, userId);
+    QByteArray signature(ReadySignatureBytes, Qt::Uninitialized);
+    crypto_sign_detached(bytes(signature), nullptr, bytes(message), size_t(message.size()), secretKey.data());
+    return signature;
+}
 } // namespace SyncCrypto

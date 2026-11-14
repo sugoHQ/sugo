@@ -40,6 +40,10 @@ struct SyncError {
         NotReady,             ///< This device has no data key yet.
         AlreadyReady,         ///< The device to approve already has the key.
         KeyExists,            ///< The account already has a data key.
+        ProofRequired,        ///< DELETE /v1/key on an account with a ready verifier: prove holding K.
+        InvalidProof,         ///< The proof's signature or nonce was refused: ask for a new challenge.
+        NoVerifier,           ///< POST /v1/key/ready on an account without a verifier: DELETE /v1/key.
+        VerifierExists,       ///< PUT /v1/key/verifier: the account has a different verifier; it stays.
         Server,               ///< 5xx, or an error this version does not know.
         Format,               ///< An answer that cannot be read.
     };
@@ -127,11 +131,20 @@ public:
     /// PUT /v1/devices/{id}/key; `sealed` raw.
     void putDeviceKey(const QString &id, const QByteArray &sealed, Callback done);
     void getKey(Callback done);
-    /// DELETE /v1/key.
+    /// DELETE /v1/key: ready without proof, on an account without a ready verifier.
     void confirmKey(Callback done);
+    /// GET /v1/key/verifier; `json["ready_verifier"]` Base64, or null when the account has none.
+    void getReadyVerifier(Callback done);
+    /// PUT /v1/key/verifier; `verifier` raw (32 bytes).
+    void putReadyVerifier(const QByteArray &verifier, Callback done);
+    /// POST /v1/key/challenge; `json["nonce"]` Base64 (32 bytes).
+    void getReadyChallenge(Callback done);
+    /// POST /v1/key/ready; `nonce` and `signature` raw.
+    void proveKey(const QByteArray &nonce, const QByteArray &signature, Callback done);
     void getRecovery(Callback done);
-    /// PUT /v1/recovery; `sealed` raw.
-    void putRecovery(const QByteArray &sealed, Callback done);
+    /// PUT /v1/recovery; `sealed` raw. `readyVerifier` (raw, sent only when not empty) becomes the
+    /// account's verifier when this device is the first.
+    void putRecovery(const QByteArray &sealed, const QByteArray &readyVerifier, Callback done);
     /// GET /v1/blob/{kind}, with If-None-Match when `etag` is not empty (304 is not an error).
     void getBlob(SyncKind kind, const QByteArray &etag, Callback done);
     /// PUT /v1/blob/{kind}: If-Match `etag`, or If-None-Match: * when it is empty.

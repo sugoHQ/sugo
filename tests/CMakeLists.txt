@@ -35,7 +35,8 @@ target_include_directories(tst_updatechecker PRIVATE ${SUGO_SODIUM_INCLUDE_DIR})
 sugo_add_test(tst_updatesignature Qt6::Core)
 sugo_add_test(tst_telemetry Qt6::Core Qt6::Qml Qt6::Network)
 sugo_add_test(tst_screenlockwatcher Qt6::Core Qt6::Gui Qt6::Qml ${SUGO_DBUS})
-sugo_add_test(tst_diagnostics Qt6::Core Qt6::Gui Qt6::Qml Qt6::Network Qt6::Sql ${SUGO_DBUS})
+sugo_add_test(tst_diagnostics Qt6::Core Qt6::Gui Qt6::Qml Qt6::Network Qt6::Sql ${SUGO_DBUS} PkgConfig::sodium)
+target_include_directories(tst_diagnostics PRIVATE ${SUGO_SODIUM_INCLUDE_DIR}) # FakeSyncServer.h
 # The test builds a QGuiApplication (clipboard access): run it without a display, e.g. on CI.
 set_tests_properties(tst_diagnostics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
@@ -68,9 +69,13 @@ sugo_add_test(tst_quitpolicy Qt6::Core)
 sugo_add_test(tst_synccrypto Qt6::Core)
 sugo_add_test(tst_presetsyncformat Qt6::Core Qt6::Qml)
 sugo_add_test(tst_syncsecrets Qt6::Core)
-sugo_add_test(tst_syncapi Qt6::Core Qt6::Network)
-sugo_add_test(tst_syncaccount Qt6::Core Qt6::Network)
-sugo_add_test(tst_synccontroller Qt6::Core Qt6::Qml Qt6::Network Qt6::Sql)
+# FakeSyncServer.h checks the proofs of holding the key with sodium.h.
+sugo_add_test(tst_syncapi Qt6::Core Qt6::Network PkgConfig::sodium)
+sugo_add_test(tst_syncaccount Qt6::Core Qt6::Network PkgConfig::sodium)
+sugo_add_test(tst_synccontroller Qt6::Core Qt6::Qml Qt6::Network Qt6::Sql PkgConfig::sodium)
+target_include_directories(tst_syncapi PRIVATE ${SUGO_SODIUM_INCLUDE_DIR})
+target_include_directories(tst_syncaccount PRIVATE ${SUGO_SODIUM_INCLUDE_DIR})
+target_include_directories(tst_synccontroller PRIVATE ${SUGO_SODIUM_INCLUDE_DIR})
 
 # The installed runner definition carries the project version (see the top-level CMakeLists.txt).
 add_test(NAME tst_runner_version

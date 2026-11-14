@@ -281,6 +281,40 @@ private Q_SLOTS:
         damaged[40] = char(damaged.at(40) ^ 1);
         QVERIFY(!SyncCrypto::openWithRecovery(damaged, code));
     }
+
+    // Known answers computed apart from libsodium's caller here (Python: hashlib.blake2b with
+    // person "SugoReadyKey", then Ed25519 from that seed), as docs/api.md of sugo-sync spells them.
+    void readyVerifierAndProofHaveKnownAnswers()
+    {
+        const SecretBytes key = secret(range(0x00, 32));
+        QCOMPARE(SyncCrypto::readyVerifier(key).toHex(),
+                 QByteArray("f2e219fb75f4dc4ad67e6554f98665b5e746bfbbaeb043d7d4d5e282e547fd86"));
+        const QByteArray nonce(32, char(0xaa));
+        QCOMPARE(SyncCrypto::readyMessage(nonce, QStringLiteral("dev_1"), QStringLiteral("usr_a")),
+                 QByteArray("sugo-ready-v1\0", 14) + nonce + QByteArray("dev_1\0usr_a", 11));
+        QCOMPARE(SyncCrypto::signReady(key, nonce, QStringLiteral("dev_1"), QStringLiteral("usr_a")).toHex(),
+                 QByteArray("b1a821d20ffc6181531bd253e8983bd48fa40ffe7594d1420fd3df23e6e0ee34"
+                            "40823335998578c4f1b0e98fe2fae81ffd1bf211144f523b4a53ad4ddc3e2b0e"));
+    }
+
+    void readyProofNamesTheDeviceAndRefusesBadInput()
+    {
+        const SecretBytes key = SyncCrypto::newDataKey();
+        const QByteArray nonce(32, char(1));
+        const QByteArray signature = SyncCrypto::signReady(key, nonce, QStringLiteral("dev_1"), QStringLiteral("usr_a"));
+        QCOMPARE(signature.size(), SyncCrypto::ReadySignatureBytes);
+        QVERIFY(SyncCrypto::signReady(key, nonce, QStringLiteral("dev_2"), QStringLiteral("usr_a")) != signature);
+        QVERIFY(SyncCrypto::signReady(key, nonce, QStringLiteral("dev_1"), QStringLiteral("usr_b")) != signature);
+        QVERIFY(SyncCrypto::readyVerifier(key) != SyncCrypto::readyVerifier(SyncCrypto::newDataKey()));
+
+        QVERIFY(SyncCrypto::readyVerifier(SecretBytes()).isEmpty());
+        QVERIFY(SyncCrypto::readyVerifier(secret(range(0, 16))).isEmpty());
+        QVERIFY(SyncCrypto::signReady(key, QByteArray(31, char(1)), QStringLiteral("dev_1"), QStringLiteral("usr_a")).isEmpty());
+        QVERIFY(SyncCrypto::signReady(key, nonce, QString(), QStringLiteral("usr_a")).isEmpty());
+        QVERIFY(SyncCrypto::signReady(key, nonce, QStringLiteral("dev_1"), QString()).isEmpty());
+        // A NUL in an id would let two (device, user) pairs sign the same bytes.
+        QVERIFY(SyncCrypto::signReady(key, nonce, QStringLiteral("dev_1") + QChar(0) + QStringLiteral("x"), QStringLiteral("usr_a")).isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(SyncCryptoTest)

@@ -111,6 +111,10 @@ private Q_SLOTS:
         QTest::newRow("not_ready") << 403 << QByteArray(R"({"error":"not_ready"})") << int(K::NotReady);
         QTest::newRow("already_ready") << 409 << QByteArray(R"({"error":"already_ready"})") << int(K::AlreadyReady);
         QTest::newRow("key_exists") << 409 << QByteArray(R"({"error":"key_exists"})") << int(K::KeyExists);
+        QTest::newRow("proof_required") << 403 << QByteArray(R"({"error":"proof_required"})") << int(K::ProofRequired);
+        QTest::newRow("invalid_proof") << 403 << QByteArray(R"({"error":"invalid_proof"})") << int(K::InvalidProof);
+        QTest::newRow("no_verifier") << 409 << QByteArray(R"({"error":"no_verifier"})") << int(K::NoVerifier);
+        QTest::newRow("verifier_exists") << 409 << QByteArray(R"({"error":"verifier_exists"})") << int(K::VerifierExists);
         QTest::newRow("server") << 500 << QByteArray(R"({"error":"server"})") << int(K::Server);
         QTest::newRow("502 html") << 502 << QByteArray("<html>") << int(K::Server);
         QTest::newRow("unknown code") << 409 << QByteArray(R"({"error":"something_new"})") << int(K::Server);
@@ -631,6 +635,49 @@ private Q_SLOTS:
         QCOMPARE(int(reply.error.kind), int(SyncError::Kind::Network));
         QCOMPARE(reply.http, 0);
         QVERIFY(reply.body.isEmpty());
+    }
+
+    void readyProofRequests()
+    {
+        link(false);
+        const SecretBytes key = SyncCrypto::newDataKey();
+        const QByteArray verifier = SyncCrypto::readyVerifier(key);
+        server->accounts[kUser].readyVerifier = verifier;
+
+        SyncReply reply = wait([&](auto cb) { api->getReadyVerifier(cb); });
+        QVERIFY(reply.ok());
+        QCOMPARE(QByteArray::fromBase64(reply.json.value(QLatin1String("ready_verifier")).toString().toLatin1()), verifier);
+        reply = wait([&](auto cb) { api->confirmKey(cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::ProofRequired));
+
+        reply = wait([&](auto cb) { api->getReadyChallenge(cb); });
+        QVERIFY(reply.ok());
+        const QByteArray nonce = QByteArray::fromBase64(reply.json.value(QLatin1String("nonce")).toString().toLatin1());
+        QCOMPARE(nonce.size(), SyncCrypto::ReadyNonceBytes);
+        reply = wait([&](auto cb) { api->proveKey(nonce, SyncCrypto::signReady(key, nonce, deviceId, kUser), cb); });
+        QVERIFY(reply.ok());
+        QCOMPARE(server->of("POST", "/v1/key/ready").first().headers.value("content-type"), QByteArray("application/json"));
+        QVERIFY(server->device(deviceId)->ready);
+        // The nonce works once.
+        reply = wait([&](auto cb) { api->proveKey(nonce, SyncCrypto::signReady(key, nonce, deviceId, kUser), cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::InvalidProof));
+
+        reply = wait([&](auto cb) { api->putReadyVerifier(SyncCrypto::readyVerifier(SyncCrypto::newDataKey()), cb); });
+        QCOMPARE(int(reply.error.kind), int(SyncError::Kind::VerifierExists));
+        reply = wait([&](auto cb) { api->putReadyVerifier(verifier, cb); });
+        QVERIFY(reply.ok());
+    }
+
+    void recoveryCarriesTheVerifierOnlyWhenGiven()
+    {
+        link(false);
+        const QByteArray sealed = SyncCrypto::sealWithRecovery(SyncCrypto::newDataKey(), SyncCrypto::newRecoveryCode());
+        QVERIFY(wait([&](auto cb) { api->putRecovery(sealed, QByteArray(), cb); }).ok());
+        QVERIFY(!server->of("PUT", "/v1/recovery").last().json().contains(QLatin1String("ready_verifier")));
+        const QByteArray verifier = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        QVERIFY(wait([&](auto cb) { api->putRecovery(sealed, verifier, cb); }).ok());
+        QCOMPARE(QByteArray::fromBase64(server->of("PUT", "/v1/recovery").last().json().value(QLatin1String("ready_verifier")).toString().toLatin1()),
+                 verifier);
     }
 
     void missingBlob()

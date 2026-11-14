@@ -302,6 +302,31 @@ private Q_SLOTS:
         QVERIFY(!a.settings->contains(QStringLiteral("Sync/Dirty")));
     }
 
+    void keyMismatchIsShownWhileTheTimersKeepSyncing()
+    {
+        Device a(*server);
+        signInFirst(a);
+        QTRY_COMPARE(server->count("GET", "/v1/key/verifier"), 1);
+        // The account's verifier is not A's (another device set it first, on an older account).
+        server->accounts[kUser].readyVerifier = SyncCrypto::readyVerifier(SyncCrypto::newDataKey());
+        a.settings->remove(QStringLiteral("Sync/ReadyVerifierChecked"));
+        a.build(*server);
+        QSignalSpy messages(a.sync.get(), &SyncController::message);
+        QTRY_COMPARE(a.sync->errorKind(), SyncController::KeyMismatch);
+        QCOMPARE(a.sync->state(), SyncController::Error);
+        QCOMPARE(a.sync->statusText(),
+                 QStringLiteral("Your devices disagree about the Sugo Sync key, so no new device can be added. Start over on sugo.stream."));
+        QVERIFY(a.sync->errorTexts().contains(a.sync->statusText()));
+        QCOMPARE(messages.size(), 1);
+
+        // The timers still sync, and the warning outlasts a sync that worked.
+        a.model->create({{QStringLiteral("name"), QStringLiteral("Still syncing")}});
+        QTRY_VERIFY(remoteNames(a).contains(QStringLiteral("Still syncing")));
+        QTest::qWait(50);
+        QCOMPARE(a.sync->errorKind(), SyncController::KeyMismatch);
+        QCOMPARE(a.sync->state(), SyncController::Error);
+    }
+
     void plusRequiredKeepsTheTimersSyncing()
     {
         Device a(*server);
