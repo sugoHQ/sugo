@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: sugo\n"
 "Report-Msgid-Bugs-To: https://github.com/sugoHQ/sugo/issues\n"
-"POT-Creation-Date: 2026-11-14 00:41+0000\n"
+"POT-Creation-Date: 2026-11-26 00:56+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1225,6 +1225,10 @@ msgstr ""
 
 #: src/sync/SyncController.cpp:1271 src/sync/SyncController.cpp:1272
 msgid "Review"
+msgstr ""
+
+#: src/sync/SyncController.cpp:1347
+msgid "A new recovery code is still being saved. Sign out once Sugo shows it."
 msgstr ""
 
 #: src/qml/Main.qml:76
