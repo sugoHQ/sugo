@@ -355,6 +355,7 @@ QQC2.ApplicationWindow {
         // The stage at which the timer page's track check began (0: not yet).
         property int trackCheckStage: 0
         property bool longSetChecked: false
+        property bool typedNoteChecked: false
 
         function findItem(item: var, predicate: var): var {
             if (!item) {
@@ -891,6 +892,31 @@ QQC2.ApplicationWindow {
                 }
                 fail(49, "A work phase of one second did not end");
                 return true;
+            }
+            // A note typed in the dialog but not saved yet is kept when Sugo quits (quitNow()).
+            if (!typedNoteChecked) {
+                if (!taskNoteDialog.opened) {
+                    if (stage - trackCheckStage >= 60) {
+                        fail(71, "The note of the work session just ended was not asked for");
+                        return true;
+                    }
+                    if (!taskNoteDialog.visible) {
+                        root.openTaskNotePrompt("Smoke", DataManager.lastWorkSessionId());
+                    }
+                    return false;
+                }
+                typedNoteChecked = true;
+                taskNoteField.text = "  Typed before quitting  ";
+                if (typeof root.keepTypedTaskNote === "function") {
+                    root.keepTypedTaskNote();
+                }
+                const kept = DataManager.recentTaskNotes(1);
+                if (kept.length === 0 || kept[0] !== "Typed before quitting") {
+                    fail(71, "A note typed but not saved is lost on quitting: latest note \"" + (kept[0] ?? "") + "\"");
+                    return true;
+                }
+                taskNoteDialog.close();
+                return false;
             }
             if (longSetChecked) {
                 const track = findItem(page, item => item.objectName === "cycleTrack");
