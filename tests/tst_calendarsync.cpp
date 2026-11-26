@@ -813,6 +813,27 @@ private Q_SLOTS:
         QVERIFY(!m_sync->isSendingPaused());
     }
 
+    void discoveryNextcloudForbiddenAtThePrincipalLooksUnderTheLoginName()
+    {
+        // The root names the principal, but the principal is kept from this account (an ACL, a
+        // proxy rule): the calendars are still where Nextcloud usually puts the login name's.
+        m_server->forbiddenPropfindPath = "/remote.php/dav/principals/users/alice/";
+        m_server->expectedAuth = basic(QStringLiteral("alice"), kPassword);
+        m_sync->setServerUrl(m_server->base());
+        m_sync->setUsername(QStringLiteral("alice"));
+        m_sync->setPassword(kPassword);
+        m_sync->refreshCalendars();
+        QTRY_COMPARE(m_sync->calendars().size(), 2);
+        const auto propfind = m_server->of("PROPFIND");
+        QCOMPARE(propfind.size(), 3);
+        QCOMPARE(propfind.at(0).path, QByteArray("/remote.php/dav/"));
+        QCOMPARE(propfind.at(1).path, QByteArray("/remote.php/dav/principals/users/alice/"));
+        QCOMPARE(propfind.at(2).path, QByteArray("/remote.php/dav/calendars/alice/"));
+        QVERIFY(m_sync->lastError().isEmpty());
+        QVERIFY(!m_sync->isSendingPaused());
+        QCOMPARE(m_sync->status(), CalendarSync::NotConfigured);
+    }
+
     void discoveryNextcloudRefusedAtThePrincipalStopsThere()
     {
         // A wrong password: one refused request, not a second one at the fallback address (the
