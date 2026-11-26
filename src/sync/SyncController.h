@@ -238,6 +238,7 @@ public:
     /// (else of recoveryCode()), in any case, with O for 0 and I or L for 1.
     Q_INVOKABLE bool confirmRecoveryGroup(int index, const QString &text) const;
 
+    /// Signs out (signedOut()); refused with a message() while SyncAccount::newRecoveryCodeUnsettled().
     Q_INVOKABLE void signOut();
 
 public Q_SLOTS:

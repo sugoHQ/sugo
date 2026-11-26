@@ -202,6 +202,13 @@ public Q_SLOTS:
      * a copy of a code nobody knows (recoveryCodeRetrying() on the first such failure).
      */
     void regenerateRecoveryCode();
+    /**
+     * A new recovery code has no certain answer yet, and the server may already hold its copy: a
+     * try is on its way, or one got no answer or a server error. Signing out now would drop the
+     * only code that opens that copy. False while only rate limits came back: the server kept the
+     * old copy.
+     */
+    bool newRecoveryCodeUnsettled() const;
 
     /// Disconnects this device on the server if it can, then signOutLocally(): signedOut().
     void signOut();

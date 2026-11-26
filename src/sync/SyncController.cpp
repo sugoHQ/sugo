@@ -1342,6 +1342,11 @@ bool SyncController::confirmRecoveryGroup(int index, const QString &text) const
 
 void SyncController::signOut()
 {
+    // The server may hold a copy only the new code opens: leaving now would drop that code.
+    if (m_account->newRecoveryCodeUnsettled()) {
+        Q_EMIT message(i18n("A new recovery code is still being saved. Sign out once Sugo shows it."));
+        return;
+    }
     // Pending transfers go with the account's requests (SyncApi::reset()).
     m_signingOut = true;
     resetCycle();

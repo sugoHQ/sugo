@@ -1151,6 +1151,12 @@ void SyncAccount::regenerateRecoveryCode()
     sendRecovery();
 }
 
+bool SyncAccount::newRecoveryCodeUnsettled() const
+{
+    // Between two tries the timer runs; otherwise a try is out, with no answer yet.
+    return m_pendingRecovery && (m_pendingRecovery->mayHaveArrived || !m_recoveryTimer.isActive());
+}
+
 void SyncAccount::resumePendingRecovery()
 {
     if (m_phase != Phase::Ready || m_regenerating || dataKey().isEmpty()) {
