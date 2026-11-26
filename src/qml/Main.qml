@@ -97,6 +97,7 @@ QQC2.ApplicationWindow {
     // (the application does not quit on its own when a window closes).
     onClosing: close => {
         if (root.platformQuitting) {
+            root.keepTypedTaskNote();
             close.accepted = true;
         } else if (DesktopStyle.nativeChrome || AppSettings.keepRunningInTray) {
             close.accepted = false;
@@ -156,6 +157,7 @@ QQC2.ApplicationWindow {
     }
 
     function quitNow(): void {
+        root.keepTypedTaskNote();
         UpdateChecker.setRestartOnQuit(root.restarting);
         Qt.quit();
     }
@@ -224,6 +226,14 @@ QQC2.ApplicationWindow {
             DataManager.updateSessionNote(taskNoteDialog.sessionId, text);
         }
         taskNoteDialog.close();
+    }
+
+    /// Quitting with the note dialog open: a note typed but not saved yet is saved, as Save Note
+    /// would (quitNow(), and on macOS a quit that closes the window, platformQuitting).
+    function keepTypedTaskNote(): void {
+        if (taskNoteDialog.visible && taskNoteField.text.trim().length > 0) {
+            root.saveTaskNote(taskNoteField.text);
+        }
     }
 
     // Taskbar flash and optional in-app note prompt on phase completion.
