@@ -1788,9 +1788,9 @@ void CalendarSync::discover(std::function<void(bool)> done)
 
     // Nextcloud names its DAV folders after the user id, which is not always the login name (an
     // e-mail address, an LDAP login): the server says where the calendars are. A server that
-    // does not say, or does not let this account ask (403), gets the usual place of the login
-    // name's calendars (discoveryUrl()); one that refuses the login or cannot be reached is not
-    // asked again.
+    // does not say, or does not let this account ask (403 to the root or to the principal), gets
+    // the usual place of the login name's calendars (discoveryUrl()); one that refuses the login
+    // or cannot be reached is not asked again.
     const auto abandon = [this, done]() {
         --m_busy;
         refreshIdleStatus();
@@ -1825,7 +1825,15 @@ void CalendarSync::discover(std::function<void(bool)> done)
                     }
                     listCalendars(home.isEmpty() ? url : home, stale, done);
                 },
-                failed);
+                [url, stale, done, failed, this](const Result &r) {
+                    // A 403 to the principal is, as one to the root, the server keeping it from
+                    // this account, not a refused login.
+                    if (r.http == 403 && !stale()) {
+                        listCalendars(url, stale, done);
+                        return;
+                    }
+                    failed(r);
+                });
         },
         [url, stale, done, failed, this](const Result &r) {
             // A 403 to the root is the server keeping it from this account (an ACL, a proxy
