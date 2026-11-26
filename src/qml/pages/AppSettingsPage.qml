@@ -495,22 +495,28 @@ QQC2.Page {
         return platform.length > 0 ? i18nc("platform · last seen", "%1 · %2", platform, state) : state;
     }
 
-    /// Signing out asks first.
+    /// Signing out asks first, and says so when a new recovery code is still being saved.
     function requestSyncSignOut(): void {
+        syncSignOutDialog.codeUnsettled = SyncController !== null && SyncController.newRecoveryCodeUnsettled();
         syncSignOutDialog.open();
     }
     readonly property bool syncSignOutConfirming: syncSignOutDialog.visible
 
     ConfirmDialog {
         id: syncSignOutDialog
+        /// A new recovery code had no certain answer when the dialog opened (kept as it was then,
+        /// so the text does not change under the user's eyes).
+        property bool codeUnsettled: false
         title: i18n("Sign out of Sugo Sync?")
-        text: i18n("This computer stops syncing and leaves your list of devices. Your timers stay on this computer.")
+        text: codeUnsettled
+              ? i18n("A new recovery code is still being saved, and your old one may no longer work. If you sign out now, the new code is lost: keep another device signed in, or wait until Sugo shows the code.")
+              : i18n("This computer stops syncing and leaves your list of devices. Your timers stay on this computer.")
         confirmText: i18n("Sign out")
         confirmKind: "danger"
         onConfirmed: {
             syncSignOutDialog.close();
             if (SyncController) {
-                SyncController.signOut();
+                SyncController.signOut(syncSignOutDialog.codeUnsettled);
             }
         }
     }

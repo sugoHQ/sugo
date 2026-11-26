@@ -1340,8 +1340,20 @@ bool SyncController::confirmRecoveryGroup(int index, const QString &text) const
     return normalizedGroup(text) == groups.at(index).toUpper();
 }
 
-void SyncController::signOut()
+bool SyncController::newRecoveryCodeUnsettled() const
 {
+    return m_account->newRecoveryCodeUnsettled();
+}
+
+void SyncController::signOut(bool dropUnsettledCode)
+{
+    // The server may hold a copy only the new code opens: leaving now would drop that code. Never
+    // for good, though: with no network the code may stay unsettled, and the user must be able to
+    // leave once told what is lost.
+    if (!dropUnsettledCode && m_account->newRecoveryCodeUnsettled()) {
+        Q_EMIT message(i18n("A new recovery code is still being saved. Sign out once Sugo shows it."));
+        return;
+    }
     // Pending transfers go with the account's requests (SyncApi::reset()).
     m_signingOut = true;
     resetCycle();

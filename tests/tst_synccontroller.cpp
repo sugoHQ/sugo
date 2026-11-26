@@ -15,6 +15,7 @@
 #include "FakeNotifier.h"
 #include "FakeSecretStore.h"
 #include "FakeSyncServer.h"
+#include "Localization.h"
 #include "PresetModel.h"
 #include "PresetPersistence.h"
 #include "PresetRepository.h"
@@ -1206,6 +1207,121 @@ private Q_SLOTS:
         QTest::qWait(20 * kUnitMs);
         QCOMPARE(server->requests.size(), before);
         QVERIFY(!a.settings->childGroups().contains(QStringLiteral("Sync")));
+    }
+
+    /// The keyring's pending recovery code (empty: none).
+    static QString pendingRecoveryCode(const Device &d)
+    {
+        const QJsonObject item = QJsonDocument::fromJson(d.store.secrets->value(SyncSecrets::itemKey()).toUtf8()).object();
+        return item.value(QLatin1String("pendingRecoveryCode")).toString();
+    }
+
+    /// Sign-out is refused while a new recovery code has no certain answer: the server may hold its
+    /// copy, and leaving would drop the only code that opens it.
+    void signOutWaitsForTheNewRecoveryCode_data()
+    {
+        QTest::addColumn<bool>("lost");
+        QTest::newRow("request on its way") << false;
+        QTest::newRow("answer lost, sent again") << true;
+    }
+
+    void signOutWaitsForTheNewRecoveryCode()
+    {
+        QFETCH(bool, lost);
+        Device a(*server);
+        signInFirst(a);
+        QTRY_VERIFY(a.sync->recoveryCodeShowable());
+        QSignalSpy retrying(a.account(), &SyncAccount::recoveryCodeRetrying);
+        QSignalSpy toConfirm(a.sync.get(), &SyncController::recoveryCodeToConfirm);
+        int puts = 0; // PUT /v1/recovery seen since the new code was asked for
+        if (lost) {
+            server->loseAnswers = 0;
+            server->onRequest = [&](const FakeSyncServer::Request &req) {
+                if (req.method == "PUT" && req.path == "/v1/recovery") {
+                    ++puts;
+                    server->loseAnswers = puts == 1 ? 1 : 0;
+                }
+            };
+            // The next tries wait for the test: the server stores each, then answers at release().
+            server->holdIf = [&](const FakeSyncServer::Request &req) { return req.method == "PUT" && req.path == "/v1/recovery" && puts > 1; };
+        } else {
+            server->holdIf = [](const FakeSyncServer::Request &req) { return req.method == "PUT" && req.path == "/v1/recovery"; };
+        }
+        a.sync->regenerateRecoveryCode();
+        if (lost) {
+            QVERIFY(retrying.wait(5000));
+        } else {
+            QTRY_COMPARE(server->held(), 1);
+        }
+        const QString pending = pendingRecoveryCode(a);
+        QVERIFY(!pending.isEmpty());
+        if (lost) { // the server holds a copy only the pending code opens
+            QVERIFY(SyncCrypto::openWithRecovery(server->accounts.value(kUser).recovery, *SyncCrypto::parseRecoveryCode(pending)));
+        }
+
+        QSignalSpy messages(a.sync.get(), &SyncController::message);
+        QSignalSpy signedOut(a.sync.get(), &SyncController::signedOut);
+        const int deletes = server->count("DELETE", "/v1/devices/" + a.account()->deviceId().toUtf8());
+        a.sync->signOut();
+        QTest::qWait(20 * kUnitMs);
+        QCOMPARE(pendingRecoveryCode(a), pending);
+        QCOMPARE(signedOut.size(), 0);
+        QCOMPARE(server->count("DELETE", "/v1/devices/" + a.account()->deviceId().toUtf8()), deletes);
+        QCOMPARE(a.account()->phase(), SyncAccount::Phase::Ready);
+        QVERIFY(a.sync->state() != SyncController::Off);
+        QCOMPARE(messages.size(), 1);
+        QCOMPARE(messages.first().first().toString(), i18n("A new recovery code is still being saved. Sign out once Sugo shows it."));
+
+        // Once the answer is certain, the code is shown and sign-out works.
+        QTRY_VERIFY(server->held() > 0);
+        server->holdIf = nullptr;
+        server->release();
+        QVERIFY(toConfirm.wait(5000));
+        server->onRequest = nullptr; // it holds this function's locals
+        QCOMPARE(toConfirm.first().first().toString(), pending);
+        a.sync->signOut();
+        QVERIFY(signedOut.wait(5000));
+        QCOMPARE(a.sync->state(), SyncController::Off);
+    }
+
+    /// Signing out anyway (the user confirmed losing the new code, e.g. with no network for good)
+    /// is never held back: the interface asks first (newRecoveryCodeUnsettled()).
+    void signOutAnywayDropsTheUnsettledRecoveryCode()
+    {
+        Device a(*server);
+        signInFirst(a);
+        QTRY_VERIFY(a.sync->recoveryCodeShowable());
+        server->holdIf = [](const FakeSyncServer::Request &req) { return req.method == "PUT" && req.path == "/v1/recovery"; };
+        a.sync->regenerateRecoveryCode();
+        QTRY_COMPARE(server->held(), 1);
+        QVERIFY(a.sync->newRecoveryCodeUnsettled());
+        QVERIFY(!pendingRecoveryCode(a).isEmpty());
+
+        QSignalSpy signedOut(a.sync.get(), &SyncController::signedOut);
+        a.sync->signOut(true);
+        QVERIFY(signedOut.wait(5000));
+        QCOMPARE(a.sync->state(), SyncController::Off);
+        QVERIFY(!a.sync->newRecoveryCodeUnsettled());
+        QVERIFY(pendingRecoveryCode(a).isEmpty());
+        server->holdIf = nullptr;
+        server->release();
+    }
+
+    /// A rate limit (429) means the server did not take the copy: the old code still opens it,
+    /// so sign-out is not held back.
+    void signOutDuringARateLimitedRecoveryCode()
+    {
+        Device a(*server);
+        signInFirst(a);
+        QTRY_VERIFY(a.sync->recoveryCodeShowable());
+        QSignalSpy retrying(a.account(), &SyncAccount::recoveryCodeRetrying);
+        server->failNext("/v1/recovery", 429, "PUT");
+        a.sync->regenerateRecoveryCode();
+        QVERIFY(retrying.wait(5000));
+        QSignalSpy signedOut(a.sync.get(), &SyncController::signedOut);
+        a.sync->signOut();
+        QVERIFY(signedOut.wait(5000));
+        QCOMPARE(a.sync->state(), SyncController::Off);
     }
 
     void recoveryCodeGroups()

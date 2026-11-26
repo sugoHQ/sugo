@@ -238,7 +238,12 @@ public:
     /// (else of recoveryCode()), in any case, with O for 0 and I or L for 1.
     Q_INVOKABLE bool confirmRecoveryGroup(int index, const QString &text) const;
 
-    Q_INVOKABLE void signOut();
+    /// A new recovery code has no certain answer yet (SyncAccount::newRecoveryCodeUnsettled()):
+    /// signing out now loses it, and the old code may no longer open the account.
+    Q_INVOKABLE bool newRecoveryCodeUnsettled() const;
+    /// Signs out (signedOut()). While newRecoveryCodeUnsettled() it is refused with a message(),
+    /// unless `dropUnsettledCode`: the user was told the new code is lost and chose to go anyway.
+    Q_INVOKABLE void signOut(bool dropUnsettledCode = false);
 
 public Q_SLOTS:
     /// The window became active: key polling speeds up, the timers are pulled (at most once a
