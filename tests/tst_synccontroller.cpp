@@ -1284,6 +1284,29 @@ private Q_SLOTS:
         QCOMPARE(a.sync->state(), SyncController::Off);
     }
 
+    /// Signing out anyway (the user confirmed losing the new code, e.g. with no network for good)
+    /// is never held back: the interface asks first (newRecoveryCodeUnsettled()).
+    void signOutAnywayDropsTheUnsettledRecoveryCode()
+    {
+        Device a(*server);
+        signInFirst(a);
+        QTRY_VERIFY(a.sync->recoveryCodeShowable());
+        server->holdIf = [](const FakeSyncServer::Request &req) { return req.method == "PUT" && req.path == "/v1/recovery"; };
+        a.sync->regenerateRecoveryCode();
+        QTRY_COMPARE(server->held(), 1);
+        QVERIFY(a.sync->newRecoveryCodeUnsettled());
+        QVERIFY(!pendingRecoveryCode(a).isEmpty());
+
+        QSignalSpy signedOut(a.sync.get(), &SyncController::signedOut);
+        a.sync->signOut(true);
+        QVERIFY(signedOut.wait(5000));
+        QCOMPARE(a.sync->state(), SyncController::Off);
+        QVERIFY(!a.sync->newRecoveryCodeUnsettled());
+        QVERIFY(pendingRecoveryCode(a).isEmpty());
+        server->holdIf = nullptr;
+        server->release();
+    }
+
     /// A rate limit (429) means the server did not take the copy: the old code still opens it,
     /// so sign-out is not held back.
     void signOutDuringARateLimitedRecoveryCode()
