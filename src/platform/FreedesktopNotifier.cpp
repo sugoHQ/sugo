@@ -15,7 +15,12 @@ namespace
 const QString kService = QStringLiteral("org.freedesktop.Notifications");
 const QString kPath = QStringLiteral("/org/freedesktop/Notifications");
 const QString kInterface = QStringLiteral("org.freedesktop.Notifications");
+/// GetCapabilities: a server that does not answer in time is taken as a broken one, and the
+/// notification goes to the fallback (nothing has been sent yet).
 constexpr int kCallTimeoutMs = 5000;
+/// Notify: the server may show the notification before it answers (Plasma under load), and a
+/// timeout would lose the id its buttons and reply field are known by. Qt's own default.
+constexpr int kNotifyTimeoutMs = 25000;
 
 const QString kDefaultKey = QStringLiteral("default");
 const QString kInlineReplyKey = QStringLiteral("inline-reply");
@@ -146,7 +151,8 @@ void FreedesktopNotifier::send(QObject *context, const Notification &notificatio
                           actions,
                           hints,
                           -1}); // the server's own timeout
-    auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(message, kCallTimeoutMs), this);
+    auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(message, kNotifyTimeoutMs), this);
+    // A late answer from a server that has since been replaced is that server's id: dropped below.
     const quint64 generation = m_generation;
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, shown, generation, notification](QDBusPendingCallWatcher *w) {
         w->deleteLater();
