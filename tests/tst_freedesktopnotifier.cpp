@@ -4,6 +4,7 @@
 #include <QDBusMessage>
 #include <QLoggingCategory>
 #include <QTest>
+#include <QTimer>
 
 #include <memory>
 
@@ -45,6 +46,10 @@ public:
     uint nextId = 1;
     /// GetCapabilities answers with a server error (a broken or overloaded server).
     bool capabilitiesFail = false;
+    /// Notify answers this many milliseconds late (a server under load); 0: at once.
+    int notifyDelayMs = 0;
+    /// The late answers to Notify sent so far.
+    int lateRepliesSent = 0;
 
     /// Sends one of the server's signals, as if the user had done something.
     void emitSignal(const QString &name, const QVariantList &arguments)
@@ -68,7 +73,16 @@ public Q_SLOTS:
                 const QStringList &actions, const QVariantMap &hints, int timeout)
     {
         calls.append({appName, replacesId, icon, summary, body, actions, hints, timeout});
-        return nextId++;
+        const uint id = nextId++;
+        if (notifyDelayMs > 0) {
+            setDelayedReply(true);
+            const QDBusMessage reply = message().createReply(QVariant::fromValue(id));
+            QTimer::singleShot(notifyDelayMs, this, [this, reply]() {
+                m_bus.send(reply);
+                ++lateRepliesSent;
+            });
+        }
+        return id;
     }
 
 private:
@@ -325,6 +339,37 @@ private Q_SLOTS:
         QVERIFY(id > 0);
         serverSays(QStringLiteral("ActionInvoked"), {id + 100, QStringLiteral("action-0")});
         serverSays(QStringLiteral("NotificationReplied"), {id, QStringLiteral("no reply field here")});
+        QVERIFY(log.isEmpty());
+    }
+
+    void aSlowServerStillRunsTheActions()
+    {
+        // Plasma under load may answer Notify after more than GetCapabilities' 5 s: the
+        // notification is on screen with its buttons by then, and they must still work.
+        m_server->notifyDelayMs = 6000;
+        QStringList log;
+        m_notifier->notify(m_context.get(), sample(&log));
+        QVERIFY(QTest::qWaitFor([&]() { return m_server->lateRepliesSent > 0; }, 10000));
+        QTest::qWait(100);
+        const uint id = m_server->nextId - 1;
+        serverSays(QStringLiteral("ActionInvoked"), {id, QStringLiteral("action-0")});
+        QCOMPARE(log, QStringList{QStringLiteral("start:")});
+    }
+
+    void aLateAnswerFromAnOldServerIsIgnored()
+    {
+        // The server is replaced while Notify waits for its answer: the id is the old
+        // server's, and the new one may hand it out again for another notification.
+        m_server->notifyDelayMs = 500;
+        QStringList log;
+        m_notifier->notify(m_context.get(), sample(&log));
+        QTRY_COMPARE(m_server->calls.size(), 1);
+        unpublishServer();
+        publishServer();
+        QVERIFY(QTest::qWaitFor([&]() { return m_server->lateRepliesSent > 0; }, 5000));
+        QTest::qWait(100);
+        const uint id = m_server->nextId - 1;
+        serverSays(QStringLiteral("ActionInvoked"), {id, QStringLiteral("action-0")});
         QVERIFY(log.isEmpty());
     }
 
