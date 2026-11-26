@@ -97,6 +97,7 @@ QQC2.ApplicationWindow {
     // (the application does not quit on its own when a window closes).
     onClosing: close => {
         if (root.platformQuitting) {
+            root.keepTypedTaskNote();
             close.accepted = true;
         } else if (DesktopStyle.nativeChrome || AppSettings.keepRunningInTray) {
             close.accepted = false;
@@ -156,6 +157,7 @@ QQC2.ApplicationWindow {
     }
 
     function quitNow(): void {
+        root.keepTypedTaskNote();
         UpdateChecker.setRestartOnQuit(root.restarting);
         Qt.quit();
     }
@@ -224,6 +226,14 @@ QQC2.ApplicationWindow {
             DataManager.updateSessionNote(taskNoteDialog.sessionId, text);
         }
         taskNoteDialog.close();
+    }
+
+    /// Quitting with the note dialog open: a note typed but not saved yet is saved, as Save Note
+    /// would (quitNow(), and on macOS a quit that closes the window, platformQuitting).
+    function keepTypedTaskNote(): void {
+        if (taskNoteDialog.visible && taskNoteField.text.trim().length > 0) {
+            root.saveTaskNote(taskNoteField.text);
+        }
     }
 
     // Taskbar flash and optional in-app note prompt on phase completion.
@@ -355,6 +365,7 @@ QQC2.ApplicationWindow {
         // The stage at which the timer page's track check began (0: not yet).
         property int trackCheckStage: 0
         property bool longSetChecked: false
+        property bool typedNoteChecked: false
 
         function findItem(item: var, predicate: var): var {
             if (!item) {
@@ -891,6 +902,31 @@ QQC2.ApplicationWindow {
                 }
                 fail(49, "A work phase of one second did not end");
                 return true;
+            }
+            // A note typed in the dialog but not saved yet is kept when Sugo quits (quitNow()).
+            if (!typedNoteChecked) {
+                if (!taskNoteDialog.opened) {
+                    if (stage - trackCheckStage >= 60) {
+                        fail(71, "The note of the work session just ended was not asked for");
+                        return true;
+                    }
+                    if (!taskNoteDialog.visible) {
+                        root.openTaskNotePrompt("Smoke", DataManager.lastWorkSessionId());
+                    }
+                    return false;
+                }
+                typedNoteChecked = true;
+                taskNoteField.text = "  Typed before quitting  ";
+                if (typeof root.keepTypedTaskNote === "function") {
+                    root.keepTypedTaskNote();
+                }
+                const kept = DataManager.recentTaskNotes(1);
+                if (kept.length === 0 || kept[0] !== "Typed before quitting") {
+                    fail(71, "A note typed but not saved is lost on quitting: latest note \"" + (kept[0] ?? "") + "\"");
+                    return true;
+                }
+                taskNoteDialog.close();
+                return false;
             }
             if (longSetChecked) {
                 const track = findItem(page, item => item.objectName === "cycleTrack");
